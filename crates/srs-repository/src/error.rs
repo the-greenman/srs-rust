@@ -2,6 +2,18 @@ use crate::relation_service::RelationSummary;
 use std::path::PathBuf;
 use thiserror::Error;
 
+/// Payload of [`RepositoryError::RelationInverseForm`].
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct RelationInverseFormDetail {
+    pub relation_id: String,
+    pub relation_type: String,
+    pub canonical_type: String,
+    /// The inverse-form edge's source, which becomes the canonical edge's target.
+    pub source_instance_id: String,
+    /// The inverse-form edge's target, which becomes the canonical edge's source.
+    pub target_instance_id: String,
+}
+
 #[derive(Error, Debug, serde::Serialize)]
 #[serde(untagged, rename_all_fields = "camelCase")]
 pub enum RepositoryError {
@@ -156,6 +168,14 @@ pub enum RepositoryError {
         relation_id: String,
         message: String,
     },
+
+    /// Relation-coherence R2 / T007 (Invariant 16): only the canonical forward form of a
+    /// relation is stored; the inverse is derived. The requested `relationType` is the
+    /// declared `inverseType` of an installed definition, so the edge is refused with
+    /// the canonical type and the flipped endpoints (srs-rust#559). Boxed to keep
+    /// `RepositoryError` under clippy's `result_large_err` threshold.
+    #[error("relation type '{}' is the inverse form of '{}': store only the canonical form, assert '{}' from '{}' to '{}' (relation {})", .0.relation_type, .0.canonical_type, .0.canonical_type, .0.target_instance_id, .0.source_instance_id, .0.relation_id)]
+    RelationInverseForm(Box<RelationInverseFormDetail>),
 
     #[error("relation not found: {relation_id}")]
     RelationNotFound { relation_id: String },
@@ -1151,6 +1171,7 @@ impl RepositoryError {
             Self::SchemaValidation { .. } => "schema-validation",
             Self::RelationTypeDefinitionConflict { .. } => "relation-type-definition-conflict",
             Self::RelationValidation { .. } => "relation-validation",
+            Self::RelationInverseForm(_) => "relation-inverse-form",
             Self::RelationNotFound { .. } => "relation-not-found",
             Self::InvalidRelationId { .. } => "invalid-relation-id",
             Self::InvalidInstanceId { .. } => "invalid-instance-id",
@@ -1362,6 +1383,13 @@ mod tests {
                 relation_id: "x".into(),
                 message: "x".into(),
             },
+            R::RelationInverseForm(Box::new(RelationInverseFormDetail {
+                relation_id: "x".into(),
+                relation_type: "x".into(),
+                canonical_type: "x".into(),
+                source_instance_id: "x".into(),
+                target_instance_id: "x".into(),
+            })),
             R::RelationNotFound {
                 relation_id: "x".into(),
             },
@@ -1592,7 +1620,7 @@ mod tests {
     #[test]
     fn codes_are_kebab_case() {
         let all = all_variants();
-        assert_eq!(all.len(), 96, "all_variants() is out of step with the enum");
+        assert_eq!(all.len(), 97, "all_variants() is out of step with the enum");
         let mut seen = std::collections::HashSet::new();
         for e in &all {
             let c = e.code();
