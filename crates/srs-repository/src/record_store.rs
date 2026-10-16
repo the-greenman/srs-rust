@@ -1453,11 +1453,21 @@ pub fn transition_record_lifecycle(
                 None => {
                     // Bare transition: allowed iff the obligation is already satisfied (R2).
                     if !relation_obligation_satisfied(store, instance_id, &declared, direction)? {
-                        return Err(RepositoryError::LifecycleRelationRequired {
-                            state: target_state,
-                            relation_types: declared,
-                            direction: direction.to_string(),
-                        });
+                        if req.is_advisory() {
+                            // RFC-022 Rev 4 / I-100: an advisory obligation never
+                            // rejects; it surfaces as a warning (and at rest in
+                            // `repo validate`).
+                            warnings.push(format!(
+                                "LIFECYCLE_RELATION_UNSATISFIED: state '{}' advises a '{}' relation of type {:?} and none satisfies it (enforcement: advisory)",
+                                target_state, direction, declared
+                            ));
+                        } else {
+                            return Err(RepositoryError::LifecycleRelationRequired {
+                                state: target_state,
+                                relation_types: declared,
+                                direction: direction.to_string(),
+                            });
+                        }
                     }
                 }
                 Some(f) => {
@@ -5270,6 +5280,48 @@ pub(crate) mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(reloaded.lifecycle_state.as_deref(), Some("ratified"));
+    }
+
+    #[test]
+    fn rfc022_advisory_bare_transition_permitted_with_warning() {
+        // RFC-022 Rev 4 / I-100: advisory never rejects.
+        let store = make_store_with_relational_state_edit(|states| {
+            let s = states.iter_mut().find(|s| s.key == "superseded").unwrap();
+            s.requires_relation.as_mut().unwrap().enforcement = Some("advisory".to_string());
+        });
+        let record = create_rfc022_record(&store, "Decision 1");
+        ratify(&store, &record.instance_id);
+
+        let result =
+            transition_record_lifecycle(&store, &record.instance_id, supersede_input(None))
+                .unwrap();
+        assert_eq!(result.record.lifecycle_state.as_deref(), Some("superseded"));
+        assert!(result.successor.is_none() && result.relation.is_none());
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|w| w.contains("LIFECYCLE_RELATION_UNSATISFIED")),
+            "expected an advisory warning, got: {:?}",
+            result.warnings
+        );
+    }
+
+    #[test]
+    fn rfc022_explicit_hard_bare_transition_still_rejected() {
+        let store = make_store_with_relational_state_edit(|states| {
+            let s = states.iter_mut().find(|s| s.key == "superseded").unwrap();
+            s.requires_relation.as_mut().unwrap().enforcement = Some("hard".to_string());
+        });
+        let record = create_rfc022_record(&store, "Decision 1");
+        ratify(&store, &record.instance_id);
+
+        let err = transition_record_lifecycle(&store, &record.instance_id, supersede_input(None))
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            RepositoryError::LifecycleRelationRequired { .. }
+        ));
     }
 
     #[test]
