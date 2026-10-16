@@ -1627,7 +1627,7 @@ mod tests {
     #[test]
     fn codes_are_kebab_case() {
         let all = all_variants();
-        assert_eq!(all.len(), 97, "all_variants() is out of step with the enum");
+        assert_eq!(all.len(), 98, "all_variants() is out of step with the enum");
         let mut seen = std::collections::HashSet::new();
         for e in &all {
             let c = e.code();
