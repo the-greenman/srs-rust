@@ -20,7 +20,7 @@
 //! ```
 
 use crate::container_service;
-use crate::error::RepositoryError;
+use crate::error::{RelationInverseFormDetail, RepositoryError};
 use crate::record_label;
 use crate::record_store;
 use crate::relation_graph;
@@ -273,6 +273,23 @@ pub fn create_relation(
     relation
         .created_at
         .get_or_insert_with(|| chrono::Utc::now().to_rfc3339());
+    // R2 / T007 (srs-rust#559): refuse an edge asserted in a declared inverse form before
+    // E1, so the caller gets the canonical type and flipped endpoints instead of a
+    // generic unknown-type error (or a stored inverse edge if the inverse is installed).
+    if let Some(canonical) = definitions.iter().find(|d| {
+        d.key != relation.relation_type
+            && d.inverse_type.as_deref() == Some(relation.relation_type.as_str())
+    }) {
+        return Err(RepositoryError::RelationInverseForm(Box::new(
+            RelationInverseFormDetail {
+                relation_id: relation.relation_id.clone(),
+                relation_type: relation.relation_type.clone(),
+                canonical_type: canonical.key.clone(),
+                source_instance_id: relation.source_instance_id.clone(),
+                target_instance_id: relation.target_instance_id.clone(),
+            },
+        )));
+    }
     let (known_instance_ids, instance_type_ids) = load_validation_data(store)?;
     let ctx = RelationValidationContext {
         definitions,
@@ -1614,6 +1631,55 @@ mod tests {
             updated_at: None,
             meta: None,
         }
+    }
+
+    #[test]
+    fn create_relation_rejects_declared_inverse_form() {
+        // srs-rust#559 (R2/T007): `part-of` is the declared inverse of `contains`.
+        let store = make_store_with_typed_instances("type-one", "type-one");
+        let mut def = links_def(None);
+        def.inverse_type = Some("com.test/linked-by".to_string());
+        let rel = make_relation(
+            "d0000007-0000-4000-a000-000000000007",
+            "00000000-0000-4000-8000-00000000005c",
+            "00000000-0000-4000-8000-00000000007c",
+            "com.test/linked-by",
+        );
+        let err = create_relation(&store, rel, &[def]).unwrap_err();
+        assert_eq!(err.code(), "relation-inverse-form");
+        match err {
+            RepositoryError::RelationInverseForm(d) => {
+                let RelationInverseFormDetail {
+                    canonical_type,
+                    source_instance_id,
+                    target_instance_id,
+                    ..
+                } = *d;
+                assert_eq!(canonical_type, "com.test/links");
+                assert_eq!(source_instance_id, "00000000-0000-4000-8000-00000000005c");
+                assert_eq!(target_instance_id, "00000000-0000-4000-8000-00000000007c");
+            }
+            other => panic!("expected RelationInverseForm, got {other:?}"),
+        }
+        let all = list_relations(&store, ListRelationsFilter::default()).unwrap();
+        assert!(
+            all.is_empty(),
+            "rejected inverse-form edge must not persist"
+        );
+    }
+
+    #[test]
+    fn create_relation_accepts_canonical_form_of_declared_inverse() {
+        let store = make_store_with_typed_instances("type-one", "type-one");
+        let mut def = links_def(None);
+        def.inverse_type = Some("com.test/linked-by".to_string());
+        let rel = make_relation(
+            "d0000008-0000-4000-a000-000000000008",
+            "00000000-0000-4000-8000-00000000005c",
+            "00000000-0000-4000-8000-00000000007c",
+            "com.test/links",
+        );
+        create_relation(&store, rel, &[def]).expect("canonical form is accepted");
     }
 
     #[test]
