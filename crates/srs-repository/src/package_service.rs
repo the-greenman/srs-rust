@@ -654,10 +654,10 @@ pub(crate) fn find_field_path(
 
 /// The shared filename scheme for a definition inside a package boundary (ADR-050):
 /// `{dir}/{slugify(slug_source)}-{id[..min(8)]}.json`, `dir` per kind. Used by the
-/// field/type/relation-type/view/composition/theme/blueprint/protocol creators and the
-/// `.srspkg` reader. Not (yet) by `lifecycle_service`/`vocabulary_service`, whose slug maps
-/// every non-alphanumeric character to `-` (e.g. `a_b` -> `a-b`, here `a_b`); converging
-/// them would rename files those creators write today (srs-rust#1209).
+/// field/type/relation-type/view/composition/theme/blueprint/protocol/lifecycle/vocabulary
+/// creators and the `.srspkg` reader. This is the convention for NEW definition files
+/// (srs-rust#1209): existing files are found by their index and are never renamed, so a
+/// lifecycle or vocabulary written earlier may carry the retired `a_b` -> `a-b` slug.
 pub(crate) fn definition_rel_path(kind: DefinitionKind, slug_source: &str, id: &str) -> String {
     let dir = match kind {
         DefinitionKind::Field => "fields",
