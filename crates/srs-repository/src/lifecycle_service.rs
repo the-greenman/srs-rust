@@ -85,11 +85,11 @@ pub fn create_lifecycle(
     }
 
     let boundary_path = selector.as_deref().unwrap_or("package");
-    let slug = lifecycle
-        .name
-        .to_lowercase()
-        .replace(|c: char| !c.is_alphanumeric() && c != '-', "-");
-    let rel_filename = format!("lifecycles/{}-{}.json", slug, &lifecycle.id[..8]);
+    let rel_filename = crate::package_service::definition_rel_path(
+        DefinitionKind::Lifecycle,
+        &lifecycle.name,
+        &lifecycle.id,
+    );
     let full_path = format!("{boundary_path}/{rel_filename}");
 
     store.ensure_lifecycles_dir(&format!("{boundary_path}/lifecycles"))?;
@@ -338,6 +338,28 @@ mod tests {
 
         let found = get_lifecycle_by_id(&store, &result.lifecycle.id).unwrap();
         assert!(found.is_some());
+    }
+
+    /// srs-rust#1209: a new lifecycle file uses the shared definition filename scheme
+    /// (`package_service::definition_rel_path`), not the retired `_` -> `-` slug.
+    #[test]
+    fn create_lifecycle_uses_shared_definition_filename_scheme() {
+        let store = MemoryStore::default();
+        let mut lc = make_lifecycle();
+        lc.name = "simple_lifecycle".to_string();
+        let created = create_lifecycle(&store, lc, None).unwrap();
+
+        let expected = crate::package_service::definition_rel_path(
+            DefinitionKind::Lifecycle,
+            "simple_lifecycle",
+            &created.lifecycle.id,
+        );
+        assert!(expected.starts_with("lifecycles/simplelifecycle-"));
+        assert!(!expected.contains("simple-lifecycle"));
+        let saved = store
+            .load_instance_json(&format!("package/{expected}"))
+            .expect("lifecycle saved under the shared filename");
+        assert_eq!(saved["id"].as_str(), Some(created.lifecycle.id.as_str()));
     }
 
     /// srs-rust#957: `create_lifecycle` must mint an id for any state or

@@ -348,8 +348,9 @@ impl SrsRepository {
     ///   and the repository still passes validation when they are present. RFC-017 I-107
     ///   attachment size-limit violations (emitted when a `com.semanticops.base/repo_settings`
     ///   record specifies `max_per_file_bytes`) are one example of a warning source.
-    /// - `summary`: `{ checked, errors, warnings }`. `summary.warnings` counts warning-severity
-    ///   diagnostics. A repository passes validation when `summary.errors === 0`, even if
+    ///   Advice-only diagnostics (RFC-013 I-82) also carry `advisory: true`; the severity is unchanged.
+    /// - `summary`: `{ checked, errors, warnings, advisories }`. `summary.warnings` counts warning-severity
+    ///   diagnostics; `summary.advisories` counts the advice-only subset of them. A repository passes validation when `summary.errors === 0`, even if
     ///   `summary.warnings > 0`.
     ///
     /// Callers should filter `diagnostics` by `severity` to distinguish errors from warnings.

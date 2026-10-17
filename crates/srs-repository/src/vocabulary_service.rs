@@ -106,11 +106,11 @@ pub fn create_vocabulary(
     }
 
     let boundary_path = selector.as_deref().unwrap_or("package");
-    let slug = vocabulary
-        .name
-        .to_lowercase()
-        .replace(|c: char| !c.is_alphanumeric() && c != '-', "-");
-    let rel_filename = format!("vocabularies/{}-{}.json", slug, &vocabulary.id[..8]);
+    let rel_filename = crate::package_service::definition_rel_path(
+        DefinitionKind::Vocabulary,
+        &vocabulary.name,
+        &vocabulary.id,
+    );
     let full_path = format!("{boundary_path}/{rel_filename}");
 
     // vocabulary.json closes the object without declaring `$schema` (srs-rust#1058) — strip it
