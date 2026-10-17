@@ -400,6 +400,24 @@ pub fn list_relation_types_filtered(
     })
 }
 
+/// RFC-032 conformance on the write path: the check `repo validate` applies to
+/// a stored field is applied before the field is written, so no adapter can
+/// create a field the validator then rejects (srs-rust#1396).
+fn ensure_field_type_conforms(field: &Field) -> Result<(), RepositoryError> {
+    let violations = field.field_type.validate();
+    if violations.is_empty() {
+        return Ok(());
+    }
+    let detail = violations
+        .iter()
+        .map(|v| v.to_string())
+        .collect::<Vec<_>>()
+        .join("; ");
+    Err(RepositoryError::InvalidInput {
+        message: format!("RFC-032 conformance: field '{}': {detail}", field.name),
+    })
+}
+
 /// Create a field with normalized defaults (id, description, createdAt),
 /// deserializing from a raw JSON value.
 ///
@@ -540,6 +558,7 @@ pub fn create_field_in_package(
 ) -> Result<CreateFieldResult, RepositoryError> {
     // Validate the selector form, then that the boundary exists, before touching the filesystem.
     validate_package_selector(&selector)?;
+    ensure_field_type_conforms(&field)?;
     store.load_package_boundary(&selector)?;
 
     let boundary_path = selector.as_deref().unwrap_or("package");
@@ -573,6 +592,7 @@ pub fn update_field(
     store: &dyn RepositoryStore,
     field: Field,
 ) -> Result<UpdateFieldResult, RepositoryError> {
+    ensure_field_type_conforms(&field)?;
     let (relative_path, _owner) =
         find_field_path(store, &field.id)?.ok_or_else(|| RepositoryError::FieldNotFound {
             field_id: field.id.clone(),
@@ -2310,6 +2330,21 @@ mod tests {
     }
 
     // --- Phase 4: package-aware definition tests ---
+
+    #[test]
+    fn create_field_refuses_allowed_values_without_closed_domain() {
+        let store = MemoryStore::default();
+        let mut field = make_field("00000000-0000-0000-0000-abc000000002", "status");
+        field.field_type.allowed_values = Some(vec!["working".into(), "partial".into()]);
+        field.field_type.value_domain = None;
+
+        let err = create_field(&store, field.clone()).unwrap_err();
+        assert_eq!(err.code(), "invalid-input");
+        assert!(err.to_string().contains("[R3]"), "{err}");
+
+        // Update path refuses it too.
+        assert!(update_field(&store, field).is_err());
+    }
 
     #[test]
     fn create_field_in_sub_package() {
