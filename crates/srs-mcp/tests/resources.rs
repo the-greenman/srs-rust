@@ -212,11 +212,12 @@ async fn list_resources_enumerates_containers_and_views() {
         .await
         .unwrap()
         .resource_templates;
-    assert_eq!(templates.len(), 5);
+    assert_eq!(templates.len(), 6);
     let tmpl_uris: Vec<&str> = templates.iter().map(|t| t.uri_template.as_str()).collect();
     assert!(tmpl_uris.contains(&format!("srs://{}/record/{{instanceId}}", fx.repo_id).as_str()));
     assert!(tmpl_uris.contains(&format!("srs://{}/type/{{typeId}}", fx.repo_id).as_str()));
     assert!(tmpl_uris.contains(&format!("srs://{}/protocol/{{protocolId}}", fx.repo_id).as_str()));
+    assert!(tmpl_uris.contains(&format!("srs://{}/attachment/{{documentId}}", fx.repo_id).as_str()));
     assert!(tmpl_uris.contains(
         &format!(
             "srs://{}/tree/{{instanceId}}{{?maxDepth,relationType,typeFilter}}",

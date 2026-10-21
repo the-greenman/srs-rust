@@ -324,6 +324,82 @@ fn resource_read_errors_preserve_mcp_codes() {
     );
 }
 
+#[test]
+fn attachment_resource_reads_text_notes_binary_and_misses_cleanly() {
+    let (dir, mut d) = setup();
+    let read = |d: &mut McpDispatcher<SrsMcpApplication<FileStore>>, id: &str| {
+        rpc(
+            d,
+            "resources/read",
+            json!({ "uri": format!("srs://{REPO_ID}/attachment/{id}") }),
+        )
+    };
+    let add = |d: &mut McpDispatcher<SrsMcpApplication<FileStore>>, args: Value| {
+        let r = tool(d, "attachment_add", args);
+        assert_eq!(r["result"]["isError"], false, "{r}");
+        r["result"]["structuredContent"]["documentId"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let text = add(
+        &mut d,
+        json!({ "fileName": "call.txt", "content": "Funding call\nline two" }),
+    );
+    let r = read(&mut d, &text);
+    assert_eq!(r["result"]["contents"][0]["mimeType"], "text/plain", "{r}");
+    assert_eq!(r["result"]["contents"][0]["text"], "Funding call\nline two");
+    assert_eq!(
+        r["result"]["contents"][0]["_meta"]["documentId"],
+        text.as_str()
+    );
+    assert_eq!(
+        r["result"]["contents"][0]["_meta"]["contentPath"],
+        "call.txt"
+    );
+    // The `read` tool (clients without resources) gives the same text.
+    let via = tool(
+        &mut d,
+        "read",
+        json!({ "uri": format!("srs://{REPO_ID}/attachment/{text}") }),
+    );
+    assert_eq!(
+        via["result"]["content"][0]["text"], "Funding call\nline two",
+        "{via}"
+    );
+
+    // 0xFF 0xFE is not UTF-8: a JSON note, never the bytes.
+    let bin = add(
+        &mut d,
+        json!({ "fileName": "b.bin", "contentBase64": "//4=" }),
+    );
+    let r = read(&mut d, &bin);
+    assert_eq!(
+        r["result"]["contents"][0]["mimeType"], "application/json",
+        "{r}"
+    );
+    let note: Value =
+        serde_json::from_str(r["result"]["contents"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(note["binary"], true);
+    assert_eq!(note["size"], 2);
+    assert_eq!(note["documentId"], bin.as_str());
+
+    assert_eq!(read(&mut d, "nope")["error"]["code"], -32002);
+    // A tombstone (content file gone, sidecar kept) is not found too.
+    std::fs::remove_file(dir.path().join("source-documents/call.txt")).unwrap();
+    assert_eq!(read(&mut d, &text)["error"]["code"], -32002);
+
+    let templates = rpc(&mut d, "resources/templates/list", json!({}));
+    assert!(
+        templates["result"]["resourceTemplates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["uriTemplate"] == format!("srs://{REPO_ID}/attachment/{{documentId}}")),
+        "{templates}"
+    );
+}
+
 fn blueprint(name: &str) -> Blueprint {
     Blueprint {
         schema: None,
