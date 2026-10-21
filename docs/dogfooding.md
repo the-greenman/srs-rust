@@ -338,26 +338,16 @@ This is the muSrs guide pattern: `guide-body-view` has a default `themeRef` targ
    srs repo validate --repo /tmp/s9-dst
    ```
 
-7. **Source-document preservation** (#274 — ADR-031): attach a source document to the source repo by creating the sidecar JSON, binary content file, and manifest entries manually (the `source-document add` CLI does not exist yet — that is a future issue). Then copy and verify the binary content arrives in the target.
+7. **Source-document preservation** (#274 — ADR-031, RFC-038 [R25]): attach a source document to the source repo with `srs attachment add`, which writes the content file and its `.meta.json` sidecar (the sidecar is the document's identity; there is no manifest index to edit). Then copy and verify the binary content arrives in the target.
    ```bash
-   mkdir -p /tmp/s9-src/source-documents
-   DOC_ID="a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-   printf '{"documentId":"%s","title":"Spec PDF","contentType":"application/pdf","contentPath":"%s.pdf","importedAt":"2026-07-16T00:00:00Z"}' \
-     "$DOC_ID" "$DOC_ID" \
-     > /tmp/s9-src/source-documents/${DOC_ID}.json
-   printf '\x25\x50\x44\x46' > /tmp/s9-src/source-documents/${DOC_ID}.pdf
-   python3 -c "
-   import json
-   m=json.load(open('/tmp/s9-src/manifest.json'))
-   m['sourceDocumentsPath']='source-documents'
-   m['sourceDocumentIndex']=[{'documentId':'$DOC_ID','sidecarPath':'$DOC_ID.json','contentPath':'$DOC_ID.pdf'}]
-   json.dump(m,open('/tmp/s9-src/manifest.json','w'),indent=2)"
+   printf '\x25\x50\x44\x46' > /tmp/s9-spec.pdf
+   srs attachment add /tmp/s9-spec.pdf --repo /tmp/s9-src --title "Spec PDF"
    # Re-run copy (first clean the destination)
    rm -rf /tmp/s9-dst
    srs repo copy --from /tmp/s9-src --to /tmp/s9-dst --store file
    ls /tmp/s9-dst/source-documents/
    # Confirm binary is byte-identical
-   cmp /tmp/s9-src/source-documents/${DOC_ID}.pdf /tmp/s9-dst/source-documents/${DOC_ID}.pdf && echo IDENTICAL
+   cmp /tmp/s9-src/source-documents/s9-spec.pdf /tmp/s9-dst/source-documents/s9-spec.pdf && echo IDENTICAL
    ```
 
 8. **Prefix-colliding UUIDs (srs-rust#696).** *Intention: "My repository uses deterministic UUIDs, two of which happen to share their first 8 hex characters — copying it must not crash or silently drop a record."* Copy a `.srsj` whose instances collide in their `id8` prefix — the LiMoMa gallery fixture has two decisions `…5801`/`…5802` (both start `00000000`):
@@ -379,7 +369,7 @@ This is the muSrs guide pattern: `guide-body-view` has a default `themeRef` targ
 - Filenames in source and destination are identical.
 - `srs repo validate` on the destination returns `ok: true` with 0 errors and `summary.checked` equal to the instance count.
 - The non-empty-target copy returns `ok: false` with a clear diagnostic.
-- Source-document sidecar, binary content, and `sourceDocumentIndex` manifest entry are all present in the copy destination unchanged.
+- Source-document sidecar and binary content are both present in the copy destination unchanged.
 - The prefix-colliding copy (step 8) returns `ok: true`; both colliding instances land on **distinct** files widened to their full-uuid form (`decision-…5801.json` / `decision-…5802.json`), the copy validates with 0 errors, and `repo upgrade` on it is a no-op (`renames: []`) — the widened paths are already canonical.
 
 ---
@@ -1703,7 +1693,7 @@ Returns `ok: false` (exit 1) with a diagnostic explaining the migration is not n
 
 ## S31 — Inspect source-document attachments in a repository (`srs attachment list`, #279)
 
-**Intention:** I want to see what source documents are stored in my repository — which ones the system knows about (indexed, with provenance metadata) and which ones were dropped in manually (present on disk, unindexed).
+**Intention:** I want to see what source documents are stored in my repository — which ones the system knows about (with a discoverable sidecar carrying provenance metadata) and which ones were dropped in manually (present on disk, no sidecar).
 
 **Preparation.**
 ```bash
@@ -1717,7 +1707,7 @@ srs attachment list --repo /tmp/dogfood-s31 --pretty
 ```
 `payload.entries` is `[]`. `payload.sourceDocumentsPath` is `"source-documents"`. `ok: true`.
 
-**Step 2 — add unindexed files, including a subdirectory.**
+**Step 2 — add files with no sidecar, including a subdirectory.**
 ```bash
 mkdir -p /tmp/dogfood-s31/source-documents/annexes
 echo "pdf bytes" > /tmp/dogfood-s31/source-documents/brief.pdf
@@ -1726,30 +1716,23 @@ echo "annex bytes" > /tmp/dogfood-s31/source-documents/annexes/annex-a.pdf
 
 srs attachment list --repo /tmp/dogfood-s31 --pretty
 ```
-Returns 3 entries, each with `path` and `sizeBytes` populated: `annexes/annex-a.pdf`, `brief.pdf`, `report.docx`. Paths are relative to `source-documents/`, sorted lexicographically. No `documentId`, `title`, or checksum fields present.
+Returns 3 entries, each with `path` and `sizeBytes` populated: `annexes/annex-a.pdf`, `brief.pdf`, `report.docx`. Paths are relative to `source-documents/`, sorted lexicographically. No `documentId` or `title` fields present.
 
-**Step 3 — add an indexed entry to the manifest.**
+**Step 3 — add a sidecar for one file.** A sidecar (`<content file>.meta.json`) is the document's identity (RFC-038 [R25]): the catalog discovers it, and the listing resolves its `documentId` and `title`. There is no manifest index to edit.
 ```bash
-python3 - <<'EOF'
-import json
-with open('/tmp/dogfood-s31/manifest.json') as f:
-    m = json.load(f)
-m['sourceDocumentIndex'] = [{
-    'documentId': 'aaaabbbb-cccc-dddd-eeee-ffffffffffff',
-    'sidecarPath': 'brief.pdf.meta.json',
-    'contentPath': 'brief.pdf',
-    'title': 'Project Brief Q3',
-    'contentChecksum': 'sha256:abc123',
-    'sidecarChecksum': 'sha256:def456'
-}]
-with open('/tmp/dogfood-s31/manifest.json', 'w') as f:
-    json.dump(m, f, indent=2)
+cat > /tmp/dogfood-s31/source-documents/brief.pdf.meta.json <<'EOF'
+{
+  "documentId": "aaaabbbb-cccc-4ddd-8eee-ffffffffffff",
+  "contentPath": "brief.pdf",
+  "contentType": "application/pdf",
+  "createdAt": "2026-10-01T00:00:00Z",
+  "title": "Project Brief Q3"
+}
 EOF
-echo '{"documentId":"aaaabbbb-cccc-dddd-eeee-ffffffffffff"}' > /tmp/dogfood-s31/source-documents/brief.pdf.meta.json
 
 srs attachment list --repo /tmp/dogfood-s31 --pretty
 ```
-`brief.pdf` entry now carries `documentId`, `title`, `contentChecksum`, `sidecarChecksum`, and `sizeBytes`. `brief.pdf.meta.json` is absent from the listing (sidecar excluded). `annexes/annex-a.pdf` and `report.docx` remain without metadata but still carry `sizeBytes`.
+`brief.pdf` entry now carries `documentId`, `title` and `sizeBytes`. `brief.pdf.meta.json` is absent from the listing (sidecar excluded). `annexes/annex-a.pdf` and `report.docx` remain without metadata but still carry `sizeBytes`. Checksums are not cached anywhere and are not listed.
 
 **Negative case — repository not found.**
 ```bash
@@ -1761,9 +1744,9 @@ Returns `ok: false` with `diagnostics: ["manifest missing: \"/tmp/no-such-repo/m
 ```bash
 srs repo validate --repo /tmp/dogfood-s31 --pretty
 ```
-0 diagnostics at every step — attachment files on disk are outside the `instanceIndex` and do not affect record validation.
+0 diagnostics at every step — attachment content files on disk do not affect record validation.
 
-**Done when.** `attachment list` on an empty repo returns `entries: []`. Unindexed files appear with `path` and `sizeBytes`. An indexed file surfaces all metadata fields including `sizeBytes`. Sidecar `.meta.json` files are excluded. Subdirectory files appear with their relative path (`annexes/annex-a.pdf`, not `source-documents/annexes/annex-a.pdf`). Missing repo returns `ok: false` exit 1. `repo validate` stays at 0 errors throughout.
+**Done when.** `attachment list` on an empty repo returns `entries: []`. Files with no sidecar appear with `path` and `sizeBytes`. A file with a sidecar also surfaces `documentId` and `title`. Sidecar `.meta.json` files are excluded. Subdirectory files appear with their relative path (`annexes/annex-a.pdf`, not `source-documents/annexes/annex-a.pdf`). Missing repo returns `ok: false` exit 1. `repo validate` stays at 0 errors throughout.
 
 **Verified 2026-07-17 (#279).** All steps confirmed. Empty repo: `entries: []`. Unindexed files: 3 entries with path only, sorted lexicographically, `annexes/annex-a.pdf` correctly prefixed. Indexed entry: `brief.pdf` carried all metadata fields; `brief.meta.json` absent from listing. Missing repo: `ok: false` exit 1 with manifest-missing diagnostic. `repo validate`: 0 diagnostics.
 
@@ -1798,13 +1781,13 @@ Files created in `source-documents/`:
 - `brief.pdf` — the raw binary content
 - `brief.pdf.meta.json` — JSON sidecar: `{"documentId":"...","contentPath":"brief.pdf","contentType":"application/pdf","encoding":"binary","checksum":"sha256:..."}`
 
-`manifest.json → sourceDocumentIndex` gains one entry with all six fields: `documentId`, `contentPath`, `sidecarPath`, `title`, `contentChecksum`, `sidecarChecksum`.
+The sidecar is the document's identity (RFC-038 [R25]); `manifest.json` is not written (`sourceDocumentIndex` is retired).
 
 **Step 2 — attachment list reflects the new entry.**
 ```bash
 $SRS attachment list --repo /tmp/dogfood-s32 --pretty
 ```
-Returns one entry with `path: "brief.pdf"`, `documentId`, `title: "Project Brief"`, `contentChecksum`, `sidecarChecksum`. `sidecarPath` is not in the list payload (sidecar is excluded from listing).
+Returns one entry with `path: "brief.pdf"`, `documentId`, `title: "Project Brief"` and `sizeBytes`, resolved from the sidecar via the catalog. Checksums and `sidecarPath` are not in the list payload (sidecar is excluded from listing).
 
 **Step 3 — add a second attachment in a subdirectory.**
 ```bash
@@ -1829,13 +1812,13 @@ Returns `ok: false` with a `"failed to read source file"` diagnostic. Exit code 
 ```bash
 $SRS repo validate --repo /tmp/dogfood-s32 --pretty
 ```
-0 diagnostics at every step — attachment files are outside the `instanceIndex` and do not affect record validation.
+0 diagnostics at every step — attachment content files do not affect record validation.
 
-**Done when.** `attachment add` writes the content file + `.meta.json` sidecar under `source-documents/`, appends a fully-populated entry to `manifest.sourceDocumentIndex`, and returns all six fields in the payload. `attachment list` immediately reflects the new entry with all metadata fields. Subdirectory works. Duplicate is rejected with a clear diagnostic. Missing source returns a read error. `repo validate` stays at 0 errors throughout.
+**Done when.** `attachment add` writes the content file + `.meta.json` sidecar under `source-documents/`, writes no manifest entry (the sidecar is authoritative), and returns all six fields in the payload. `attachment list` immediately reflects the new entry with `documentId`, `title` and `sizeBytes`. Subdirectory works. Duplicate is rejected with a clear diagnostic. Missing source returns a read error. `repo validate` stays at 0 errors throughout.
 
 **Verified 2026-07-17 (#280).** Happy path confirmed: PDF stored, sidecar written with correct `contentType: "application/pdf"`, manifest entry populated, `attachment list` returned the entry with all fields. Subdir (`annexes/`) confirmed: `contentPath: "annexes/annex-a.txt"`. Duplicate rejection confirmed: `ok: false` with the expected diagnostic. Missing-file case confirmed: `ok: false` with read-error diagnostic. `repo validate`: 0 diagnostics throughout.
 
-**Re-verified 2026-07-20 (#647).** `attachment list` immediately after `attachment add` on a freshly-created directory-format repo confirmed: one entry with `path`, `documentId`, `contentChecksum`, `sizeBytes`, and `title` all populated. `repo validate` stays at 0 errors. (Regression tests `add_then_list_attachments_memory_store` and `add_then_list_attachments_json_store` added in `attachment_service.rs` to guard the in-memory store path.)
+**Re-verified 2026-07-20 (#647).** `attachment list` immediately after `attachment add` on a freshly-created directory-format repo confirmed: one entry with `path`, `documentId`, `sizeBytes`, and `title` all populated (`contentChecksum` was listed then; checksums are no longer cached, see S31). `repo validate` stays at 0 errors. (Regression tests `add_then_list_attachments_memory_store` and `add_then_list_attachments_json_store` added in `attachment_service.rs` to guard the in-memory store path.)
 
 **Re-verified 2026-10-07 (srs-rust#1329) — sidecar naming fixed to the full filename.** Prior runs above correctly observed `attachment add`'s actual `brief.meta.json`/`brief.pdf.meta.json` output but this doc's own text had drifted inconsistent (now fixed, see edits above). The real bug #1329 fixed: `add_attachment` derived the sidecar name from the content file's *stem*, not its full name, so two attachments sharing a stem with different extensions collided on one sidecar. Dogfooded against a fresh `repo create` + built `srs` binary from this branch:
 ```bash
@@ -1879,7 +1862,7 @@ Expected: the file appears with its `PATH` and `TITLE` columns populated.
 srs attachment list --repo /tmp/dogfood-s33 --format json
 ```
 
-Expected: `payload.entries[0].title == "Gate A Brief"`, `documentId` and `contentChecksum` populated.
+Expected: `payload.entries[0].title == "Gate A Brief"`, `documentId` and `sizeBytes` populated.
 
 ```bash
 # Step 4 — validate stays clean
@@ -1890,7 +1873,7 @@ Expected: `payload.summary.errors == 0`.
 
 **Negative case.** Run `srs-gov attachment add /tmp/gate-a-brief.txt --repo /tmp/dogfood-s33` a second time — the command must exit non-zero (duplicate rejection). The repo must still validate cleanly.
 
-**Done when.** `srs-gov attachment add` prints a `"Attachment stored"` header with the file path and document ID. `srs-gov attachment list` immediately shows the file with its title. `srs attachment list` (raw) returns the entry with all four metadata fields. `srs repo validate` returns 0 errors throughout. Duplicate add exits non-zero. The file path in the listing is relative to `source-documents/`, not an absolute path.
+**Done when.** `srs-gov attachment add` prints a `"Attachment stored"` header with the file path and document ID. `srs-gov attachment list` immediately shows the file with its title. `srs attachment list` (raw) returns the entry with `path`, `title`, `documentId` and `sizeBytes`. `srs repo validate` returns 0 errors throughout. Duplicate add exits non-zero. The file path in the listing is relative to `source-documents/`, not an absolute path.
 
 ---
 
@@ -2263,7 +2246,7 @@ Prints `True` — `sourceRefs` is in the raw JSON record payload, no "Linked Att
 
 **Intention:** *"I want our repository's validation to warn us when attached source documents exceed our agreed-upon size limits or contain disallowed file types — so that before we archive or distribute the repo, we know which files need to be trimmed or converted."*
 
-**Capabilities exercised.** RFC-017 I-107 non-blocking attachment_policy diagnostics in `repo validate`; `com.semanticops.base/repo_settings` record as the policy holder; `sourceDocumentIndex` enumeration; tombstone (missing content file) silent-skip (ADR-031); RFC-017 Change B multiple-policy-records guard.
+**Capabilities exercised.** RFC-017 I-107 non-blocking attachment_policy diagnostics in `repo validate`; `com.semanticops.base/repo_settings` record as the policy holder; sidecar-discovered source-document enumeration; tombstone (missing content file) silent-skip (ADR-031); RFC-017 Change B multiple-policy-records guard.
 
 **CLI surface.** `repo validate` (new Warning diagnostics for `maxPerFileBytes`, `maxDocBytes`, `maxTotalBytes`, `allowedMimeTypes` limit violations; new Error diagnostics for RFC-017 Change B multiple `repo_settings` records).
 
@@ -2318,7 +2301,7 @@ import sys,json; r=json.load(sys.stdin); print('ok:', r['ok'], '| diags:', len(r
 "
 ```
 
-**Done when.** When `com.semanticops.base` ships: `repo validate` on a repo with source documents exceeding limits emits `DiagnosticSeverity::Warning` entries citing `"RFC-017 I-107"` and the violated limit name; `is_ok()` remains `true`; warnings list each offending file path; aggregate `maxTotalBytes` appears once per repo not per file. Repos with no base package installed produce zero policy diagnostics. Tombstone content files (registered in `sourceDocumentIndex` but absent from disk) are silently skipped.
+**Done when.** When `com.semanticops.base` ships: `repo validate` on a repo with source documents exceeding limits emits `DiagnosticSeverity::Warning` entries citing `"RFC-017 I-107"` and the violated limit name; `is_ok()` remains `true`; warnings list each offending file path; aggregate `maxTotalBytes` appears once per repo not per file. Repos with no base package installed produce zero policy diagnostics. Tombstone content files (sidecar present but content file absent from disk) are silently skipped.
 
 **Verified 2026-07-18 (#284) — regression only.** Full end-to-end blocked pending srs#193 (`com.semanticops.base` package). Regression case confirmed: `srs repo validate --repo /home/user/srs/srs` returns `ok: true` with 0 attachment_policy diagnostics. Fresh `repo create` + `repo validate` returns `ok: true`, 0 diagnostics. 12 unit tests in `crates/srs-repository/src/validation.rs` cover the full policy surface (maxPerFileBytes, maxDocBytes, maxTotalBytes, allowedMimeTypes, tombstone skip, multiple-records error, and both limits firing independently).
 
