@@ -1725,6 +1725,7 @@ cat > /tmp/dogfood-s31/source-documents/brief.pdf.meta.json <<'EOF'
   "documentId": "aaaabbbb-cccc-4ddd-8eee-ffffffffffff",
   "contentPath": "brief.pdf",
   "contentType": "application/pdf",
+  "createdAt": "2026-10-01T00:00:00Z",
   "title": "Project Brief Q3"
 }
 EOF
