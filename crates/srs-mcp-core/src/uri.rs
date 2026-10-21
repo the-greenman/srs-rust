@@ -22,6 +22,8 @@ pub enum SrsUri {
     AgentIndex,
     /// `relation-types` (#1251): every installed RelationTypeDefinition.
     RelationTypes,
+    /// `attachment/{documentId}` (#1333): a source-document attachment's content.
+    Attachment(String),
     /// `context/{instanceId}` or `context/{containerId}/{instanceId}` (#1134).
     Context {
         container_id: Option<String>,
@@ -226,6 +228,7 @@ pub fn parse(uri: &str, repository_id: &str) -> Result<SrsUri, UriError> {
                 parse_composition_query(query, uri)?,
             )),
             "type" => Ok(SrsUri::Type(id.to_string())),
+            "attachment" => Ok(SrsUri::Attachment(id.to_string())),
             "protocol" => Ok(SrsUri::Protocol(id.to_string())),
             "tree" => Ok(SrsUri::TreeFrom(
                 id.to_string(),
@@ -256,6 +259,7 @@ pub fn format(kind: &SrsUri, repository_id: &str) -> String {
         }
         SrsUri::AgentIndex => format!("{SCHEME}{repository_id}/agent-index"),
         SrsUri::RelationTypes => resource_uri::relation_types_uri(repository_id),
+        SrsUri::Attachment(id) => format!("{SCHEME}{repository_id}/attachment/{id}"),
         SrsUri::Context {
             container_id,
             instance_id,
@@ -304,6 +308,10 @@ pub fn context_template(repository_id: &str) -> String {
 
 pub fn type_template(repository_id: &str) -> String {
     format!("{SCHEME}{repository_id}/type/{{typeId}}")
+}
+
+pub fn attachment_template(repository_id: &str) -> String {
+    format!("{SCHEME}{repository_id}/attachment/{{documentId}}")
 }
 
 pub fn protocol_template(repository_id: &str) -> String {
@@ -447,6 +455,7 @@ mod tests {
                 },
             ),
             SrsUri::Type("jkl".into()),
+            SrsUri::Attachment("doc-1".into()),
             SrsUri::ProtocolList,
             SrsUri::Protocol("mno".into()),
             SrsUri::Tree(TreeQuery::default()),

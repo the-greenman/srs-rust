@@ -32,7 +32,7 @@ srs://<repositoryId>/container/<containerId>, and rendered document views via \
 srs://<repositoryId>/composition/<compositionId> (markdown; append ?containerId=<id> to render the composition for that container, required when its container-subset section names none, and, repeatable, ?excludeInstanceId=<id> to drop that member from the rendering, its arranged descendants moving up one level; containerId at most once). Type schemas live at \
 srs://<repositoryId>/type/{typeId} (also via the type_schema tool): read one before \
 authoring records of an unfamiliar type — its properties are keyed by Field.name (the \
-same keys record_create fieldValues uses, RFC-039) and carry aiGuidance. Installed relation types (every one, used or not — the valid relationType keys) live at srs://<repositoryId>/relation-types. Protocols (staged \
+same keys record_create fieldValues uses, RFC-039) and carry aiGuidance. Installed relation types (every one, used or not — the valid relationType keys) live at srs://<repositoryId>/relation-types. Attached files (source documents) are read at srs://<repositoryId>/attachment/{documentId}: text as text/plain, a binary file as a JSON note; the documentId is in a record's sourceRefs (sourceRole 'attaches'). Protocols (staged \
 processes) live at srs://<repositoryId>/protocol (list) and \
 srs://<repositoryId>/protocol/{protocolId} (definition plus stages in order). Use the find tool for structured discovery \
 (type, tag, lifecycle, tier, container, content match). Writes are validated: record_create, \
@@ -120,6 +120,7 @@ pub mod srs_resources {
     use serde_json::{json, Value};
     use srs_repository::agent_index_service::build_agent_index;
     use srs_repository::analysis::build_repo_map;
+    use srs_repository::attachment_service::{get_attachment_bytes, GetAttachmentBytesInput};
     use srs_repository::container_service::{list_containers, ContainerListFilter};
     use srs_repository::container_view_service::{
         resolve_container_view, ResolveContainerViewInput,
@@ -146,6 +147,7 @@ pub mod srs_resources {
 
     const MIME_JSON: &str = "application/json";
     const MIME_MARKDOWN: &str = "text/markdown";
+    const MIME_TEXT: &str = "text/plain";
 
     /// `srs tree` options for a tree URI (`root` = the `tree/{instanceId}` form).
     fn tree_options(root: Option<String>, q: uri::TreeQuery) -> TreeOptions {
@@ -317,6 +319,39 @@ pub mod srs_resources {
                     )
                 }
             }
+            // UTF-8 content is returned as text; anything else as a JSON note, never as bytes.
+            // An unknown document (InvalidInput) or a missing file (tombstone) is not found.
+            uri::SrsUri::Attachment(id) => {
+                let doc = get_attachment_bytes(store, GetAttachmentBytesInput { document_id: id })
+                    .map_err(|e| match e {
+                        RepositoryError::InvalidInput { message } => {
+                            McpApplicationError::resource_not_found(message)
+                        }
+                        e if e.is_not_found() => McpApplicationError::resource_not_found(format!(
+                            "attachment file missing: {raw_uri}"
+                        )),
+                        e => service_err(e),
+                    })?;
+                match String::from_utf8(doc.bytes) {
+                    Ok(text) => {
+                        let mut v = contents(raw_uri, MIME_TEXT, text);
+                        v["contents"][0]["_meta"] = json!({
+                            "documentId": doc.document_id,
+                            "contentPath": doc.content_path,
+                        });
+                        Ok(v)
+                    }
+                    Err(e) => json_contents(
+                        &json!({
+                            "documentId": doc.document_id,
+                            "contentPath": doc.content_path,
+                            "size": e.as_bytes().len(),
+                            "binary": true,
+                        }),
+                        raw_uri,
+                    ),
+                }
+            }
             // `Ok(None)` is not a service error, so the not-found text is adapter-authored.
             // Any tier: a Tier-0 note is a legal record target (#1227).
             uri::SrsUri::Record(id) => match get_instance_by_id(store, &id).map_err(service_err)? {
@@ -405,6 +440,13 @@ pub mod srs_resources {
                 "title": "Record context in a container",
                 "description": "Everything about one record in one read: field values, every relation in both directions with the other endpoint inline (comments, notes, sources), and its arrangement subtree in the container. Drop the containerId segment (srs://<repositoryId>/context/{instanceId}) for the record and its relations only. Append ?excludeRelationCategories=composition,sequence to drop edges by relation-type category (e.g. structural contains/precedes). ?projection=card inlines each neighbour as a compact card (id, label, type, lifecycle state, one summary line) instead of the whole record; ?projection=label drops the summary. ?format=markdown returns the same context as compact text/markdown (fields, then one line per edge with label, type and instance id), the cheapest way to read a well-connected record.",
                 "mimeType": MIME_JSON
+            },
+            {
+                "uriTemplate": uri::attachment_template(repository_id),
+                "name": "attachment",
+                "title": "Attachment content by document id",
+                "description": "The content of a source-document attachment: UTF-8 text as text/plain; a binary file as a JSON note (documentId, contentPath, size, binary). Find documentIds in a record's sourceRefs (sourceRole 'attaches') or in attachment_add's result.",
+                "mimeType": MIME_TEXT
             },
             {
                 "uriTemplate": uri::tree_template(repository_id),
