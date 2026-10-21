@@ -37,7 +37,7 @@ use srs_core::types::{
 use srs_repository::render_service as svc_render;
 use srs_repository::{
     agent_index_service::AgentIndex,
-    analysis::{FoundationNoteSet, RepoMap, TagAudit},
+    analysis::{FoundationNoteSet, MigrationPacket, RepoMap, TagAudit},
     container_service::ContainerSummary,
     container_view_service::ContainerView,
     context_query_service::{EdgeDirection, NeighbourEdge, NeighbourSummary, NeighboursResult},
@@ -1854,6 +1854,12 @@ pub struct RepoMapPayload {
     #[schemars(with = "serde_json::Value")]
     pub repo_map: RepoMap,
 }
+
+/// Payload for `srs migrate packet`: the handoff packet itself, unwrapped.
+/// `transparent` keeps the wire shape identical to `MigrationPacket`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(transparent)]
+pub struct MigratePacketPayload(#[schemars(with = "serde_json::Value")] pub MigrationPacket);
 
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]

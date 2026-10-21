@@ -4,6 +4,7 @@
 
 use crate::commands::{with_store, CliContext, MigrateCommand};
 use crate::output;
+use crate::payload::MigratePacketPayload;
 use anyhow::{anyhow, Result};
 use srs_repository::analysis::build_migration_packet_for_profile;
 
@@ -26,5 +27,5 @@ fn cmd_migrate_packet(ctx: CliContext, foundation: bool) -> Result<String> {
     let packet = with_store(&ctx, |store| {
         Ok(build_migration_packet_for_profile(store, "foundation")?)
     })?;
-    Ok(output::ok("migrate packet", serde_json::to_value(packet)?))
+    output::serialize("migrate packet", MigratePacketPayload(packet))
 }

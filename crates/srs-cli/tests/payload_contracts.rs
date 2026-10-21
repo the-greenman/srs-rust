@@ -439,6 +439,11 @@ fn repo_map() {
 }
 
 #[test]
+fn migrate_packet() {
+    check::<MigratePacketPayload>("migrate-packet");
+}
+
+#[test]
 fn repo_copy() {
     check::<RepoCopyPayload>("repo-copy");
 }
