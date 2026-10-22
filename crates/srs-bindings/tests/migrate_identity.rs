@@ -9,6 +9,16 @@
 use srs_repository::migrate_identity_service;
 use srs_repository::repository_navigation_service;
 
+/// `.srsj` fixtures here are written with the pre-RFC-052 embedded root; open them in the
+/// revision-10 form (root in the container set, named by `rootContainerId`).
+fn open_srsj(
+    text: &str,
+) -> Result<srs_repository::store::FileStore, srs_repository::error::RepositoryError> {
+    let mut doc: serde_json::Value = serde_json::from_str(text).expect("fixture is JSON");
+    srs_repository::rfc052_root_container_migration_service::rewrite_srsj_fixture(&mut doc);
+    srs_repository::srsj::open_srsj(&doc.to_string())
+}
+
 const NOTE_ID: &str = "00000000-0000-4000-8000-00000000b001";
 const ROOT_CONTAINER_ID: &str = "00000000-0000-4000-8000-00000000c000";
 const NO_ID_CONTAINER_ID: &str = "00000000-0000-4000-8000-00000000d000";
@@ -77,8 +87,7 @@ fn tier0_fixture_srsj() -> String {
 /// keys are camelCase (matching `serde(rename_all = "camelCase")` on `MigrateIdentityResult`).
 #[test]
 fn migrate_identity_tier0_to_purpose_record_succeeds() {
-    let store =
-        srs_repository::srsj::open_srsj(&tier0_fixture_srsj()).expect("fixture srsj must load");
+    let store = open_srsj(&tier0_fixture_srsj()).expect("fixture srsj must load");
 
     let result =
         migrate_identity_service::migrate_identity(&store).expect("migration must succeed");
@@ -144,7 +153,7 @@ fn migrate_identity_no_prior_identity_succeeds() {
     })
     .to_string();
 
-    let store = srs_repository::srsj::open_srsj(&fixture).expect("fixture srsj must load");
+    let store = open_srsj(&fixture).expect("fixture srsj must load");
 
     let result = migrate_identity_service::migrate_identity(&store)
         .expect("none-branch migration must succeed");
@@ -181,8 +190,7 @@ fn migrate_identity_no_prior_identity_succeeds() {
 /// must return an error whose message contains "already".
 #[test]
 fn migrate_identity_already_migrated_returns_error() {
-    let store =
-        srs_repository::srsj::open_srsj(&tier0_fixture_srsj()).expect("fixture srsj must load");
+    let store = open_srsj(&tier0_fixture_srsj()).expect("fixture srsj must load");
 
     migrate_identity_service::migrate_identity(&store).expect("first migration must succeed");
 
@@ -272,7 +280,7 @@ fn sections_survive_migrate_identity() {
     })
     .to_string();
 
-    let store = srs_repository::srsj::open_srsj(&fixture).expect("fixture must load");
+    let store = open_srsj(&fixture).expect("fixture must load");
 
     // Run None-branch migration — must succeed.
     let result = migrate_identity_service::migrate_identity(&store)

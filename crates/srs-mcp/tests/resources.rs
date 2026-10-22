@@ -68,10 +68,9 @@ fn make_fixture() -> Fixture {
     // member, RFC-013) is the equivalent, still-valid source.
     let root_container_id = srs_repository::store::RepositoryStore::load_manifest(&store)
         .unwrap()
-        .root_container()
-        .cloned()
+        .root_container_id()
         .unwrap()
-        .container_id;
+        .to_string();
 
     let view_id = uuid::Uuid::new_v4().to_string();
     create_composition_normalized(
@@ -150,7 +149,7 @@ fn make_fixture() -> Fixture {
     .unwrap();
 
     let manifest = srs_repository::store::RepositoryStore::load_manifest(&store).unwrap();
-    let container_id = manifest.root_container().unwrap().container_id.clone();
+    let container_id = manifest.root_container_id().unwrap().to_string();
 
     Fixture {
         dir,

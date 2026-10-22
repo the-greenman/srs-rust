@@ -23,6 +23,9 @@ fn create_temp_repo() -> TempDir {
 }
 
 fn write_json(path: &std::path::Path, value: serde_json::Value) {
+    if path.file_name().is_some_and(|n| n == "manifest.json") {
+        return write_manifest_fixture(path.parent().unwrap(), value.to_string()).unwrap();
+    }
     // RFC-038: the catalog schema-validates every definition/package candidate —
     // complete minimal fixtures here so each test states only what it is about.
     // Already-present keys are never overwritten; a test wanting an invalid
@@ -306,10 +309,14 @@ fn repo_navigation_resolves_section_members_of_every_remaining_tier() {
 
     let manifest: Value =
         serde_json::from_slice(&std::fs::read(repo.join("manifest.json")).unwrap()).unwrap();
-    let root = manifest["container"]["containerId"].as_str().unwrap();
+    let root = manifest["rootContainerId"].as_str().unwrap();
     // `repo create` scaffolds the Tier-2 purpose record as the identity; every
-    // other member is a section.
-    let identity = manifest["container"]["identityInstanceId"]
+    // other member is a section. RFC-052: the root lives in the container set.
+    let root_container: Value = serde_json::from_slice(
+        &std::fs::read(repo.join(format!("containers/{root}.json"))).unwrap(),
+    )
+    .unwrap();
+    let identity = root_container["identityInstanceId"]
         .as_str()
         .unwrap()
         .to_string();
@@ -1854,8 +1861,8 @@ fn make_valid_validate_repo() -> TempDir {
 
     let notes_dir = temp.path().join("records/notes");
     std::fs::create_dir_all(&notes_dir).unwrap();
-    std::fs::write(
-        temp.path().join("manifest.json"),
+    write_manifest_fixture(
+        temp.path(),
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .unwrap();
@@ -1957,8 +1964,8 @@ fn repo_validate_invalid_note_returns_ok_false() {
 
     let notes_dir = temp.path().join("records/notes");
     std::fs::create_dir_all(&notes_dir).unwrap();
-    std::fs::write(
-        temp.path().join("manifest.json"),
+    write_manifest_fixture(
+        temp.path(),
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .unwrap();
@@ -2020,8 +2027,8 @@ fn repo_validate_tier_schema_mismatch_returns_ok_false() {
 
     let notes_dir = temp.path().join("records/notes");
     std::fs::create_dir_all(&notes_dir).unwrap();
-    std::fs::write(
-        temp.path().join("manifest.json"),
+    write_manifest_fixture(
+        temp.path(),
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .unwrap();
@@ -2088,8 +2095,8 @@ fn repo_validate_invalid_repo_still_returns_structured_payload() {
 
     let records_dir = temp.path().join("records/tier-2");
     std::fs::create_dir_all(&records_dir).unwrap();
-    std::fs::write(
-        temp.path().join("manifest.json"),
+    write_manifest_fixture(
+        temp.path(),
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .unwrap();
@@ -2288,8 +2295,8 @@ fn repo_extensions_list_returns_declared_extensions() {
         "dataModelRevision": 2,
         "declaredExtensions": ["ext:repository", "ext:relations"]
     });
-    std::fs::write(
-        temp.path().join("manifest.json"),
+    write_manifest_fixture(
+        temp.path(),
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .unwrap();
@@ -2330,8 +2337,8 @@ fn repo_extensions_disable_removes_extension() {
         "dataModelRevision": 2,
         "declaredExtensions": ["ext:test"]
     });
-    std::fs::write(
-        temp.path().join("manifest.json"),
+    write_manifest_fixture(
+        temp.path(),
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .unwrap();
@@ -2377,8 +2384,8 @@ fn note_update_rewrites_note_and_manifest() {
         "dataModelRevision": 2,
         "repositoryId": "test-repo",
     });
-    std::fs::write(
-        temp.path().join("manifest.json"),
+    write_manifest_fixture(
+        temp.path(),
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .unwrap();
@@ -2436,8 +2443,8 @@ fn note_delete_removes_note_and_manifest_entry() {
         "dataModelRevision": 2,
         "repositoryId": "test-repo",
     });
-    std::fs::write(
-        temp.path().join("manifest.json"),
+    write_manifest_fixture(
+        temp.path(),
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .unwrap();
@@ -2494,8 +2501,8 @@ fn note_tag_add_adds_tag_to_note() {
         "dataModelRevision": 2,
         "repositoryId": "test-repo",
     });
-    std::fs::write(
-        temp.path().join("manifest.json"),
+    write_manifest_fixture(
+        temp.path(),
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .unwrap();
@@ -2542,8 +2549,8 @@ fn note_tag_remove_removes_tag_from_note() {
         "dataModelRevision": 2,
         "repositoryId": "test-repo",
     });
-    std::fs::write(
-        temp.path().join("manifest.json"),
+    write_manifest_fixture(
+        temp.path(),
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .unwrap();
@@ -2917,8 +2924,8 @@ fn record_list_returns_records_by_type() {
         "dataModelRevision": 2,
         "repositoryId": "test-repo",
     });
-    std::fs::write(
-        temp.path().join("manifest.json"),
+    write_manifest_fixture(
+        temp.path(),
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .unwrap();
@@ -2996,8 +3003,8 @@ fn find_type_flag_is_alias_for_type_namespace_and_type_name() {
         "dataModelRevision": 2,
         "repositoryId": "test-repo",
     });
-    std::fs::write(
-        temp.path().join("manifest.json"),
+    write_manifest_fixture(
+        temp.path(),
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .unwrap();
@@ -3091,8 +3098,8 @@ fn record_get_returns_record_by_id() {
         "dataModelRevision": 2,
         "repositoryId": "test-repo",
     });
-    std::fs::write(
-        temp.path().join("manifest.json"),
+    write_manifest_fixture(
+        temp.path(),
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .unwrap();
@@ -3286,8 +3293,8 @@ fn record_delete_removes_file_and_manifest_entry() {
         "dataModelRevision": 2,
         "repositoryId": "test-repo",
     });
-    std::fs::write(
-        temp.path().join("manifest.json"),
+    write_manifest_fixture(
+        temp.path(),
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .unwrap();
@@ -3573,8 +3580,8 @@ fn relation_create_writes_standalone_object() {
         "dataModelRevision": 2,
         "repositoryId": "test-repo",
     });
-    std::fs::write(
-        temp.path().join("manifest.json"),
+    write_manifest_fixture(
+        temp.path(),
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .unwrap();
@@ -3676,8 +3683,8 @@ fn relation_create_accepts_canonical_schema_pointer() {
         "dataModelRevision": 2,
         "repositoryId": "test-repo",
     });
-    std::fs::write(
-        temp.path().join("manifest.json"),
+    write_manifest_fixture(
+        temp.path(),
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .unwrap();
@@ -3765,8 +3772,8 @@ fn relation_create_accepts_canonical_schema_pointer() {
 #[test]
 fn relation_create_rejects_mismatched_schema_pointer() {
     let temp = create_temp_repo();
-    std::fs::write(
-        temp.path().join("manifest.json"),
+    write_manifest_fixture(
+        temp.path(),
         serde_json::to_string_pretty(&serde_json::json!({
             "srsVersion": "2.0-draft",
             "dataModelRevision": 2,
@@ -4041,8 +4048,8 @@ fn create_temp_repo_with_protocol_package() -> TempDir {
     let temp = TempDir::new().expect("Failed to create temp dir");
     std::fs::create_dir_all(temp.path().join(".srs")).unwrap();
 
-    std::fs::write(
-        temp.path().join("manifest.json"),
+    write_manifest_fixture(
+        temp.path(),
         serde_json::to_string_pretty(&serde_json::json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
@@ -4461,8 +4468,8 @@ fn make_container_test_repo() -> TempDir {
     let manifest = serde_json::json!({
         "dataModelRevision": 2
     });
-    std::fs::write(
-        temp.path().join("manifest.json"),
+    write_manifest_fixture(
+        temp.path(),
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .expect("Failed to write manifest");
@@ -5500,8 +5507,8 @@ fn container_scope_relation_list_filters_to_internal() {
     let manifest = serde_json::json!({
         "dataModelRevision": 2
     });
-    std::fs::write(
-        temp.path().join("manifest.json"),
+    write_manifest_fixture(
+        temp.path(),
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .unwrap();
@@ -5712,8 +5719,8 @@ fn create_temp_repo_with_package() -> TempDir {
         },
         "createdAt": "2026-01-01T00:00:00Z"
     });
-    std::fs::write(
-        temp.path().join("manifest.json"),
+    write_manifest_fixture(
+        temp.path(),
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .unwrap();
@@ -5851,7 +5858,7 @@ fn slice_export_writes_a_valid_slice_archive() {
     let temp = create_temp_repo_with_package();
     let manifest: serde_json::Value =
         serde_json::from_slice(&std::fs::read(temp.path().join("manifest.json")).unwrap()).unwrap();
-    let root = manifest["container"]["containerId"].as_str().unwrap();
+    let root = manifest["rootContainerId"].as_str().unwrap();
     let out = temp.path().join("root.srs");
     let out = out.to_str().unwrap();
 
@@ -6081,8 +6088,8 @@ fn type_list_with_package_filter() {
 fn create_temp_repo_with_views() -> TempDir {
     let temp = TempDir::new().expect("Failed to create temp dir");
     std::fs::create_dir_all(temp.path().join(".srs")).unwrap();
-    std::fs::write(
-        temp.path().join("manifest.json"),
+    write_manifest_fixture(
+        temp.path(),
         serde_json::to_string_pretty(&serde_json::json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
@@ -8292,7 +8299,7 @@ fn repo_migrations_lists_the_registered_migrations() {
     let migrations = result["payload"]["migrations"]
         .as_array()
         .expect("migrations must be an array");
-    assert_eq!(migrations.len(), 15, "expected exactly fifteen migrations");
+    assert_eq!(migrations.len(), 16, "expected exactly sixteen migrations");
 
     let ids: Vec<&str> = migrations
         .iter()
@@ -8312,6 +8319,7 @@ fn repo_migrations_lists_the_registered_migrations() {
             "discovery-query-cutover",
             "rfc043-container-entries",
             "rfc046-actor-provenance",
+            "rfc052-root-container",
             "migrate-identity",
             "repo-upgrade",
             "core-relation-type-reference-cleanup",
@@ -8522,10 +8530,8 @@ fn repo_apply_migration_field_type_rewrites_a_legacy_field_end_to_end() {
         std::fs::remove_file(entry.unwrap().path()).unwrap();
     }
     manifest["instanceIndex"] = serde_json::json!([]);
-    let container = manifest["container"].as_object_mut().unwrap();
-    container.remove("identityInstanceId");
-    container.remove("memberInstanceIds");
-    // Any scaffolded container files in containers/ carry the same refs.
+    // The scaffolded container files in containers/ (the root included, RFC-052)
+    // carry the purpose record's refs.
     if let Ok(entries) = std::fs::read_dir(repo.join("containers")) {
         for entry in entries {
             let path = entry.unwrap().path();
@@ -8639,6 +8645,11 @@ fn repo_apply_migration_field_type_rewrites_a_legacy_field_end_to_end() {
         &["repo", "apply-migration", "--id", "rfc046-actor-provenance"],
     );
     assert_eq!(rfc046["ok"], true, "expected ok: {rfc046:?}");
+    let rfc052 = run_srs_in_dir(
+        repo,
+        &["repo", "apply-migration", "--id", "rfc052-root-container"],
+    );
+    assert_eq!(rfc052["ok"], true, "expected ok: {rfc052:?}");
     let storage = run_srs_in_dir(repo, &["repo", "apply-migration", "--id", "rfc038-storage"]);
     assert_eq!(storage["ok"], true, "expected ok: {storage:?}");
     let after = run_srs_in_dir(repo, &["repo", "validate"]);
@@ -8886,4 +8897,11 @@ fn find_similar_excludes_source_ranks_related_and_rejects_text() {
     // Refused at parse time (clap conflict); core also rejects contentMatch as a backstop.
     let (ok, _) = run_srs_raw(dir, &["find", "--similar", &src, "--text", "x"]);
     assert!(!ok, "--similar with --text must be refused");
+}
+
+/// Write a manifest fixture; an embedded root (the pre-RFC-052 shape these fixtures are
+/// written in) lands in the container set, named by `rootContainerId`.
+fn write_manifest_fixture(dir: &std::path::Path, content: impl AsRef<str>) -> std::io::Result<()> {
+    let value: serde_json::Value = serde_json::from_str(content.as_ref()).expect("manifest JSON");
+    srs_repository::rfc052_root_container_migration_service::write_fixture_manifest(dir, &value)
 }
