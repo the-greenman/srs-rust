@@ -91,8 +91,15 @@ pub fn list_containers(
     store: &dyn RepositoryStore,
     filter: &ContainerListFilter,
 ) -> Result<Vec<ContainerSummary>, RepositoryError> {
-    // RFC-052: the root container is an ordinary member of the container set.
-    let summaries_raw = store.list_container_summaries()?;
+    // RFC-052: the root container is an ordinary member of the container set. It is listed
+    // first, as it was while the manifest embedded it.
+    let mut summaries_raw = store.list_container_summaries()?;
+    if let Some(root_id) = store.load_manifest()?.root_container_id() {
+        if let Some(i) = summaries_raw.iter().position(|(id, _)| id == root_id) {
+            let root = summaries_raw.remove(i);
+            summaries_raw.insert(0, root);
+        }
+    }
 
     let mut summaries = Vec::new();
     for (container_id, _title) in summaries_raw {
