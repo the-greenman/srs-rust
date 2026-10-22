@@ -5,7 +5,7 @@
 use crate::commands::{with_store, CliContext, MigrateCommand};
 use crate::output;
 use crate::payload::MigratePacketPayload;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use srs_repository::analysis::build_migration_packet_for_profile;
 
 pub fn dispatch(ctx: CliContext, cmd: MigrateCommand) -> Result<String> {
@@ -19,8 +19,8 @@ pub fn dispatch(ctx: CliContext, cmd: MigrateCommand) -> Result<String> {
 
 fn cmd_migrate_packet(ctx: CliContext, foundation: bool) -> Result<String> {
     if !foundation {
-        return Err(anyhow!(
-            "migrate packet currently requires the --foundation profile"
+        return Err(crate::commands::invalid_input(
+            "migrate packet currently requires the --foundation profile",
         ));
     }
 

@@ -79,12 +79,12 @@ fn cmd_render_composition(
                 // not repository management. This is intentionally in the CLI layer.
                 let content = if let Some(ref proj) = projection {
                     serde_json::to_string_pretty(proj)
-                        .map_err(|e| anyhow::anyhow!("failed to serialize projection: {}", e))?
+                        .map_err(|e| crate::commands::serialize_failure("projection", e))?
                 } else {
                     result.rendered.clone()
                 };
                 std::fs::write(&path, content.as_bytes()).map_err(|e| {
-                    anyhow::anyhow!("failed to write output file {:?}: {}", path, e)
+                    crate::commands::io_failure("failed to write output file", &path, e)
                 })?;
             }
             output::serialize(
@@ -107,7 +107,7 @@ fn cmd_render_export_bundle(
     output_path: PathBuf,
 ) -> Result<String> {
     let mut file = std::fs::File::create(&output_path)
-        .map_err(|e| anyhow::anyhow!("cannot create output file {:?}: {}", output_path, e))?;
+        .map_err(|e| crate::commands::io_failure("cannot create output file", &output_path, e))?;
     match with_store(&ctx, |store| {
         Ok(export_record_bundle(
             store,
@@ -147,7 +147,7 @@ fn cmd_render_okf_bundle(
     }) {
         Ok(bundle) => {
             std::fs::create_dir_all(&output_path).map_err(|e| {
-                anyhow::anyhow!("cannot create output directory {:?}: {}", output_path, e)
+                crate::commands::io_failure("cannot create output directory", &output_path, e)
             })?;
             let file_count = write_okf_bundle_to_dir(&bundle, &output_path)?;
             output::serialize(
@@ -178,16 +178,17 @@ fn write_okf_bundle_to_dir(bundle: &OkfBundle, dir: &Path) -> Result<usize> {
         let entry_path = dir.join(&entry.path);
         if let Some(parent) = entry_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
-                anyhow::anyhow!("cannot create output directory {:?}: {}", parent, e)
+                crate::commands::io_failure("cannot create output directory", parent, e)
             })?;
         }
-        std::fs::write(&entry_path, content.as_bytes())
-            .map_err(|e| anyhow::anyhow!("failed to write {:?}: {}", entry.path, e))?;
+        std::fs::write(&entry_path, content.as_bytes()).map_err(|e| {
+            crate::commands::io_failure("failed to write entry file", &entry_path, e)
+        })?;
         index_lines.push(format!("- [{}]({})", entry.display_label, entry.path));
     }
 
     std::fs::write(&index_path, index_lines.join("\n").as_bytes())
-        .map_err(|e| anyhow::anyhow!("failed to write index.md: {}", e))?;
+        .map_err(|e| crate::commands::io_failure("failed to write index.md", &index_path, e))?;
 
     // entry files + index.md
     Ok(bundle.entries.len() + 1)

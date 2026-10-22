@@ -13,12 +13,12 @@ pub fn dispatch(ctx: CliContext, cmd: ArchiveCommand) -> Result<String> {
 
 fn cmd_archive_pack(ctx: CliContext, output: PathBuf) -> Result<String> {
     let mut file = std::fs::File::create(&output)
-        .map_err(|e| anyhow::anyhow!("cannot create output file {:?}: {}", output, e))?;
+        .map_err(|e| crate::commands::io_failure("cannot create output file", &output, e))?;
     with_store(&ctx, |store| {
         srs_repository::archive_pack(store, &mut file).map_err(anyhow::Error::from)
     })?;
     let file_size_bytes = std::fs::metadata(&output)
-        .map_err(|e| anyhow::anyhow!("cannot stat output file {:?}: {}", output, e))?
+        .map_err(|e| crate::commands::io_failure("cannot stat output file", &output, e))?
         .len();
     output::serialize(
         "archive pack",
@@ -31,7 +31,7 @@ fn cmd_archive_pack(ctx: CliContext, output: PathBuf) -> Result<String> {
 
 fn cmd_archive_unpack(source: PathBuf, target: PathBuf) -> Result<String> {
     let file = std::fs::File::open(&source)
-        .map_err(|e| anyhow::anyhow!("cannot open archive {:?}: {}", source, e))?;
+        .map_err(|e| crate::commands::io_failure("cannot open archive", &source, e))?;
     // archive_unpack returns the repositoryId extracted from the manifest,
     // so a second load_manifest() call is not needed (ADR-010).
     let repository_id = with_new_file_store(&target, |store| {

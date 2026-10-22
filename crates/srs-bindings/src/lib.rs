@@ -63,7 +63,7 @@ use wasm_bindgen::prelude::*;
 /// native JSON.parse. This is more reliable than serde_wasm_bindgen::to_value for structs
 /// that use #[serde(flatten)] or complex serde transformations.
 fn to_js<T: serde::Serialize>(value: &T) -> Result<JsValue, JsValue> {
-    let json = serde_json::to_string(value).map_err(|e| js_unclassified(e.to_string()))?;
+    let json = serde_json::to_string(value).map_err(|e| js_serialize("binding result", e))?;
     js_sys::JSON::parse(&json).map_err(|e| js_unclassified(format!("{e:?}")))
 }
 
@@ -101,6 +101,14 @@ fn js_invalid_input(message: impl Into<String>) -> JsValue {
     report_to_js(ErrorReport {
         message: message.clone(),
         ..RepositoryError::InvalidInput { message }.report()
+    })
+}
+
+/// Code `serialize`: a value the engine produced could not be written as JSON.
+fn js_serialize(what: &str, source: serde_json::Error) -> JsValue {
+    js_err(&RepositoryError::Serialize {
+        path: std::path::PathBuf::from(what),
+        source,
     })
 }
 
@@ -1318,7 +1326,7 @@ impl SrsRepository {
         )
         .map_err(|e| js_err(&e))?;
         let canonical_json = srs_projection::json_schema::to_canonical_json(&result.schema)
-            .map_err(|e| js_unclassified(format!("failed to serialize canonical JSON: {e}")))?;
+            .map_err(|e| js_serialize("canonical JSON schema", e))?;
         to_js(&JsonSchemaBindingResult {
             schema: serde_json::to_value(&result.schema).unwrap_or(serde_json::Value::Null),
             canonical_json,
@@ -1342,7 +1350,7 @@ impl SrsRepository {
         )
         .map_err(|e| js_err(&e))?;
         let canonical_json = srs_projection::json_schema::to_canonical_json(&result.bundle)
-            .map_err(|e| js_unclassified(format!("failed to serialize canonical JSON: {e}")))?;
+            .map_err(|e| js_serialize("canonical JSON schema", e))?;
         to_js(&JsonSchemaBindingResult {
             schema: serde_json::to_value(&result.bundle).unwrap_or(serde_json::Value::Null),
             canonical_json,
