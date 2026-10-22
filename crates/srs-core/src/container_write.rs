@@ -5,7 +5,7 @@
 
 use crate::arrangement::{self, Violation};
 use crate::arrangement_key::{key_between, CODE_KEY};
-use crate::container_decode::{decode, StoredEntry, CODE_CYCLE, CODE_ORPHAN};
+use crate::container_decode::{decode, StoredEntry};
 use crate::types::container::ContainerEntry;
 use std::collections::{HashMap, HashSet};
 
@@ -30,15 +30,21 @@ pub fn write_set(
     op: impl FnOnce(&[ContainerEntry]) -> Result<Vec<ContainerEntry>, Violation>,
 ) -> Result<WriteSet, Violation> {
     let decoded = decode(stored, identity);
-    let (attached, mut written) = rekey(stored, &detached(&decoded), &decoded.entries, None)?;
+    let (attached, mut written) = rekey(stored, &decoded.entries, None)?;
     let outline = op(&decoded.entries)?;
     let moved = moved.filter(|_| outline != decoded.entries);
-    let (next, w) = rekey(&attached, &HashSet::new(), &outline, moved)?;
+    let (next, w) = rekey(&attached, &outline, moved)?;
     written.extend(w);
+    debug_assert_eq!(
+        decode(&next, identity).entries,
+        outline,
+        "`moved` must name the moved entry"
+    );
     Ok(finish(stored, next, &written, outline))
 }
 
-/// [R11] step 1: remove the entries `keep` rejects (RFC-043 [R20], promoting their runs)
+/// [R11] step 1 (steps 2 and 3, headless directories and the report, are storage work):
+/// remove the entries `keep` rejects (RFC-043 [R20], promoting their runs)
 /// and re-attach every orphan and loop break at the end of the top level, in decoding
 /// order. It never removes a detached entry that `keep` accepts.
 pub fn repair(
@@ -48,17 +54,8 @@ pub fn repair(
 ) -> Result<WriteSet, Violation> {
     let decoded = decode(stored, identity);
     let outline = arrangement::retain_promoting(&decoded.entries, keep).0;
-    let (next, written) = rekey(stored, &detached(&decoded), &outline, None)?;
+    let (next, written) = rekey(stored, &outline, None)?;
     Ok(finish(stored, next, &written, outline))
-}
-
-fn detached(decoded: &crate::container_decode::Decoded) -> HashSet<String> {
-    decoded
-        .findings
-        .iter()
-        .filter(|f| f.code == CODE_ORPHAN || f.code == CODE_CYCLE)
-        .map(|f| f.instance_id.clone())
-        .collect()
 }
 
 fn finish(
@@ -85,11 +82,11 @@ fn finish(
 }
 
 /// The stored state for `target` (in outline order) and the ids written to reach it from
-/// `stored`. Written: new entries, `force`d ones, `moved`, entries whose `parent` changes,
-/// and the tied siblings [R9] adds. Every other entry keeps its `parent` and `key`.
+/// `stored`. Written: new entries, `moved`, entries whose `parent` changes (which includes
+/// every re-attached orphan and loop break: stored with a parent, decoded without), and
+/// the tied siblings [R9] adds. Every other entry keeps its `parent` and `key`.
 fn rekey(
     stored: &[StoredEntry],
-    force: &HashSet<String>,
     target: &[ContainerEntry],
     moved: Option<&str>,
 ) -> Result<(Vec<StoredEntry>, HashSet<String>), Violation> {
@@ -109,9 +106,7 @@ fn rekey(
         .iter()
         .map(|e| {
             let id = e.instance_id.as_str();
-            old.get(id).is_none_or(|o| o.parent != e.parent)
-                || force.contains(id)
-                || moved == Some(id)
+            old.get(id).is_none_or(|o| o.parent != e.parent) || moved == Some(id)
         })
         .collect();
 
@@ -494,11 +489,14 @@ mod tests {
         for s in &bases {
             let outline = decode(s, None).entries;
             let ids: Vec<String> = outline.iter().map(|e| e.instance_id.clone()).collect();
-            let has_ties = s.iter().any(|a| {
-                s.iter().any(|b| {
-                    a.instance_id != b.instance_id && a.parent == b.parent && a.key == b.key
+            let tied_entry = |id: &str| {
+                s.iter().any(|a| {
+                    a.instance_id == id
+                        && s.iter().any(|b| {
+                            a.instance_id != b.instance_id && a.parent == b.parent && a.key == b.key
+                        })
                 })
-            });
+            };
             let mut ops: Vec<(Option<String>, Box<Op>)> = Vec::new();
             for pos in 0..=ids.len() {
                 for depth in 0..4 {
@@ -549,7 +547,11 @@ mod tests {
                     }
                 }
             }
-            let reattached: HashSet<String> = detached(&decode(s, None));
+            let reattached: HashSet<String> = decode(s, None)
+                .findings
+                .into_iter()
+                .map(|f| f.instance_id)
+                .collect();
             for (moved, op) in &ops {
                 let Ok(ws) = write_set(s, None, moved.as_deref(), op) else {
                     continue;
@@ -562,7 +564,7 @@ mod tests {
                     let justified = old.is_none_or(|o| o.parent != e.parent)
                         || moved.as_deref() == Some(e.instance_id.as_str())
                         || reattached.contains(&e.instance_id)
-                        || has_ties;
+                        || tied_entry(&e.instance_id);
                     assert!(justified, "unjustified write {e:?} in {ws:?}");
                 }
             }
