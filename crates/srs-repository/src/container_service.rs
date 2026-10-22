@@ -604,6 +604,146 @@ pub fn delete_container(
     Ok(container_id.to_string())
 }
 
+/// Why a member of a container being deleted stays (srs-rust#1436).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum KeptReason {
+    /// Another container (not being deleted) lists it.
+    HeldElsewhere,
+    /// A record that stays is `derived-from` it, directly or through other members.
+    Lineage,
+}
+
+/// A member of a container being deleted that is kept, and why.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeptInstance {
+    pub instance_id: String,
+    pub reason: KeptReason,
+}
+
+/// What deleting some containers takes with them (srs-rust#1436).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerDeletePlan {
+    /// The requested containers that exist: deleted.
+    pub container_ids: Vec<String>,
+    /// Requested ids naming no container: nothing to delete.
+    pub missing_container_ids: Vec<String>,
+    /// The instances only these containers hold (declared membership, RFC-034), in member order:
+    /// deleted with them.
+    pub instance_ids: Vec<String>,
+    /// Their other members, which stay.
+    pub kept: Vec<KeptInstance>,
+}
+
+/// **delete plan** (srs-rust#1436): what deleting `container_ids` takes with it, without writing.
+/// A member goes with them when no other container lists it and no record that stays is
+/// `derived-from` it, transitively (keeping a record keeps its lineage, which may keep more).
+/// Refuses the RFC-013 root container, as [`delete_container`] does.
+pub fn container_delete_plan(
+    store: &dyn RepositoryStore,
+    container_ids: &[String],
+) -> Result<ContainerDeletePlan, RepositoryError> {
+    let existing: HashSet<String> = list_containers(store, &ContainerListFilter::default())?
+        .into_iter()
+        .map(|c| c.container_id)
+        .collect();
+    let (ours, missing): (Vec<String>, Vec<String>) = container_ids
+        .iter()
+        .cloned()
+        .partition(|id| existing.contains(id) || is_root_container(store, id));
+    if let Some(root) = ours.iter().find(|id| is_root_container(store, id)) {
+        return Err(RepositoryError::ContainerIsRepositoryRoot {
+            container_id: root.clone(),
+        });
+    }
+
+    let mut members: Vec<String> = Vec::new();
+    for id in &ours {
+        let (container, _) = load_container_with_embed_fallback(store, id)?;
+        for m in direct_member_ids(&container) {
+            if !members.contains(&m) {
+                members.push(m);
+            }
+        }
+    }
+
+    let index = membership_index(store)?;
+    let mut kept = Vec::new();
+    let mut going: Vec<String> = Vec::new();
+    for id in members {
+        let elsewhere = index
+            .get(&id)
+            .is_some_and(|cs| cs.iter().any(|c| !ours.contains(c)));
+        if elsewhere {
+            kept.push(KeptInstance {
+                instance_id: id,
+                reason: KeptReason::HeldElsewhere,
+            });
+        } else {
+            going.push(id);
+        }
+    }
+
+    // Lineage, to a fixed point: a record outside the going set that derives from a going one
+    // keeps it, and keeping it may keep what that one derives from.
+    let derived: Vec<_> = store
+        .list_relations()?
+        .into_iter()
+        .filter(|r| r.relation_type == "derived-from")
+        .collect();
+    loop {
+        let set: HashSet<&String> = going.iter().collect();
+        let (stay, lineage): (Vec<String>, Vec<String>) = going.iter().cloned().partition(|id| {
+            !derived
+                .iter()
+                .any(|r| &r.target_instance_id == id && !set.contains(&r.source_instance_id))
+        });
+        if lineage.is_empty() {
+            break;
+        }
+        kept.extend(lineage.into_iter().map(|instance_id| KeptInstance {
+            instance_id,
+            reason: KeptReason::Lineage,
+        }));
+        going = stay;
+    }
+
+    Ok(ContainerDeletePlan {
+        container_ids: ours,
+        missing_container_ids: missing,
+        instance_ids: going,
+        kept,
+    })
+}
+
+/// **delete with records** (srs-rust#1436): carry out [`container_delete_plan`]. The instances
+/// go first (each through its own delete, incident relations cascaded), then the containers, so
+/// a failure part-way leaves the containers and a retry plans again; it never leaves an
+/// instance that belongs to nothing because its container went first.
+pub fn delete_containers_with_records(
+    store: &dyn RepositoryStore,
+    container_ids: &[String],
+) -> Result<ContainerDeletePlan, RepositoryError> {
+    let plan = container_delete_plan(store, container_ids)?;
+    for id in &plan.instance_ids {
+        match store.find_instance(id)?.map(|r| r.tier) {
+            Some(0) => {
+                crate::services::delete_note(store, id)?;
+            }
+            Some(_) => {
+                crate::record_store::delete_record(store, id, true)?;
+            }
+            None => {}
+        }
+    }
+    for id in &plan.container_ids {
+        delete_container(store, id)?;
+    }
+    Ok(plan)
+}
+
 /// The **one** typing-anchor resolution (RFC-009 Change A, amended by srs#446/I-145 and
 /// RFC-043 [R4]): the declared `anchorInstanceId`, nothing else. The transitional
 /// `rootInstanceIds[0]` fallback is withdrawn with `rootInstanceIds`. Pure — no I/O.
@@ -1790,6 +1930,118 @@ mod tests {
     }
 
     // --- Owner ruling srs-rust#742: `container delete` refuses the RFC-013 root ---
+
+    /// A page container (P) and another (O): `only` is P's alone; `shared` is in both; `kept`
+    /// (in O) derives from `mid` (P's), which derives from `base` (P's), so both stay (srs-rust#1436).
+    fn delete_plan_fixture() -> (MemoryStore, [&'static str; 5]) {
+        let store = make_store();
+        let ids @ [only, shared, mid, base, kept] = [
+            "a1000000-0000-4000-8000-000000000001",
+            "a1000000-0000-4000-8000-000000000002",
+            "a1000000-0000-4000-8000-000000000003",
+            "a1000000-0000-4000-8000-000000000004",
+            "a1000000-0000-4000-8000-000000000005",
+        ];
+        for id in ids {
+            seed_instance(&store, id);
+        }
+        let with = |id: &str, title: &str, members: &[&str]| {
+            let mut c = minimal_container(id, title);
+            c.member_instance_ids = Some(srs_core::types::container::entries(
+                members.iter().map(|m| m.to_string()).collect::<Vec<_>>(),
+            ));
+            create_container(&store, c).unwrap();
+        };
+        with(
+            "c1000000-0000-4000-8000-00000000000a",
+            "Page",
+            &[only, shared, mid, base],
+        );
+        with(
+            "c1000000-0000-4000-8000-00000000000b",
+            "Other",
+            &[shared, kept],
+        );
+        for (n, (source, target)) in [(kept, mid), (mid, base)].into_iter().enumerate() {
+            store
+                .save_relation(&srs_core::types::relation::Relation {
+                    created_by: None,
+                    relation_id: format!("de100000-0000-4000-a000-00000000000{n}"),
+                    relation_type: "derived-from".to_string(),
+                    source_instance_id: source.to_string(),
+                    target_instance_id: target.to_string(),
+                    created_at: None,
+                    notes: None,
+                    source_refs: None,
+                    meta: None,
+                })
+                .unwrap();
+        }
+        (store, ids)
+    }
+
+    #[test]
+    fn delete_plan_keeps_shared_members_and_the_whole_lineage_of_a_kept_record() {
+        let (store, [only, shared, mid, base, _]) = delete_plan_fixture();
+        let missing = "c1000000-0000-4000-8000-0000000000ff".to_string();
+        let plan = container_delete_plan(
+            &store,
+            &[
+                "c1000000-0000-4000-8000-00000000000a".to_string(),
+                missing.clone(),
+            ],
+        )
+        .unwrap();
+        assert_eq!(plan.container_ids, ["c1000000-0000-4000-8000-00000000000a"]);
+        assert_eq!(plan.missing_container_ids, [missing]);
+        assert_eq!(plan.instance_ids, [only]);
+        let kept = |id: &str| {
+            plan.kept
+                .iter()
+                .find(|k| k.instance_id == id)
+                .map(|k| k.reason)
+        };
+        assert_eq!(kept(shared), Some(KeptReason::HeldElsewhere));
+        assert_eq!(kept(mid), Some(KeptReason::Lineage));
+        assert_eq!(
+            kept(base),
+            Some(KeptReason::Lineage),
+            "kept transitively, whatever the order"
+        );
+        // a plan writes nothing
+        assert!(store.find_instance(only).unwrap().is_some());
+    }
+
+    #[test]
+    fn delete_plan_refuses_the_repository_root() {
+        let embed_id = "aaa00000-0000-4000-8000-000000000001";
+        let store = embed_only_store(embed_id, "Root");
+        let err = container_delete_plan(&store, &[embed_id.to_string()]).unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::ContainerIsRepositoryRoot { .. }),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn delete_with_records_deletes_what_only_the_container_holds() {
+        let (store, [only, shared, mid, base, kept]) = delete_plan_fixture();
+        let page = "c1000000-0000-4000-8000-00000000000a";
+        let plan = delete_containers_with_records(&store, &[page.to_string()]).unwrap();
+        assert_eq!(plan.instance_ids, [only]);
+        assert!(store.find_instance(only).unwrap().is_none(), "deleted");
+        for id in [shared, mid, base, kept] {
+            assert!(store.find_instance(id).unwrap().is_some(), "{id} stays");
+        }
+        assert!(get_container(&store, page).is_err(), "container deleted");
+        assert_eq!(
+            crate::relation_service::load_relations(&store)
+                .unwrap()
+                .len(),
+            2,
+            "the lineage is intact"
+        );
+    }
 
     #[test]
     fn delete_container_refuses_embed_only_root() {
