@@ -1,4 +1,5 @@
 pub mod arrangement;
+pub mod arrangement_key;
 pub mod error;
 pub mod extensions;
 pub mod markdown;
