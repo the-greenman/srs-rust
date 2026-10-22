@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "InstanceGetPayload",
+  "description": "Payload for `instance get` — any instance read through one entry point, tagged by tier.\n\n`kind` is `\"note\"` (carries `note`) or `\"record\"` (carries `instanceId`, `displayLabel`, `record`, the same shape as `record get`).",
+  "type": "object",
+  "required": [
+    "kind"
+  ],
+  "properties": {
+    "displayLabel": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "instanceId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "kind": {
+      "type": "string"
+    },
+    "note": true,
+    "record": true
+  }
+}

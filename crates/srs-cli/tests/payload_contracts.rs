@@ -48,6 +48,11 @@ fn note_list() {
 }
 
 #[test]
+fn instance_get() {
+    check::<InstanceGetPayload>("instance-get");
+}
+
+#[test]
 fn note_get() {
     check::<NotePayload>("note-get");
 }

@@ -6,6 +6,7 @@ pub mod container;
 pub mod context;
 pub mod field;
 pub mod find;
+pub mod instance;
 pub mod lifecycle;
 pub mod mcp;
 pub mod migrate;
@@ -331,6 +332,9 @@ pub enum Commands {
     /// Note management commands
     #[command(subcommand)]
     Note(NoteCommand),
+    /// Read any instance (Note or Record) without knowing its tier
+    #[command(subcommand)]
+    Instance(InstanceCommand),
     /// JSON Schema generation (RFC-035)
     #[command(subcommand)]
     Schema(SchemaCommand),
@@ -595,6 +599,15 @@ pub enum ContainerMembersCommand {
     },
     /// Remove every entry whose instance no longer resolves (RFC-043 repair)
     Repair { container_id: String },
+}
+
+#[derive(Subcommand)]
+pub enum InstanceCommand {
+    /// Get an instance by ID: a Note or a Record, tagged by `kind`
+    Get {
+        /// Instance ID (Note or Record)
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2017,6 +2030,7 @@ pub fn dispatch(cli: Cli) -> Result<String> {
 
     match cli.command {
         Commands::Note(note_cmd) => note::dispatch(ctx, note_cmd),
+        Commands::Instance(instance_cmd) => instance::dispatch(ctx, instance_cmd),
         Commands::Schema(schema_cmd) => schema::dispatch(ctx, schema_cmd),
         Commands::Repo(repo_cmd) => repo::dispatch(ctx, repo_cmd),
         Commands::Migrate(migrate_cmd) => migrate::dispatch(ctx, migrate_cmd),

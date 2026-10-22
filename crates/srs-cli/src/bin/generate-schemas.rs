@@ -25,6 +25,9 @@ fn main() {
         }};
     }
 
+    // Instance payloads
+    write_schema!("instance-get", InstanceGetPayload);
+
     // Note payloads
     write_schema!("note-list", NoteListPayload);
     write_schema!("note-get", NotePayload);

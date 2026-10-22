@@ -51,7 +51,7 @@ use srs_repository::{
     },
     relation_service::RelationSummary,
     repository_navigation_service::RepositoryNavigation,
-    services::{ListNoteTagsResult, NoteSummary, TagSummary},
+    services::{InstanceRead, ListNoteTagsResult, NoteSummary, TagSummary},
     theme_service::ThemeSummary,
     validation::{RepositoryValidationReport, ValidationSummary},
     view_service::{CompositionSummary, ViewSummary},
@@ -376,6 +376,51 @@ impl From<RecordSummary> for RecordGetPayload {
             instance_id: s.instance_id,
             display_label: s.display_label,
             record: s.record,
+        }
+    }
+}
+
+/// Payload for `instance get` — any instance read through one entry point, tagged by tier.
+///
+/// `kind` is `"note"` (carries `note`) or `"record"` (carries `instanceId`, `displayLabel`,
+/// `record`, the same shape as `record get`).
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InstanceGetPayload {
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<serde_json::Value>")]
+    pub note: Option<Note>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<serde_json::Value>")]
+    pub record: Option<Record>,
+}
+
+impl From<InstanceRead> for InstanceGetPayload {
+    fn from(r: InstanceRead) -> Self {
+        match r {
+            InstanceRead::Note { note } => Self {
+                kind: "note".into(),
+                note: Some(*note),
+                instance_id: None,
+                display_label: None,
+                record: None,
+            },
+            InstanceRead::Record {
+                instance_id,
+                display_label,
+                record,
+            } => Self {
+                kind: "record".into(),
+                note: None,
+                instance_id: Some(instance_id),
+                display_label: Some(display_label),
+                record: Some(*record),
+            },
         }
     }
 }
