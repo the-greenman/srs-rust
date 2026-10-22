@@ -488,6 +488,18 @@ impl SrsRepository {
         }
     }
 
+    /// Get any instance (Tier 0 Note or Tier 2 Record) by ID through one call.
+    ///
+    /// Returns `{ kind: "note", note }` or `{ kind: "record", instanceId, displayLabel, record }`
+    /// as a JS value, or `null` if no instance has that ID. Never throws on a Note, so a client
+    /// need not know the tier before choosing a read call.
+    pub fn get_instance(&self, id: &str) -> Result<JsValue, JsValue> {
+        match services::get_instance_by_id(&self.store, id).map_err(|e| js_err(&e))? {
+            Some(instance) => to_js(&instance),
+            None => Ok(JsValue::NULL),
+        }
+    }
+
     /// List notes. Returns a `ListNotesResult` as a JS value.
     pub fn list_notes(&self) -> Result<JsValue, JsValue> {
         let result = services::list_notes(&self.store, ListNotesFilter::default())

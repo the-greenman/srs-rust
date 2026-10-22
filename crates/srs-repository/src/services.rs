@@ -101,6 +101,23 @@ pub enum GetNoteResult {
     NotANote { tier: u8 },
 }
 
+/// One instance read through a single entry point, tagged by tier (`kind`).
+///
+/// A Tier 0 Note carries `note`; a Tier 2 Record carries its `RecordSummary` fields. The
+/// caller never has to know the tier before choosing a read call.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum InstanceRead {
+    #[serde(rename_all = "camelCase")]
+    Note { note: Box<Note> },
+    #[serde(rename_all = "camelCase")]
+    Record {
+        instance_id: String,
+        display_label: String,
+        record: Box<Record>,
+    },
+}
+
 /// Result of creating a note
 #[derive(Debug, Clone)]
 pub struct CreateNoteResult {
@@ -497,6 +514,30 @@ pub fn get_note_by_id(
         Some(r) if r.tier == 0 => Ok(GetNoteResult::Found(Box::new(store.load_note_by_id(id)?))),
         Some(r) => Ok(GetNoteResult::NotANote { tier: r.tier }),
         None => Ok(GetNoteResult::NotFound),
+    }
+}
+
+/// Service: Read any instance (Note or Record) by its instance ID.
+///
+/// Returns `None` when no instance has that ID.
+pub fn get_instance_by_id(
+    store: &dyn RepositoryStore,
+    id: &str,
+) -> Result<Option<InstanceRead>, RepositoryError> {
+    match store.find_instance(id)? {
+        None => Ok(None),
+        Some(r) if r.tier == 0 => Ok(Some(InstanceRead::Note {
+            note: Box::new(store.load_note_by_id(id)?),
+        })),
+        Some(_) => Ok(
+            crate::record_store::get_record_summary_by_id(store, id)?.map(|s| {
+                InstanceRead::Record {
+                    instance_id: s.instance_id,
+                    display_label: s.display_label,
+                    record: Box::new(s.record),
+                }
+            }),
+        ),
     }
 }
 
@@ -988,6 +1029,20 @@ mod tests {
             GetNoteResult::Found(n) => assert_eq!(n.title, Some("Test Note".to_string())),
             _ => panic!("Expected Found"),
         }
+    }
+
+    #[test]
+    fn get_instance_by_id_reads_a_note_and_misses_cleanly() {
+        let id = "11111111-1111-1111-8111-111111111111";
+        let note = make_note(id, "Test Note");
+        let store = store_with_note(&note, "records/notes/test-note.json");
+        match get_instance_by_id(&store, id).unwrap() {
+            Some(InstanceRead::Note { note: n }) => assert_eq!(n.instance_id, id),
+            other => panic!("expected a note, got {other:?}"),
+        }
+        assert!(get_instance_by_id(&store, "nonexistent-id")
+            .unwrap()
+            .is_none());
     }
 
     #[test]
