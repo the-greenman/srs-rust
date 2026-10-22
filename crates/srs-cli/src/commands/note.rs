@@ -52,9 +52,11 @@ fn cmd_note_get(ctx: CliContext, id: String) -> Result<String> {
             "note get",
             &RepositoryError::InstanceNotFound { id: id.clone() },
         )),
-        GetNoteResult::NotANote { tier: _ } => Ok(output::err(
+        GetNoteResult::NotANote { tier: _ } => Ok(output::repo_err(
             "note get",
-            vec![format!("Instance '{}' is not a Note (tier != 0)", id,)],
+            &RepositoryError::InvalidInput {
+                message: format!("Instance '{}' is not a Note (tier != 0)", id),
+            },
         )),
     }
 }

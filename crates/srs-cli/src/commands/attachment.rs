@@ -4,7 +4,7 @@ use crate::payload::{
     AttachmentAddPayload, AttachmentLinkPayload, AttachmentListPayload, AttachmentPolicyPayload,
     ResolveViewAttachmentsPayload,
 };
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use srs_repository::attachment_policy_service;
 use srs_repository::attachment_service::{
     self, AddAttachmentInput, LinkAttachmentInput, ListAttachmentsFilter,
@@ -77,9 +77,14 @@ fn cmd_attachment_add(
         .file_name()
         .and_then(|n| n.to_str())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("source path has no file name: {}", source.display()))?;
+        .ok_or_else(|| {
+            crate::commands::invalid_input(format!(
+                "source path has no file name: {}",
+                source.display()
+            ))
+        })?;
     let content = std::fs::read(&source)
-        .with_context(|| format!("failed to read source file: {}", source.display()))?;
+        .map_err(|e| crate::commands::io_failure("failed to read source file", &source, e))?;
     let input = AddAttachmentInput {
         enforce_policy: false,
         file_name,

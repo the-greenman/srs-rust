@@ -28,7 +28,7 @@ pub mod tree;
 pub mod view;
 pub mod vocabulary;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use srs_repository::detect::find_repo_root;
 use srs_repository::srsj::SrsjSession;
@@ -124,10 +124,10 @@ fn resolve_repo_from_cwd() -> Result<RepositoryLocation> {
 
     match (file_repo, json_repo) {
         (Some(file_repo), Some(json_repo)) if file_repo.distance == json_repo.distance => {
-            Err(anyhow!(
+            Err(invalid_input(format!(
                 "Found both file-backed and JSON-backed repositories at {}; pass --repo to choose one",
                 file_repo.path.display()
-            ))
+            )))
         }
         (Some(file_repo), Some(json_repo)) if file_repo.distance < json_repo.distance => {
             Ok(RepositoryLocation {
@@ -2046,4 +2046,34 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         Commands::Slice(cmd) => slice::dispatch(ctx, cmd),
         Commands::Mcp(mcp_cmd) => mcp::dispatch(ctx, mcp_cmd),
     }
+}
+
+/// A CLI-local argument or input check, classified `invalid-input` (ADR-053 rule 6).
+pub(crate) fn invalid_input(message: impl Into<String>) -> anyhow::Error {
+    srs_repository::error::RepositoryError::InvalidInput {
+        message: message.into(),
+    }
+    .into()
+}
+
+/// A failed read or write of a caller-named path, classified `io` and prefixed with `what`.
+pub(crate) fn io_failure(
+    what: &str,
+    path: &std::path::Path,
+    source: std::io::Error,
+) -> anyhow::Error {
+    anyhow::Error::from(srs_repository::error::RepositoryError::Io {
+        path: path.to_path_buf(),
+        source,
+    })
+    .context(what.to_string())
+}
+
+/// A failed in-memory serialization of `what`, classified `serialize`.
+pub(crate) fn serialize_failure(what: &str, source: serde_json::Error) -> anyhow::Error {
+    srs_repository::error::RepositoryError::Serialize {
+        path: std::path::PathBuf::from(what),
+        source,
+    }
+    .into()
 }

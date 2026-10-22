@@ -65,7 +65,7 @@ fn cmd_blueprint_get(ctx: CliContext, id: String) -> Result<String> {
     match with_store(&ctx, |store| Ok(get_blueprint_by_id(store, &id)?))? {
         GetBlueprintResult::Found(bp) => {
             let blueprint = serde_json::to_value(*bp)
-                .map_err(|e| anyhow::anyhow!("Failed to serialize blueprint: {e}"))?;
+                .map_err(|e| crate::commands::serialize_failure("blueprint", e))?;
             output::serialize("blueprint get", BlueprintPayload { blueprint })
         }
         GetBlueprintResult::NotFound => Ok(output::repo_err(
@@ -85,7 +85,7 @@ fn cmd_blueprint_create(ctx: CliContext, package: Option<String>) -> Result<Stri
     })?;
 
     let blueprint = serde_json::to_value(result.blueprint)
-        .map_err(|e| anyhow::anyhow!("Failed to serialize blueprint: {e}"))?;
+        .map_err(|e| crate::commands::serialize_failure("blueprint", e))?;
     output::serialize("blueprint create", BlueprintPayload { blueprint })
 }
 
@@ -108,7 +108,7 @@ fn cmd_blueprint_update(ctx: CliContext, id: String) -> Result<String> {
     };
 
     let blueprint = serde_json::to_value(result.blueprint)
-        .map_err(|e| anyhow::anyhow!("Failed to serialize blueprint: {e}"))?;
+        .map_err(|e| crate::commands::serialize_failure("blueprint", e))?;
     output::serialize("blueprint update", BlueprintPayload { blueprint })
 }
 

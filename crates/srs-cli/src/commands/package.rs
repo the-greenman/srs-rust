@@ -122,7 +122,8 @@ fn cmd_package_create(
 }
 
 fn cmd_package_import(ctx: CliContext, path: String, mode: String) -> Result<String> {
-    let import_mode = ImportMode::try_from(mode.as_str()).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let import_mode = ImportMode::try_from(mode.as_str())
+        .map_err(|e| crate::commands::invalid_input(e.to_string()))?;
     let input = ImportPackageLocalInput {
         source_path: path.clone(),
         mode: import_mode,
@@ -148,7 +149,7 @@ fn cmd_package_export(
 ) -> Result<String> {
     let export = with_store(&ctx, |s| Ok(export_package_bundle(s, input.clone())?))?;
     std::fs::write(&out_path, &export.text)
-        .map_err(|e| anyhow::anyhow!("cannot write {}: {e}", out_path.display()))?;
+        .map_err(|e| crate::commands::io_failure("cannot write bundle file", &out_path, e))?;
     let path = out_path.to_string_lossy().into_owned();
     output::serialize(
         "package export",
@@ -214,7 +215,7 @@ fn cmd_package_upgrade(
 
 /// File I/O only: read the .srspkg bytes (no parsing, no logic).
 fn read_bundle_file(path: &Path) -> Result<Vec<u8>> {
-    std::fs::read(path).map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))
+    std::fs::read(path).map_err(|e| crate::commands::io_failure("cannot read bundle file", path, e))
 }
 
 fn cmd_package_update(

@@ -15,7 +15,7 @@ fn cmd_slice_export(ctx: CliContext, output: PathBuf) -> Result<String> {
     let container_id = ctx
         .container_id
         .clone()
-        .ok_or_else(|| anyhow::anyhow!("slice export requires --container <id>"))?;
+        .ok_or_else(|| crate::commands::invalid_input("slice export requires --container <id>"))?;
     let export = with_store(&ctx, |store| {
         Ok(export_container_slice(
             store,
@@ -26,7 +26,7 @@ fn cmd_slice_export(ctx: CliContext, output: PathBuf) -> Result<String> {
         )?)
     })?;
     std::fs::write(&output, &export.bytes)
-        .map_err(|e| anyhow::anyhow!("cannot write output file {:?}: {}", output, e))?;
+        .map_err(|e| crate::commands::io_failure("cannot write output file", &output, e))?;
     let s = export.summary;
     output::serialize(
         "slice export",

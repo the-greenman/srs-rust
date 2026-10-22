@@ -108,8 +108,8 @@ fn cmd_repo_upgrade(ctx: CliContext) -> Result<String> {
     let store = match ctx.store {
         StoreBackend::File => FileStore::new(&ctx.repo),
         _ => {
-            return Err(anyhow::anyhow!(
-                "repo upgrade only supports file-backed repositories (--store file)"
+            return Err(crate::commands::invalid_input(
+                "repo upgrade only supports file-backed repositories (--store file)",
             ))
         }
     };

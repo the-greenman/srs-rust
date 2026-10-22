@@ -153,3 +153,26 @@ fn error_envelope_malformed_stdin_is_invalid_input() {
     assert_eq!(r["errors"][0]["code"], "invalid-input", "{r}");
     assert_eq!(r["errors"][0]["message"], r["diagnostics"][0]);
 }
+
+#[test]
+fn error_envelope_cli_local_checks_carry_codes_not_unclassified() {
+    let repo = new_repo();
+    let missing_container = srs(repo.path(), &["slice", "export", "x.zip"], "");
+    assert_eq!(
+        first_error(&missing_container)["code"],
+        "invalid-input",
+        "{missing_container}"
+    );
+    let no_term = srs(repo.path(), &["tag", "get", "no-such-term"], "");
+    assert_eq!(
+        first_error(&no_term)["code"],
+        "instance-not-found",
+        "{no_term}"
+    );
+    let bad_output = srs(
+        repo.path(),
+        &["archive", "pack", "--output", "no-such-dir/out.zip"],
+        "",
+    );
+    assert_eq!(first_error(&bad_output)["code"], "io", "{bad_output}");
+}

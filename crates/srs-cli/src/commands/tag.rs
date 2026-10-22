@@ -19,9 +19,9 @@ fn cmd_tag_list(ctx: CliContext) -> Result<String> {
 fn cmd_tag_get(ctx: CliContext, id: String) -> Result<String> {
     match with_store(&ctx, |store| Ok(tag_service::get_term_by_id(store, &id)?))? {
         Some(term) => output::serialize("tag get", TagPayload { term }),
-        None => Ok(output::err(
+        None => Ok(output::repo_err(
             "tag get",
-            vec![format!("Term with id '{}' not found", id)],
+            &srs_repository::error::RepositoryError::InstanceNotFound { id },
         )),
     }
 }
