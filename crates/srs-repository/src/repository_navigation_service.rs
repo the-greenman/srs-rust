@@ -77,7 +77,7 @@ pub fn repository_navigation_with_depth(
     max_depth: Option<u32>,
 ) -> Result<RepositoryNavigation, RepositoryError> {
     let manifest = store.load_manifest()?;
-    let Some(container_ref) = &manifest.container else {
+    let Some(container_ref) = manifest.root_container() else {
         return Ok(RepositoryNavigation {
             root_container_id: String::new(),
             identity: None,

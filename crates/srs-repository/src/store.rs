@@ -2895,11 +2895,10 @@ fn save_container_at<S: RepositoryStore + ?Sized>(
     // never materialise a duplicate file for it — update the embed.
     let mut manifest = store.load_manifest()?;
     if manifest
-        .container
-        .as_ref()
+        .root_container()
         .is_some_and(|c| &c.container_id == id)
     {
-        manifest.container = Some(container.clone());
+        manifest.set_root_container(Some(container.clone()));
         return store.save_manifest(&manifest);
     }
     // New container — collision-safe `containers/` filename, no index write.
@@ -3432,19 +3431,19 @@ pub mod memory {
                 );
             }
 
-            *self.manifest.borrow_mut() = Manifest {
-                // Same default root container as FileStore's initialize —
-                // repo creation must yield the same repository (and the same
-                // catalog) on every backend (RFC-038 acceptance test 3).
-                container: Some(default_repository_container(
-                    &input.repository.repository_id,
-                    input.repository.title.as_deref().unwrap_or_default(),
-                )),
-                upstream_package: None,
+            let mut manifest = Manifest {
                 extra: manifest_extra,
-                source_documents_path: None,
                 root: PathBuf::from("/memory"),
+                ..Manifest::default()
             };
+            // Same default root container as FileStore's initialize —
+            // repo creation must yield the same repository (and the same
+            // catalog) on every backend (RFC-038 acceptance test 3).
+            manifest.set_root_container(Some(default_repository_container(
+                &input.repository.repository_id,
+                input.repository.title.as_deref().unwrap_or_default(),
+            )));
+            *self.manifest.borrow_mut() = manifest;
 
             *self.package.borrow_mut() = Package {
                 id: input.primary_package.id.clone(),
@@ -4568,10 +4567,7 @@ mod tests {
         let manifest = store.load_manifest().unwrap();
 
         // Typed fields populated
-        let container = manifest
-            .container
-            .as_ref()
-            .expect("container should be Some");
+        let container = manifest.root_container().expect("container should be Some");
         assert_eq!(
             container.container_id,
             "aaaaaaaa-0000-4000-8000-000000000001"
@@ -4587,7 +4583,7 @@ mod tests {
         // Write back and reload — verify round-trip
         store.save_manifest(&manifest).unwrap();
         let reloaded = store.load_manifest().unwrap();
-        assert_eq!(reloaded.container, manifest.container);
+        assert_eq!(reloaded.root_container(), manifest.root_container());
     }
 
     #[test]
@@ -4689,7 +4685,7 @@ mod tests {
         let manifest = minimal_manifest(&root);
         let store = MemoryStore::new(manifest.clone(), empty_package(&root));
         let loaded = store.load_manifest().unwrap();
-        assert_eq!(loaded.container, manifest.container);
+        assert_eq!(loaded.root_container(), manifest.root_container());
         assert_eq!(loaded.extra, manifest.extra);
     }
 

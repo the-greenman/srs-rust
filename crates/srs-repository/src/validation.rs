@@ -223,9 +223,10 @@ fn load_container_for_diagnostics(
     centry: &crate::catalog::CatalogEntry,
 ) -> Option<srs_core::types::container::Container> {
     match centry.locator.as_deref() {
-        Some(crate::catalog::ROOT_CONTAINER_LOCATOR) => {
-            store.load_manifest().ok().and_then(|m| m.container)
-        }
+        Some(crate::catalog::ROOT_CONTAINER_LOCATOR) => store
+            .load_manifest()
+            .ok()
+            .and_then(|m| m.root_container().cloned()),
         Some(path) => store
             .load_instance_json(path)
             .ok()
@@ -374,7 +375,7 @@ pub fn validate_repository(
     // --- RFC-013 root container invariants (I-79, I-80, I-81, I-82) ---
     // When manifest.container is absent the schema validator above already fires a
     // "missing required field" error; I-79 below is the invariant-level companion.
-    match manifest.container.as_ref() {
+    match manifest.root_container() {
         None => {
             diagnostics.push(ValidationDiagnostic {
                 severity: DiagnosticSeverity::Error,
@@ -1610,7 +1611,7 @@ pub fn validate_repository(
     // resolution, so it is not gated behind a successful package load.
     {
         let known_ids: HashSet<&str> = cat.instances.iter().map(|e| e.id.as_str()).collect();
-        let root_id = manifest.container.as_ref().map(|c| c.container_id.as_str());
+        let root_id = manifest.root_container_id();
         for centry in &cat.containers {
             if Some(centry.id.as_str()) == root_id {
                 continue;
@@ -6589,7 +6590,7 @@ mod tests {
             serde_json::from_value::<crate::manifest::Manifest>(manifest_json.clone())
         {
             let mut m = store.load_manifest().unwrap();
-            m.container = typed.container;
+            m.set_root_container(typed.root_container().cloned());
             store.save_manifest(&m).unwrap();
         }
         store

@@ -773,7 +773,7 @@ mod tests {
         let mut manifest = store.load_manifest().unwrap();
         let mut root = bare_container(container_id);
         root.identity_instance_id = Some(note_id.to_string());
-        manifest.container = Some(root);
+        manifest.set_root_container(Some(root));
         write_manifest(&store, &manifest).unwrap();
 
         (store, container_id.to_string())
@@ -797,7 +797,7 @@ mod tests {
         // Embed-only root container ([R1]): a physical containers/*.json file with the
         // same id as manifest.container would be a fatal SRS038-R12-DUPLICATE-ID.
         let mut manifest = store.load_manifest().unwrap();
-        manifest.container = Some(bare_container(container_id));
+        manifest.set_root_container(Some(bare_container(container_id)));
         // This fixture models a PRE-migration repository: strip the
         // generation stamp MemoryStore now writes by default.
         manifest.extra.remove("dataModelRevision");

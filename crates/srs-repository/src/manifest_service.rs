@@ -407,8 +407,7 @@ pub fn set_manifest_root_container(
             .map(|s| s.to_string())
     };
     let existing_title = manifest
-        .container
-        .as_ref()
+        .root_container()
         .map(|c| c.title.clone())
         .filter(|t| !t.is_empty());
     let title = input
@@ -437,7 +436,7 @@ pub fn set_manifest_root_container(
     // Preserve an existing embed's members (and all other fields) instead of clobbering
     // them; guarantee the identity is a member (RFC-013 I-81).
     let mut container = file_backed
-        .or_else(|| manifest.container.take())
+        .or_else(|| manifest.set_root_container(None))
         .unwrap_or_else(|| srs_core::types::container::Container {
             container_id: String::new(),
             title: String::new(),
@@ -468,7 +467,7 @@ pub fn set_manifest_root_container(
         ));
     }
     let member_instance_ids: Vec<String> = members.iter().map(|m| m.instance_id.clone()).collect();
-    manifest.container = Some(container);
+    manifest.set_root_container(Some(container));
 
     write_manifest(store, &manifest)?;
 
@@ -505,7 +504,7 @@ pub fn unset_manifest_root_container(
     store: &dyn RepositoryStore,
 ) -> Result<UnsetManifestRootContainerResult, RepositoryError> {
     let mut manifest = store.load_manifest()?;
-    let Some(container_id) = manifest.container.as_ref().map(|c| c.container_id.clone()) else {
+    let Some(container_id) = manifest.root_container().map(|c| c.container_id.clone()) else {
         return Err(RepositoryError::InvalidInput {
             message: "manifest.container is already absent; nothing to unset".to_string(),
         });
@@ -513,7 +512,7 @@ pub fn unset_manifest_root_container(
 
     let (container, _) = crate::container_service::load_container_for_repair(store, &container_id)?;
 
-    manifest.container = None;
+    manifest.set_root_container(None);
     write_manifest(store, &manifest)?;
 
     Ok(UnsetManifestRootContainerResult {
@@ -989,7 +988,7 @@ mod tests {
         assert_eq!(result.member_instance_ids, vec![VALID_IDENTITY_ID]);
 
         let manifest = store.load_manifest().unwrap();
-        let container = manifest.container.as_ref().unwrap();
+        let container = manifest.root_container().unwrap();
         assert_eq!(container.container_id, VALID_CONTAINER_ID);
         assert_eq!(
             container.identity_instance_id.as_deref(),
@@ -1015,7 +1014,7 @@ mod tests {
 
         assert_eq!(result.title, "Explicit Title");
         let manifest = store.load_manifest().unwrap();
-        assert_eq!(manifest.container.as_ref().unwrap().title, "Explicit Title");
+        assert_eq!(manifest.root_container().unwrap().title, "Explicit Title");
     }
 
     #[test]
@@ -1067,7 +1066,7 @@ mod tests {
 
         // Seed a richer embed: existing members list that does not contain the identity.
         let mut manifest = store.load_manifest().unwrap();
-        manifest.container = Some(srs_core::types::container::Container {
+        manifest.set_root_container(Some(srs_core::types::container::Container {
             container_id: VALID_CONTAINER_ID.to_string(),
             title: "Old Title".to_string(),
             identity_instance_id: None,
@@ -1085,7 +1084,7 @@ mod tests {
             updated_at: None,
             meta: None,
             extra: std::collections::BTreeMap::new(),
-        });
+        }));
         store.save_manifest(&manifest).unwrap();
 
         let result = set_manifest_root_container(
@@ -1104,7 +1103,7 @@ mod tests {
             vec![other_member.to_string(), VALID_IDENTITY_ID.to_string()]
         );
         let manifest = store.load_manifest().unwrap();
-        let container = manifest.container.as_ref().unwrap();
+        let container = manifest.root_container().unwrap();
         assert_eq!(
             container.member_ids(),
             vec![other_member.to_string(), VALID_IDENTITY_ID.to_string()]
@@ -1205,7 +1204,7 @@ mod tests {
         let json = serde_json::to_string(&manifest).unwrap();
         let reparsed: crate::manifest::Manifest = serde_json::from_str(&json).unwrap();
 
-        let container = reparsed.container.as_ref().unwrap();
+        let container = reparsed.root_container().unwrap();
         assert_eq!(container.container_id, VALID_CONTAINER_ID);
         assert_eq!(
             container.identity_instance_id.as_deref(),
@@ -1240,7 +1239,7 @@ mod tests {
 
         let manifest = store.load_manifest().unwrap();
         assert!(
-            manifest.container.is_none(),
+            manifest.root_container().is_none(),
             "manifest.container must be cleared"
         );
     }
@@ -1272,11 +1271,11 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(store.load_manifest().unwrap().container.is_some());
+        assert!(store.load_manifest().unwrap().root_container().is_some());
 
         unset_manifest_root_container(&store).unwrap();
 
-        assert!(store.load_manifest().unwrap().container.is_none());
+        assert!(store.load_manifest().unwrap().root_container().is_none());
     }
 
     // ── Conformance tests ─────────────────────────────────────────────────────

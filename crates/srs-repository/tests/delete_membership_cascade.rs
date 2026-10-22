@@ -127,7 +127,7 @@ fn populate(store: &dyn RepositoryStore) {
         RECORD_ID.to_string(),
     ]));
     let mut manifest = store.load_manifest().unwrap();
-    manifest.container = Some(root);
+    manifest.set_root_container(Some(root));
     store.save_manifest(&manifest).unwrap();
 
     let mut section = container(SECTION_CONTAINER_ID, "Section");
@@ -167,7 +167,12 @@ fn run_cascade_suite(store: &dyn RepositoryStore) {
     services::delete_note(store, NOTE_ID).unwrap();
     assert_loads_clean(store, "after deleting a container member (note)");
 
-    let root = store.load_manifest().unwrap().container.unwrap();
+    let root = store
+        .load_manifest()
+        .unwrap()
+        .root_container()
+        .cloned()
+        .unwrap();
     assert_eq!(
         root.member_ids(),
         vec![KEEPER_ID.to_string()],
@@ -304,7 +309,12 @@ fn deleting_a_container_identity_record_is_rejected_and_changes_nothing() {
 
     assert_loads_clean(&store, "after a rejected identity delete");
     assert!(store.find_instance(&identity).unwrap().is_some());
-    let root = store.load_manifest().unwrap().container.unwrap();
+    let root = store
+        .load_manifest()
+        .unwrap()
+        .root_container()
+        .cloned()
+        .unwrap();
     assert_eq!(
         root.identity_instance_id.as_deref(),
         Some(identity.as_str())

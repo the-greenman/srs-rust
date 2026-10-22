@@ -13,7 +13,7 @@ pub struct Manifest {
     // catalog, and `rfc038::check_manifest` denies the raw keys at load so
     // the `extra` catch-all can never silently absorb one.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub container: Option<Container>,
+    pub(crate) container: Option<Container>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub upstream_package: Option<UpstreamPackage>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -35,6 +35,42 @@ impl Default for Manifest {
             extra: std::collections::BTreeMap::new(),
             root: PathBuf::new(),
         }
+    }
+}
+
+/// The root container accessor (srs-rust#1435, RFC-052 preparation).
+///
+/// The `container` field is crate-private and, outside this module, is
+/// named only by struct literals that build a fresh `Manifest`: every read
+/// and write of the root container a manifest declares goes through these
+/// methods (other crates cannot reach the field at all), so the
+/// revision-10 change (RFC-052: the manifest names the root by
+/// `rootContainerId` and the body moves to `containers/`) swaps the source in
+/// this one place. Store-aware callers resolve the root through
+/// [`crate::container_service::resolve_root_container`] and test identity
+/// with `container_service::is_root_container`, both built on these methods.
+/// The raw-tree migration readers (RFC-043) read `manifest.json` as JSON and
+/// do not use them.
+impl Manifest {
+    /// The root container as declared by this manifest (RFC-013), if any.
+    pub fn root_container(&self) -> Option<&Container> {
+        self.container.as_ref()
+    }
+
+    /// The declared root container's id, if any.
+    pub fn root_container_id(&self) -> Option<&str> {
+        self.root_container().map(|c| c.container_id.as_str())
+    }
+
+    /// Mutable access to the declared root container, if any.
+    pub fn root_container_mut(&mut self) -> Option<&mut Container> {
+        self.container.as_mut()
+    }
+
+    /// The one write path: replace (or, with `None`, remove) the declared
+    /// root container, returning the previous one.
+    pub fn set_root_container(&mut self, container: Option<Container>) -> Option<Container> {
+        std::mem::replace(&mut self.container, container)
     }
 }
 

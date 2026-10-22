@@ -56,7 +56,7 @@ fn container_delete_refuses_the_root_container() {
     // The repository's identity must be intact after the refusal.
     let manifest = store.load_manifest().unwrap();
     assert_eq!(
-        manifest.container.as_ref().map(|c| c.container_id.as_str()),
+        manifest.root_container().map(|c| c.container_id.as_str()),
         Some(CONTAINER_ID)
     );
 }
