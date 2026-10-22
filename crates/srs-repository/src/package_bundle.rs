@@ -1702,13 +1702,13 @@ mod tests {
 
     #[test]
     fn read_bundle_restamp_writes_each_step_target() {
-        // One step at a time: 7 -> 8 is the RFC-043 transform, 8 -> 9 the re-stamp.
+        // One step at a time: 7 -> 8 is the RFC-043 transform, 8 -> 9 and 9 -> 10 re-stamps.
         let mut v = json!({"dataModelRevision": 7, "compositions": []});
         assert!(bring_forward(&mut v, 7).unwrap().is_empty());
         assert_eq!(v["dataModelRevision"], CURRENT_DATA_MODEL_REVISION);
         let mut v = json!({"dataModelRevision": 8});
         bring_forward(&mut v, 8).unwrap();
-        assert_eq!(v["dataModelRevision"], 9);
+        assert_eq!(v["dataModelRevision"], CURRENT_DATA_MODEL_REVISION);
         // A refused step leaves the stamp at the last step reached.
         let mut v = json!({"dataModelRevision": 6});
         assert!(bring_forward(&mut v, 6).is_err());

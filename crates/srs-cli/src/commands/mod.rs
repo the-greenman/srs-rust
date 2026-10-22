@@ -799,8 +799,9 @@ pub enum RepoCommand {
     /// Render an llms.txt-style agent-readable index of the repository
     #[command(name = "agent-index")]
     AgentIndex,
-    /// Set the manifest root container embed (containerId + identityInstanceId).
-    /// Writes manifest.container so the navigation service can find the repository's structural root.
+    /// Set the repository's root container (containerId + identityInstanceId).
+    /// Writes the root to containers/<containerId>.json when it has no file yet and points
+    /// manifest.rootContainerId at it (RFC-052), so the navigation service can find the root.
     #[command(name = "set-root-container")]
     SetRootContainer {
         #[arg(long = "container-id")]
@@ -811,9 +812,9 @@ pub enum RepoCommand {
         #[arg(long = "title")]
         title: Option<String>,
     },
-    /// Clear the manifest root container embed — the only way to remove a
-    /// repository's identity container (RFC-013). Generic `container delete`
-    /// refuses the root container and points here instead.
+    /// Refused at dataModelRevision 10 (`manifest-root-container-missing`): a manifest
+    /// must name its root container (RFC-052 [R1]). Point it at another container with
+    /// `repo set-root-container` instead. Nothing is written.
     #[command(name = "unset-root-container")]
     UnsetRootContainer,
     /// Extension management commands
@@ -843,7 +844,7 @@ pub enum RepoCommand {
     /// Only valid for file-backed repositories. Idempotent — safe to run multiple times.
     Upgrade,
     /// Graduate the Tier-0 identity note to a com.semanticops.core/purpose Tier-2 Record
-    /// and repoint manifest.container.identityInstanceId to the new record.
+    /// and repoint the root container's identityInstanceId to the new record.
     #[command(name = "migrate-identity")]
     MigrateIdentity,
     /// List all registered migrations and their applicability status for this repository.

@@ -4,7 +4,7 @@ use crate::error::RepositoryError;
 use crate::loader;
 use crate::record_store::create_record;
 use crate::store::RepositoryStore;
-use crate::writer;
+
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
@@ -75,9 +75,16 @@ pub fn migration_status(
     store: &dyn RepositoryStore,
 ) -> Result<IdentityMigrationStatus, RepositoryError> {
     let manifest = store.load_manifest()?;
-    let mc = match manifest.root_container() {
-        None => return Ok(IdentityMigrationStatus::NotApplicable),
-        Some(c) => c,
+    let Some(root_id) = manifest.root_container_id() else {
+        return Ok(IdentityMigrationStatus::NotApplicable);
+    };
+    // The unchecked seam, like the instance probe below (srs-rust#896).
+    let mc = match store.load_container_unchecked(root_id) {
+        Ok(c) => c,
+        Err(RepositoryError::ContainerNotFound { .. }) => {
+            return Ok(IdentityMigrationStatus::NotApplicable)
+        }
+        Err(e) => return Err(e),
     };
 
     match mc.identity_instance_id.as_deref() {
@@ -119,12 +126,11 @@ pub fn migrate_identity(
 ) -> Result<MigrateIdentityResult, RepositoryError> {
     let manifest = store.load_manifest()?;
 
-    let mc = manifest
-        .root_container()
-        .ok_or_else(|| RepositoryError::InvalidInput {
-            message: "manifest.container is not set".to_string(),
-        })?
-        .clone();
+    let mc = container_service::resolve_root_container(store, &manifest)?.ok_or_else(|| {
+        RepositoryError::InvalidInput {
+            message: "manifest.rootContainerId is not set".to_string(),
+        }
+    })?;
 
     // None-branch: identity_instance_id is absent — derive purpose record from container metadata.
     if mc.identity_instance_id.is_none() {
@@ -162,31 +168,10 @@ pub fn migrate_identity(
             )?;
             let new_id = record.instance_id.clone();
 
-            // Reload manifest to capture the index entry create_record just wrote, then add
-            // container metadata and write a second time (two manifest writes per ADR-021 batch).
-            let mut manifest = store.load_manifest()?;
-            if let Some(container) = manifest.root_container_mut() {
-                container.identity_instance_id = Some(new_id.clone());
-                container
-                    .member_instance_ids
-                    .get_or_insert_with(Vec::new)
-                    .push(srs_core::types::container::ContainerEntry::new(
-                        new_id.clone(),
-                    ));
-            }
-            writer::write_manifest(store, &manifest)?;
-            // Load the real container file (which holds pre-existing section members),
-            // patch in the new identity pointer and member, then save — mirrors the
-            // non-None branch. Falls back to mc on ContainerNotFound. mc is the
-            // pre-batch snapshot from line 121 (before any batch writes), so new_id
-            // is NOT yet in mc.member_instance_ids; the push below adds it exactly
-            // once. (The within-batch manifest.container already has new_id pushed at
-            // lines 163-167 but is a distinct struct from the container file.)
-            let mut persisted_container = match store.load_container(&mc.container_id) {
-                Ok(c) => c,
-                Err(RepositoryError::ContainerNotFound { .. }) => mc.clone(),
-                Err(e) => return Err(e),
-            };
+            // RFC-052: the root container is a file in the container set; patch in the new
+            // identity pointer and member, then save. `mc` is the pre-batch snapshot, so
+            // new_id is not yet among its members and the push adds it exactly once.
+            let mut persisted_container = mc.clone();
             persisted_container.identity_instance_id = Some(new_id.clone());
             persisted_container
                 .member_instance_ids
@@ -269,45 +254,15 @@ pub fn migrate_identity(
         )?;
         let new_id = record.instance_id.clone();
 
-        // Reload manifest to capture the index entry create_record just wrote, then update
-        // identity pointer and write a second time (two manifest writes per ADR-021 batch).
-        let mut manifest = store.load_manifest()?;
-        if let Some(mc) = manifest.root_container_mut() {
-            mc.identity_instance_id = Some(new_id.clone());
-        }
-        writer::write_manifest(store, &manifest)?;
         container_service::add_member(store, &root_container_id, &new_id, None, None)?;
+        // Repoint the root's identityInstanceId before the old entry is removed: the
+        // removal refuses an entry a pointer still names (RFC-043 [R7]). Do NOT replace this
+        // with container_service::update_container: it opens its own batch, and nesting
+        // that inside this outer batch would close the outer one early.
+        let mut root = store.load_container(&root_container_id)?;
+        root.identity_instance_id = Some(new_id.clone());
+        store.save_container(&root)?;
         container_service::remove_member(store, &root_container_id, &old_id)?;
-        // Update the persisted Container record's identityInstanceId in lockstep with the
-        // manifest embed. Without this the container file disagrees with manifest.container
-        // (issue #462).
-        //
-        // IMPORTANT: Do NOT replace this with container_service::update_container.
-        // For root containers, update_container calls begin_batch/commit_batch internally
-        // (container_service.rs ~line 234). Nesting that inside this outer batch causes
-        // the inner batch to close the outer one, so later writes in this
-        // operation are no longer scoped to it. No store implements in-memory
-        // rollback since JsonStore's retirement (srs-rust#813) — what protects
-        // a `.srsj` document is the projection boundary, and that only helps if
-        // the whole operation fails as one. MemoryStore tests would not catch
-        // this regression.
-        //
-        // store.load_container has no embed fallback: it only resolves a *file-backed*
-        // container (store.rs docs) and the catalog treats a physical containers/*.json
-        // file sharing the root's id as a fatal SRS038-R12-DUPLICATE-ID ([R1]: the manifest
-        // embed is authoritative for the root). A purely embed-backed root — the normal
-        // shape once `store.save_container` has synced it into the manifest — has no such
-        // file, so `store.load_container` would wrongly error ContainerNotFound. Mirror the
-        // None-branch's fallback above via container_service::resolve_root_container.
-        let manifest_for_root = store.load_manifest()?;
-        let mut persisted_container =
-            container_service::resolve_root_container(store, &manifest_for_root)?.ok_or_else(
-                || RepositoryError::ContainerNotFound {
-                    container_id: root_container_id.clone(),
-                },
-            )?;
-        persisted_container.identity_instance_id = Some(new_id.clone());
-        store.save_container(&persisted_container)?;
         Ok(new_id)
     })();
     match batch_result {
@@ -398,7 +353,7 @@ mod tests {
         let mut manifest = store.load_manifest().unwrap();
         let mut root = bare_container(container_id);
         root.identity_instance_id = Some(note_id.to_string());
-        manifest.set_root_container(Some(root));
+        crate::container_service::set_root_container(&store, &mut manifest, &root).unwrap();
         write_manifest(&store, &manifest).unwrap();
 
         (store, container_id.to_string())
@@ -569,9 +524,8 @@ mod tests {
         let result = migrate_identity(&store).unwrap();
         let manifest = store.load_manifest().unwrap();
         assert_eq!(
-            manifest
-                .root_container()
-                .cloned()
+            crate::container_service::resolve_root_container(&store, &manifest)
+                .unwrap()
                 .unwrap()
                 .identity_instance_id,
             Some(result.new_identity_id)
@@ -667,7 +621,7 @@ mod tests {
         let mut manifest = store.load_manifest().unwrap();
         let mut root = bare_container(container_id);
         root.identity_instance_id = Some(instance_id.to_string());
-        manifest.set_root_container(Some(root));
+        crate::container_service::set_root_container(&store, &mut manifest, &root).unwrap();
         write_manifest(&store, &manifest).unwrap();
 
         let err = migrate_identity(&store).unwrap_err();
@@ -728,7 +682,7 @@ mod tests {
         container.title = title.to_string();
         container.description = description.map(|d| d.to_string());
         let mut manifest = store.load_manifest().unwrap();
-        manifest.set_root_container(Some(container));
+        crate::container_service::set_root_container(&store, &mut manifest, &container).unwrap();
         write_manifest(&store, &manifest).unwrap();
         (store, container_id.to_string())
     }
@@ -766,9 +720,8 @@ mod tests {
         let result = migrate_identity(&store).unwrap();
         let manifest = store.load_manifest().unwrap();
         assert_eq!(
-            manifest
-                .root_container()
-                .cloned()
+            crate::container_service::resolve_root_container(&store, &manifest)
+                .unwrap()
                 .unwrap()
                 .identity_instance_id,
             Some(result.new_identity_id)
@@ -796,7 +749,7 @@ mod tests {
         container.title = "".to_string();
         container.description = Some("We build SRS.".to_string());
         let mut manifest = store.load_manifest().unwrap();
-        manifest.set_root_container(Some(container));
+        crate::container_service::set_root_container(&store, &mut manifest, &container).unwrap();
         write_manifest(&store, &manifest).unwrap();
 
         let result = migrate_identity(&store).unwrap();
@@ -815,7 +768,7 @@ mod tests {
         let mut container = bare_container(container_id);
         container.title = "".to_string();
         let mut manifest = store.load_manifest().unwrap();
-        manifest.set_root_container(Some(container));
+        crate::container_service::set_root_container(&store, &mut manifest, &container).unwrap();
         write_manifest(&store, &manifest).unwrap();
 
         let err = migrate_identity(&store).unwrap_err();
@@ -924,7 +877,7 @@ mod tests {
         let section_note = make_note(section_member_id, Some("Section"), one_section("Body."));
         write_note(&store, &section_note, "records/notes/section.json").unwrap();
         let mut manifest = store.load_manifest().unwrap();
-        manifest.set_root_container(Some(container));
+        crate::container_service::set_root_container(&store, &mut manifest, &container).unwrap();
         write_manifest(&store, &manifest).unwrap();
 
         let result = migrate_identity(&store).unwrap();

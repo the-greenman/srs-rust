@@ -19,8 +19,10 @@ use crate::store::RepositoryStore;
 use serde::Serialize;
 
 /// The data-model generation this build writes.
-/// The revision this build reads and writes — RFC-046 actor provenance
-/// (`createdBy` on Record, Note and Relation; migration #9, a pure re-stamp).
+/// The revision this build reads and writes — RFC-052: the root container is
+/// stored in the container set and the manifest names it by `rootContainerId`
+/// (migration #10, `rfc052-root-container`). Revision 9 is RFC-046 actor
+/// provenance (`createdBy` on Record, Note and Relation; a pure re-stamp).
 /// Revision 8 is RFC-043's ordered container entries; the SectionSource ->
 /// DiscoveryQuery collapse + ExportConfig unification (migration #7:
 /// srs-rust#924, srs#525, `rfc-decision-cce3c00e`, `rfc-decision-9ee14517`).
@@ -29,7 +31,7 @@ use serde::Serialize;
 /// is revision 5; Tier 1 (TypedRecord) retirement is revision 4; RFC-040's
 /// metamodel v1.1.0 engine sync is revision 3; RFC-039's carrier model is
 /// revision 2; RFC-032's fieldType model is revision 1.
-pub const CURRENT_DATA_MODEL_REVISION: u64 = 9;
+pub const CURRENT_DATA_MODEL_REVISION: u64 = 10;
 /// The revision the RFC-032 `field-type` migration produces.
 pub const FIELD_TYPE_REVISION: u64 = 1;
 /// The revision RFC-040's metamodel v1.1.0 engine sync produces. This is
@@ -114,6 +116,11 @@ pub const RFC043_CONTAINER_ENTRIES_REVISION: u64 = 8;
 /// a pure re-stamp — no existing instance carries `createdBy`, so no data changes).
 pub const RFC046_ACTOR_PROVENANCE_REVISION: u64 = 9;
 
+/// The revision the RFC-052 `rfc052-root-container` migration produces (migration #10: the
+/// root container moves from `manifest.container` to `containers/<containerId>.json` and the
+/// manifest names it by `rootContainerId`).
+pub const RFC052_ROOT_CONTAINER_REVISION: u64 = 10;
+
 /// The manifest property carrying the generation stamp (RFC-033 [R6] / #265).
 pub const DATA_MODEL_REVISION_KEY: &str = "dataModelRevision";
 
@@ -139,10 +146,13 @@ pub fn data_model_revision(store: &dyn RepositoryStore) -> Result<u64, Repositor
             .get(DATA_MODEL_REVISION_KEY)
             .and_then(|v| v.as_u64())
             .unwrap_or(0)),
-        // A revision-7 root container (bare-id members) does not parse as a typed Manifest
-        // (RFC-043 [R16]); the stamp is still readable from the raw text, so the migration
-        // ladder and `repo migrations` keep working on it.
-        Err(RepositoryError::ManifestParse { .. } | RepositoryError::Rfc043MigrationNeeded) => {
+        // A manifest refused by the load gate (an embedded root below revision 10, RFC-052
+        // [R7]) or one that does not parse: the stamp is still readable from the raw text, so
+        // the migration ladder and `repo migrations` keep working on it.
+        Err(
+            RepositoryError::ManifestParse { .. }
+            | RepositoryError::ContainerMigrationNeeded { .. },
+        ) => {
             let text = store.load_manifest_raw_text()?;
             let raw: serde_json::Value =
                 serde_json::from_str(&text).map_err(|source| RepositoryError::ManifestParse {

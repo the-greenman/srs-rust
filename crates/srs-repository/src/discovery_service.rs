@@ -1172,7 +1172,7 @@ mod tests {
     fn store_with(records: Vec<Record>) -> MemoryStore {
         let store = MemoryStore::new(
             Manifest {
-                container: None,
+                root_container_id: None,
                 upstream_package: None,
                 extra: std::collections::BTreeMap::new(),
                 source_documents_path: None,

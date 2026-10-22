@@ -2348,7 +2348,7 @@ pub(crate) mod tests {
             provenance: None,
         };
         let manifest = Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -2439,7 +2439,7 @@ pub(crate) mod tests {
             provenance: None,
         };
         let manifest = Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -3456,7 +3456,7 @@ pub(crate) mod tests {
         };
 
         let manifest = Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -3789,7 +3789,7 @@ pub(crate) mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -3940,7 +3940,7 @@ pub(crate) mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -4972,7 +4972,7 @@ pub(crate) mod tests {
         };
 
         let manifest = Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -5193,7 +5193,7 @@ pub(crate) mod tests {
         };
 
         let manifest = Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -6225,7 +6225,7 @@ pub(crate) mod tests {
             provenance: None,
         };
         let manifest = Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -7035,7 +7035,7 @@ pub(crate) mod tests {
             provenance: None,
         };
         let manifest = Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,

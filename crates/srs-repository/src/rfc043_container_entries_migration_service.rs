@@ -1140,11 +1140,9 @@ mod tests {
         rev7_repo(tmp.path(), json!([M3, M1]));
         let strict = FileStore::new(tmp.path());
         let err = strict.load_manifest().unwrap_err();
-        assert!(
-            matches!(err, RepositoryError::Rfc043MigrationNeeded),
-            "{err:?}"
-        );
-        assert_eq!(err.code(), "rfc043-migration-needed"); // wording test: the message must name the migration
+        // RFC-052 [R7]: an embedded root below revision 10 is `container-migration-needed`;
+        // a revision-7 shaped one also names the RFC-043 step that comes first.
+        assert_eq!(err.code(), "container-migration-needed", "{err:?}");
         assert!(err.to_string().contains("rfc043-container-entries"));
         let exempt = FileStore::new(tmp.path()).with_rfc038_exemption();
         let listed = crate::migration_registry_service::list_migrations(&exempt).unwrap();

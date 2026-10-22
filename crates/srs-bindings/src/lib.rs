@@ -290,9 +290,7 @@ impl SrsRepository {
     /// `apply_migration` can inspect and transform an old document. Every
     /// other caller uses [`SrsRepository::load`].
     pub fn load_for_migration(srsj: &str) -> Result<SrsRepository, JsValue> {
-        let store = srs_repository::srsj::open_srsj(srsj)
-            .map_err(|e| js_err(&e))?
-            .with_rfc038_exemption();
+        let store = srs_repository::srsj::open_srsj_for_migration(srsj).map_err(|e| js_err(&e))?;
         Ok(SrsRepository { store })
     }
 
@@ -1673,7 +1671,7 @@ impl SrsRepository {
     ///   `typeVersion`, `typeNamespace`, `typeName`, `displayLabel`).
     /// - `sections`: precedes-ordered `NavigationNode` array; each carries an optional
     ///   `sectionContainerId` pointing to the section's own container.
-    /// - `diagnostics`: non-empty when `manifest.container` is absent (pre-RFC-013 repo) or a
+    /// - `diagnostics`: non-empty when `manifest.rootContainerId` is absent (pre-RFC-013 repo) or a
     ///   member id fails to resolve; in that case `rootContainerId` is `""`, `identity` has
     ///   all-empty-string/zero fields (it is a present object, not `null`), and `sections` is `[]`.
     pub fn repository_navigation(&self) -> Result<JsValue, JsValue> {
@@ -2204,14 +2202,14 @@ mod tests {
             r#"{"title":"T","description":"Why","namespace":"com.t.x"}"#,
         )
         .unwrap();
-        let identity = store
-            .load_manifest()
-            .unwrap()
-            .root_container()
-            .cloned()
-            .unwrap()
-            .identity_instance_id
-            .unwrap();
+        let identity = srs_repository::container_service::resolve_root_container(
+            &store,
+            &store.load_manifest().unwrap(),
+        )
+        .unwrap()
+        .unwrap()
+        .identity_instance_id
+        .unwrap();
         let c = super::create_container_from_json(&store, r#"{"title":"C"}"#).unwrap();
         let repo = SrsRepository { store };
         let mut s = repo.open_mcp_session().unwrap();
@@ -2281,14 +2279,14 @@ mod tests {
             r#"{"title":"T","description":"Why","namespace":"com.t.x"}"#,
         )
         .unwrap();
-        let identity = store
-            .load_manifest()
-            .unwrap()
-            .root_container()
-            .cloned()
-            .unwrap()
-            .identity_instance_id
-            .unwrap();
+        let identity = srs_repository::container_service::resolve_root_container(
+            &store,
+            &store.load_manifest().unwrap(),
+        )
+        .unwrap()
+        .unwrap()
+        .identity_instance_id
+        .unwrap();
         let repo = SrsRepository { store };
         let e0 = repo.write_epoch();
 
@@ -2392,8 +2390,13 @@ mod tests {
         let report = srs_repository::validation::validate_repository(&store).unwrap();
         assert_eq!(report.summary.errors, 0, "{:?}", report.diagnostics);
         let m = store.load_manifest().unwrap();
-        assert_eq!(m.extra["dataModelRevision"], 9);
-        let c = m.root_container().unwrap();
+        assert_eq!(
+            m.extra["dataModelRevision"],
+            srs_repository::field_type_migration_service::CURRENT_DATA_MODEL_REVISION
+        );
+        let c = srs_repository::container_service::resolve_root_container(&store, &m)
+            .unwrap()
+            .unwrap();
         let id = c.identity_instance_id.clone().unwrap();
         let members = c.member_instance_ids.as_ref().unwrap();
         assert_eq!(members.len(), 1);
@@ -3185,15 +3188,16 @@ mod tests {
                 "dataModelRevision": 2,
                 "repositoryId": "00000000-0000-4000-8000-000000000099",
                 "title": "Size Warning Test",
-                "container": {
-                    "containerId": "00000000-0000-4000-8000-000000000099",
-                    "title": "Size Warning Test"
-                },
+                "rootContainerId": "00000000-0000-4000-8000-000000000099",
                 "sourceDocumentsPath": "source-documents",
                 "packageRef": {"mode": "local", "path": "package"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "data": {
+                "containers/00000000-0000-4000-8000-000000000099.json": {
+                    "containerId": "00000000-0000-4000-8000-000000000099",
+                    "title": "Size Warning Test"
+                },
                 "package/package.json": {
                     "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
                     "id": "bb000000-0000-4000-b000-000000000000",

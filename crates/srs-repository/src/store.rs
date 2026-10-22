@@ -704,11 +704,10 @@ pub trait RepositoryStore {
     //     by RFC-038 [R25]: resolution moves from `containerIndex` to the
     //     catalog's container set) ---
 
-    /// Load a **file-backed** container by its logical `container_id`.
-    /// Returns `ContainerNotFound` if the catalog's container set has no
-    /// file-backed container with that ID — the inline root container is the
-    /// manifest's own representation ([R1]) and is resolved by
-    /// `container_service::resolve_root_container`, not here.
+    /// Load a container by its logical `container_id` from the catalog's
+    /// container set — the root container included (RFC-052: it is stored in
+    /// the container set like any other). Returns `ContainerNotFound` if the
+    /// set has no container with that ID.
     fn load_container(
         &self,
         container_id: &str,
@@ -730,10 +729,10 @@ pub trait RepositoryStore {
     }
 
     /// Persist a container by its logical `container_id`.
-    /// An existing file-backed container overwrites in place at its catalog
-    /// locator; the inline root container ([R1]) writes `manifest.container`
-    /// (a sanctioned manifest write — repository identity, not an index); a
-    /// new id derives a collision-safe `containers/` filename. No index write.
+    /// An existing container (the root included, RFC-052) overwrites in place
+    /// at its catalog locator; a new id derives a collision-safe `containers/`
+    /// filename (a new root is written by [`save_root_container`] instead).
+    /// Never writes `manifest.json`. No index write.
     fn save_container(
         &self,
         container: &srs_core::types::container::Container,
@@ -753,10 +752,10 @@ pub trait RepositoryStore {
         save_container_at(self, container, locator)
     }
 
-    /// Delete a **file-backed** container by its logical `container_id` —
-    /// the container file only, never `manifest.json`. Returns
-    /// `ContainerNotFound` for an unknown id (including the inline root,
-    /// which cannot be deleted).
+    /// Delete a container by its logical `container_id` — the container file
+    /// only, never `manifest.json`. Returns `ContainerNotFound` for an unknown
+    /// id. Store-level: the RFC-052 [R6] root refusal is enforced by
+    /// `container_service::delete_container`.
     fn delete_container(&self, container_id: &str) -> Result<(), RepositoryError> {
         let Some(path) = catalog_file_container_locator(self, container_id)? else {
             return Err(RepositoryError::ContainerNotFound {
@@ -766,10 +765,9 @@ pub trait RepositoryStore {
         self.delete_instance_file(&path)
     }
 
-    /// List all **file-backed** containers as lightweight summaries
-    /// `(container_id, title)`, titles read from the container bodies.
-    /// Order is not guaranteed. The inline root container is surfaced by
-    /// `container_service::list_containers`, which merges the manifest embed.
+    /// List all containers (the root included, RFC-052) as lightweight
+    /// summaries `(container_id, title)`, titles read from the container
+    /// bodies. Order is not guaranteed.
     fn list_container_summaries(&self) -> Result<Vec<(String, String)>, RepositoryError> {
         let cat = self.catalog()?;
         let mut out = Vec::new();
@@ -777,9 +775,6 @@ pub trait RepositoryStore {
             let Some(locator) = entry.locator.as_deref() else {
                 continue;
             };
-            if locator == crate::catalog::ROOT_CONTAINER_LOCATOR {
-                continue;
-            }
             let title = self
                 .load_instance_json(locator)?
                 .get("title")
@@ -1663,11 +1658,18 @@ impl RepositoryStore for FileStore {
             .unwrap_or_default()
             .to_string();
         let created_at = chrono::Utc::now().to_rfc3339();
+        // RFC-052: the root container lives in the container set, at
+        // `containers/<containerId>.json`; the manifest names it.
         let container_value = serde_json::to_value(default_repository_container(
             &input.repository.repository_id,
             &title,
         ))
         .unwrap_or_default();
+        self.ensure_dir("containers")?;
+        self.write_json(
+            &root_container_path(&input.repository.repository_id),
+            &container_value,
+        )?;
         let mut manifest = serde_json::json!({
             "$schema": srs_schema::MANIFEST_SCHEMA_ID,
             "dataModelRevision": 2,
@@ -1675,7 +1677,7 @@ impl RepositoryStore for FileStore {
             "repositoryId": input.repository.repository_id,
             "namespace": input.repository.namespace,
             "title": title,
-            "container": container_value,
+            "rootContainerId": input.repository.repository_id,
             "createdAt": created_at
         });
         if let Some(desc) = &input.repository.description {
@@ -2824,8 +2826,7 @@ fn catalog_save_instance<S: RepositoryStore + ?Sized>(
     store.save_instance_json(&path, value)
 }
 
-/// One catalog snapshot ([R24] applied), returning a **file-backed**
-/// container's locator (the inline root container is excluded — [R1]).
+/// One catalog snapshot ([R24] applied), returning a container's locator.
 fn catalog_file_container_locator<S: RepositoryStore + ?Sized>(
     store: &S,
     container_id: &str,
@@ -2852,9 +2853,36 @@ fn file_container_locator_in(
 ) -> Option<String> {
     cat.containers
         .iter()
-        .filter(|e| e.locator.as_deref() != Some(crate::catalog::ROOT_CONTAINER_LOCATOR))
         .find(|e| e.id == container_id)
         .and_then(|e| e.locator.clone())
+}
+
+/// Persist the root container (RFC-052 Change A): overwrite it at its
+/// catalog locator when it exists, otherwise write it at
+/// `containers/<containerId>.json`, the root's fixed file name. Writes the
+/// container only; the caller points `manifest.rootContainerId` at it
+/// afterwards (the catalog refuses a pointer to a container that does not
+/// exist yet, [R1]). Resolves through the unchecked catalog so it also serves
+/// the repair seam (ADR-045).
+pub fn save_root_container<S: RepositoryStore + ?Sized>(
+    store: &S,
+    container: &srs_core::types::container::Container,
+) -> Result<(), RepositoryError> {
+    let val = serde_json::to_value(container).map_err(|source| RepositoryError::Serialize {
+        path: PathBuf::from("containers"),
+        source,
+    })?;
+    if let Some(path) = unchecked_file_container_locator(store, &container.container_id)? {
+        return store.save_instance_json(&path, &val);
+    }
+    store.ensure_instance_dir("containers")?;
+    store.save_instance_json(&root_container_path(&container.container_id), &val)
+}
+
+/// The file a root container is written at when it has none yet:
+/// `containers/<containerId>.json` (RFC-052 Change A, [R7]).
+pub fn root_container_path(container_id: &str) -> String {
+    format!("containers/{container_id}.json")
 }
 
 /// The body shared by `load_container` and `load_container_unchecked` — the two
@@ -2890,16 +2918,6 @@ fn save_container_at<S: RepositoryStore + ?Sized>(
     if let Some(path) = locator {
         // Existing file-backed container — overwrite in place.
         return store.save_instance_json(&path, &val);
-    }
-    // The inline root container is authoritative in the manifest ([R1]):
-    // never materialise a duplicate file for it — update the embed.
-    let mut manifest = store.load_manifest()?;
-    if manifest
-        .root_container()
-        .is_some_and(|c| &c.container_id == id)
-    {
-        manifest.set_root_container(Some(container.clone()));
-        return store.save_manifest(&manifest);
     }
     // New container — collision-safe `containers/` filename, no index write.
     let slug = container
@@ -3025,6 +3043,9 @@ pub mod memory {
         /// mid-loop I/O failure in `doctor_service::doctor`'s `--fix` path,
         /// which rebuilds the catalog between repairs.
         CatalogUnchecked,
+        /// Fail the next `save_instance_json` call **for this exact path** (e.g. the
+        /// root container's file, RFC-052).
+        SaveInstanceJsonAt(String),
     }
 
     /// In-memory implementation of [`RepositoryStore`] for unit tests.
@@ -3092,7 +3113,7 @@ pub mod memory {
                 ),
             );
             let manifest = Manifest {
-                container: None,
+                root_container_id: None,
                 upstream_package: None,
                 extra,
                 source_documents_path: None,
@@ -3272,7 +3293,7 @@ pub mod memory {
 
         pub fn uninitialized() -> Self {
             let manifest = Manifest {
-                container: None,
+                root_container_id: None,
                 upstream_package: None,
                 extra: std::collections::BTreeMap::new(),
                 source_documents_path: None,
@@ -3439,10 +3460,11 @@ pub mod memory {
             // Same default root container as FileStore's initialize —
             // repo creation must yield the same repository (and the same
             // catalog) on every backend (RFC-038 acceptance test 3).
-            manifest.set_root_container(Some(default_repository_container(
+            let root = default_repository_container(
                 &input.repository.repository_id,
                 input.repository.title.as_deref().unwrap_or_default(),
-            )));
+            );
+            manifest.set_root_container_id(Some(root.container_id.clone()));
             *self.manifest.borrow_mut() = manifest;
 
             *self.package.borrow_mut() = Package {
@@ -3490,6 +3512,7 @@ pub mod memory {
             self.data
                 .borrow_mut()
                 .insert("package/package.json".to_string(), package_json);
+            crate::store::save_root_container(self, &root)?;
             *self.repository_initialized.borrow_mut() = true;
 
             Ok(CreateRepositoryResult {
@@ -3902,6 +3925,17 @@ pub mod memory {
             relative_path: &str,
             value: &serde_json::Value,
         ) -> Result<(), RepositoryError> {
+            let should_fail = matches!(
+                &*self.fail_at.borrow(),
+                Some(FailPoint::SaveInstanceJsonAt(p)) if p == relative_path
+            );
+            if should_fail {
+                *self.fail_at.borrow_mut() = None;
+                return Err(RepositoryError::Io {
+                    path: std::path::PathBuf::from(relative_path),
+                    source: std::io::Error::other("injected fault: save_instance_json"),
+                });
+            }
             self.data
                 .borrow_mut()
                 .insert(relative_path.to_string(), value.clone());
@@ -4426,7 +4460,7 @@ mod tests {
 
     fn minimal_manifest(repo_root: &std::path::Path) -> Manifest {
         Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -4545,45 +4579,42 @@ mod tests {
     }
 
     #[test]
-    fn file_store_manifest_container_roundtrip() {
+    fn file_store_manifest_root_container_id_roundtrip() {
         let temp = TempDir::new().unwrap();
         let root = temp.path();
-        std::fs::create_dir_all(root.join("package")).unwrap();
-
-        let manifest_json = serde_json::json!({
-            "dataModelRevision": 2,
-            "container": {
-                "containerId": "aaaaaaaa-0000-4000-8000-000000000001",
-                "identityInstanceId": "bbbbbbbb-0000-4000-8000-000000000002"
-            }
-        });
-        std::fs::write(
-            root.join("manifest.json"),
-            serde_json::to_string_pretty(&manifest_json).unwrap(),
-        )
-        .unwrap();
-
+        let write = |v: serde_json::Value| {
+            std::fs::write(
+                root.join("manifest.json"),
+                serde_json::to_string_pretty(&v).unwrap(),
+            )
+            .unwrap()
+        };
+        // RFC-052 [R7]: the embedded root is refused below revision 10.
+        write(serde_json::json!({
+            "dataModelRevision": 9,
+            "container": {"containerId": "aaaaaaaa-0000-4000-8000-000000000001", "title": "R"}
+        }));
         let store = FileStore::new(root);
+        assert_eq!(
+            store.load_manifest().unwrap_err().code(),
+            "container-migration-needed"
+        );
+
+        write(serde_json::json!({
+            "dataModelRevision": 10,
+            "rootContainerId": "aaaaaaaa-0000-4000-8000-000000000001"
+        }));
         let manifest = store.load_manifest().unwrap();
-
-        // Typed fields populated
-        let container = manifest.root_container().expect("container should be Some");
         assert_eq!(
-            container.container_id,
-            "aaaaaaaa-0000-4000-8000-000000000001"
+            manifest.root_container_id(),
+            Some("aaaaaaaa-0000-4000-8000-000000000001")
         );
-        assert_eq!(
-            container.identity_instance_id.as_deref(),
-            Some("bbbbbbbb-0000-4000-8000-000000000002")
-        );
+        assert!(!manifest.extra.contains_key("rootContainerId"));
 
-        // Not duplicated in extra
-        assert!(!manifest.extra.contains_key("container"));
-
-        // Write back and reload — verify round-trip
+        // Write back and reload — verify round-trip.
         store.save_manifest(&manifest).unwrap();
         let reloaded = store.load_manifest().unwrap();
-        assert_eq!(reloaded.root_container(), manifest.root_container());
+        assert_eq!(reloaded.root_container_id(), manifest.root_container_id());
     }
 
     #[test]
@@ -4685,7 +4716,10 @@ mod tests {
         let manifest = minimal_manifest(&root);
         let store = MemoryStore::new(manifest.clone(), empty_package(&root));
         let loaded = store.load_manifest().unwrap();
-        assert_eq!(loaded.root_container(), manifest.root_container());
+        assert_eq!(
+            crate::container_service::resolve_root_container(&store, &loaded).unwrap(),
+            crate::container_service::resolve_root_container(&store, &manifest).unwrap()
+        );
         assert_eq!(loaded.extra, manifest.extra);
     }
 

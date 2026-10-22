@@ -139,6 +139,8 @@ pub mod codes {
     /// RFC-043 [R16]: a container file still carries a revision-7 shape; run the
     /// `rfc043-container-entries` registry migration.
     pub const RFC043_MIGRATION_NEEDED: &str = "SRS043-R16-MIGRATION-NEEDED";
+    /// RFC-052 [R1]: `manifest.rootContainerId` names no container in the container set.
+    pub const ROOT_CONTAINER_MISSING: &str = "manifest-root-container-missing";
     /// Relation filename disagrees with the in-file `relationId` ([R11]).
     pub const RELATION_FILENAME_MISMATCH: &str = "SRS038-R11-FILENAME-MISMATCH";
     /// A file nested in a subdirectory of `relations/`, which must be flat ([R11]).
@@ -162,10 +164,6 @@ pub mod codes {
 // ---------------------------------------------------------------------------
 // RepositoryCatalog
 // ---------------------------------------------------------------------------
-
-/// Locator of the inline root container ([R1]: the manifest is authoritative
-/// for the repository's root container — it is never a file under `containers/`).
-pub const ROOT_CONTAINER_LOCATOR: &str = "manifest.json#/container";
 
 /// One materialised snapshot of the six authoritative sets, with diagnostics.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -580,8 +578,11 @@ pub(crate) struct CatalogState {
     declared_defs: BTreeMap<String, (CatalogKind, &'static str)>,
     package_roots: Vec<String>,
     file_set: BTreeSet<String>,
-    /// Discriminator check, package-manifest diagnostics, inline root
-    /// container, extension aggregate — anything not owned by one file.
+    /// RFC-052 [R1]: the container `manifest.rootContainerId` names, which must
+    /// be in the container set.
+    root_container_id: Option<String>,
+    /// Discriminator check, package-manifest diagnostics, extension aggregate
+    /// — anything not owned by one file.
     global: Contribution,
     per_file: BTreeMap<String, Contribution>,
 }
@@ -620,6 +621,7 @@ impl CatalogState {
                     declared_defs: BTreeMap::new(),
                     package_roots: Vec::new(),
                     file_set: BTreeSet::new(),
+                    root_container_id: None,
                     global: Contribution::default(),
                     per_file: BTreeMap::new(),
                 });
@@ -768,25 +770,6 @@ impl CatalogState {
             }
         }
 
-        // --- The inline root container (Change A: manifest is authoritative) ---
-
-        if let Some(container) = manifest.root_container() {
-            let locator = ROOT_CONTAINER_LOCATOR.to_string();
-            if container.member_instance_ids.is_some() {
-                b.container_refs.push((
-                    locator.clone(),
-                    "memberInstanceIds",
-                    container.member_ids(),
-                ));
-            }
-            b.entries.containers.push(CatalogEntry {
-                id: container.container_id.clone(),
-                kind: CatalogKind::Container,
-                tier: None,
-                locator: Some(locator),
-            });
-        }
-
         // --- Extension set (Change L; [R5] sixth location class) ---
 
         if declared_extensions.contains("ext:changelog") {
@@ -810,6 +793,7 @@ impl CatalogState {
             declared_defs,
             package_roots,
             file_set,
+            root_container_id: manifest.root_container_id().map(str::to_string),
             global: b.into_contribution(),
             per_file: BTreeMap::new(),
         };
@@ -950,6 +934,19 @@ impl CatalogState {
                     format!(
                         "path declared in a package manifest's '{}' array resolves to no file",
                         kind.as_str()
+                    ),
+                );
+            }
+        }
+        // RFC-052 [R1]: the root the manifest names must be in the container set.
+        if let Some(root_id) = &self.root_container_id {
+            if !b.entries.containers.iter().any(|e| &e.id == root_id) {
+                b.error(
+                    codes::ROOT_CONTAINER_MISSING,
+                    vec!["manifest.json".to_string()],
+                    format!(
+                        "manifest.rootContainerId '{root_id}' names no container in the \
+                         container set (RFC-052 [R1])"
                     ),
                 );
             }

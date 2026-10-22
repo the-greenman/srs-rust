@@ -731,7 +731,7 @@ mod tests {
         instances: Vec<(&str, u8, serde_json::Value)>,
     ) -> MemoryStore {
         let manifest = Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -1074,7 +1074,7 @@ mod tests {
         instances: Vec<(&str, u8, Option<&str>, serde_json::Value)>,
     ) -> MemoryStore {
         let manifest = Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,

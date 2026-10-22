@@ -715,8 +715,8 @@ pub fn update_note_content(
 ///
 /// No manifest *index* is written: Phase 3 removed the service-layer
 /// `instance_index` writes that ADR-007's index-first ordering used to govern.
-/// The only manifest write reachable from here is `manifest.container`, when the
-/// note is a member of the inline root container ([R1]).
+/// No manifest write is reachable from here: a root-container membership is removed
+/// from the root container's file in `containers/` (RFC-052 [R4]).
 pub fn delete_note(
     store: &dyn RepositoryStore,
     id: &str,
@@ -792,7 +792,7 @@ mod tests {
             v
         };
         let manifest = Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -837,7 +837,7 @@ mod tests {
             v
         };
         let manifest = Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -1064,7 +1064,7 @@ mod tests {
         // is retired — srs#448/rfc-decision-53635966, srs-rust#888 — and its
         // raw-JSON shape no longer classifies at catalog build.)
         let manifest = Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -1504,7 +1504,7 @@ mod tests {
             v
         };
         let manifest = Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -1699,7 +1699,7 @@ mod tests {
         // Manufacture a store where a tier-2 Record exists, not a note
         // (RFC-038: tier comes from body shape, not the index).
         let manifest = Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
