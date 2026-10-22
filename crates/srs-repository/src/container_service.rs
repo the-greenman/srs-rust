@@ -515,15 +515,16 @@ pub fn container_delete_plan(
         .iter()
         .cloned()
         .partition(|id| existing.contains(id) || is_root_container(store, id));
+    // RFC-052 [R6]: the root container is never deleted.
     if let Some(root) = ours.iter().find(|id| is_root_container(store, id)) {
-        return Err(RepositoryError::ContainerIsRepositoryRoot {
+        return Err(RepositoryError::ContainerRootDelete {
             container_id: root.clone(),
         });
     }
 
     let mut members: Vec<String> = Vec::new();
     for id in &ours {
-        let (container, _) = load_container_with_embed_fallback(store, id)?;
+        let container = store.load_container(id)?;
         for m in direct_member_ids(&container) {
             if !members.contains(&m) {
                 members.push(m);
@@ -1870,7 +1871,7 @@ mod tests {
         let store = embed_only_store(embed_id, "Root");
         let err = container_delete_plan(&store, &[embed_id.to_string()]).unwrap_err();
         assert!(
-            matches!(err, RepositoryError::ContainerIsRepositoryRoot { .. }),
+            matches!(err, RepositoryError::ContainerRootDelete { .. }),
             "{err:?}"
         );
     }
