@@ -68,7 +68,8 @@ fn make_fixture() -> Fixture {
     // member, RFC-013) is the equivalent, still-valid source.
     let root_container_id = srs_repository::store::RepositoryStore::load_manifest(&store)
         .unwrap()
-        .container
+        .root_container()
+        .cloned()
         .unwrap()
         .container_id;
 
@@ -149,7 +150,7 @@ fn make_fixture() -> Fixture {
     .unwrap();
 
     let manifest = srs_repository::store::RepositoryStore::load_manifest(&store).unwrap();
-    let container_id = manifest.container.as_ref().unwrap().container_id.clone();
+    let container_id = manifest.root_container().unwrap().container_id.clone();
 
     Fixture {
         dir,

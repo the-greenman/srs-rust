@@ -255,7 +255,7 @@ pub fn export_repository_snapshot_with_options(
     // preserved in `root_container` below, so including it in `containers` would
     // double-capture it and cause `create_container` UUID-validation failures on import
     // for repositories whose id pre-dates the UUID requirement (e.g. legacy test repos).
-    let embed_only_root_id: Option<String> = manifest.container.as_ref().and_then(|mc| {
+    let embed_only_root_id: Option<String> = manifest.root_container().and_then(|mc| {
         let file_backed = catalog.containers.iter().any(|e| {
             e.id == mc.container_id
                 && e.locator.as_deref() != Some(crate::catalog::ROOT_CONTAINER_LOCATOR)
@@ -409,7 +409,7 @@ pub fn export_repository_snapshot_with_options(
         packages,
         instances,
         containers,
-        root_container: manifest.container.clone(),
+        root_container: manifest.root_container().cloned(),
         container_index: None,
         // Retired by RFC-038 Change K — `containers` above (catalog-backed) is
         // the real data; this field is never populated or read any more.
@@ -522,7 +522,7 @@ fn do_import(
     // write ([R1] — the manifest is authoritative for the inline root container);
     // `containerIndex` is retired (Change K) and is never written.
     if let Some(root_container) = &snapshot.root_container {
-        manifest.container = Some(root_container.clone());
+        manifest.set_root_container(Some(root_container.clone()));
     }
 
     // Materialize source documents (RFC-017 R3/R12). RFC-038 [R25]: no
@@ -1431,11 +1431,10 @@ fn import_container_file(
     let id = &container.container_id;
     let mut manifest = target.load_manifest()?;
     if manifest
-        .container
-        .as_ref()
+        .root_container()
         .is_some_and(|c| &c.container_id == id)
     {
-        manifest.container = Some(container.clone());
+        manifest.set_root_container(Some(container.clone()));
         return target.save_manifest(&manifest);
     }
     let val = serde_json::to_value(container).map_err(|source| RepositoryError::Serialize {
@@ -1643,7 +1642,7 @@ mod tests {
             )
             .unwrap();
         let mut manifest = source.load_manifest().unwrap();
-        manifest.container = Some(Container {
+        manifest.set_root_container(Some(Container {
             container_id: "99999999-9999-4999-8999-999999999999".to_string(),
             title: "Root".to_string(),
             namespace: None,
@@ -1661,7 +1660,7 @@ mod tests {
             updated_at: None,
             meta: None,
             extra: std::collections::BTreeMap::new(),
-        });
+        }));
         source.save_manifest(&manifest).unwrap();
 
         let mut snapshot = export_repository_snapshot(&source).unwrap();
@@ -1692,8 +1691,7 @@ mod tests {
 
         let copied = target.load_manifest().unwrap();
         let container = copied
-            .container
-            .as_ref()
+            .root_container()
             .expect("manifest.container must survive copy");
         assert_eq!(
             container.container_id, "99999999-9999-4999-8999-999999999999",

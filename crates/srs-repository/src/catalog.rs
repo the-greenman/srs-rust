@@ -770,7 +770,7 @@ impl CatalogState {
 
         // --- The inline root container (Change A: manifest is authoritative) ---
 
-        if let Some(container) = &manifest.container {
+        if let Some(container) = manifest.root_container() {
             let locator = ROOT_CONTAINER_LOCATOR.to_string();
             if container.member_instance_ids.is_some() {
                 b.container_refs.push((

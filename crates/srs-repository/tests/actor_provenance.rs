@@ -210,7 +210,12 @@ fn no_session_actor_creates_unattributed_and_never_errors() {
 fn repo_create_stamps_the_scaffolded_purpose_record() {
     let (_d, store) = new_repo(Some(human()));
     let manifest = store.load_manifest().unwrap();
-    let identity = manifest.container.unwrap().identity_instance_id.unwrap();
+    let identity = manifest
+        .root_container()
+        .cloned()
+        .unwrap()
+        .identity_instance_id
+        .unwrap();
     assert_eq!(
         stored_record(&store, &identity).created_by,
         Some(as_actor(&human()))

@@ -2178,7 +2178,8 @@ mod tests {
         let identity = store
             .load_manifest()
             .unwrap()
-            .container
+            .root_container()
+            .cloned()
             .unwrap()
             .identity_instance_id
             .unwrap();
@@ -2254,7 +2255,8 @@ mod tests {
         let identity = store
             .load_manifest()
             .unwrap()
-            .container
+            .root_container()
+            .cloned()
             .unwrap()
             .identity_instance_id
             .unwrap();
@@ -2362,7 +2364,7 @@ mod tests {
         assert_eq!(report.summary.errors, 0, "{:?}", report.diagnostics);
         let m = store.load_manifest().unwrap();
         assert_eq!(m.extra["dataModelRevision"], 9);
-        let c = m.container.as_ref().unwrap();
+        let c = m.root_container().unwrap();
         let id = c.identity_instance_id.clone().unwrap();
         let members = c.member_instance_ids.as_ref().unwrap();
         assert_eq!(members.len(), 1);

@@ -137,23 +137,28 @@ fn scaffold_purpose_record(
     // sanctioned manifest write here — an explicit container-membership
     // operation ([R22]'s exception), not an instance-index write.
     let mut manifest = store.load_manifest()?;
-    let container = manifest.container.get_or_insert_with(|| Container {
-        container_id: repository_id.to_string(),
-        title: container_title.to_string(),
-        namespace: None,
-        name: None,
-        description: None,
-        container_type: None,
-        identity_instance_id: None,
-        anchor_instance_id: None,
-        member_instance_ids: None,
-        child_container_ids: None,
-        tags: None,
-        created_at: None,
-        updated_at: None,
-        meta: None,
-        extra: std::collections::BTreeMap::new(),
-    });
+    if manifest.root_container().is_none() {
+        manifest.set_root_container(Some(Container {
+            container_id: repository_id.to_string(),
+            title: container_title.to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            identity_instance_id: None,
+            anchor_instance_id: None,
+            member_instance_ids: None,
+            child_container_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::BTreeMap::new(),
+        }));
+    }
+    let container = manifest
+        .root_container_mut()
+        .expect("root container always set above");
     container.identity_instance_id = Some(instance_id.clone());
     container
         .member_instance_ids
@@ -164,16 +169,15 @@ fn scaffold_purpose_record(
 
     store.save_manifest(&manifest)?;
     let container = manifest
-        .container
-        .as_ref()
-        .expect("container always set by get_or_insert_with above");
+        .root_container()
+        .expect("root container always set above");
     if let Err(e) = store.save_container(container) {
         // Best-effort rollback of the record this same call just wrote —
         // the srs-rust#1025 inbound-relations gate is for a caller's
         // intentional delete, not our own half-finished scaffold.
         let _ = delete_record(store, &instance_id, true);
         if let Ok(mut m) = store.load_manifest() {
-            m.container = None;
+            m.set_root_container(None);
             let _ = write_manifest(store, &m);
         }
         return Err(e);
@@ -505,7 +509,7 @@ mod tests {
         assert_eq!(m.extra["srsVersion"], "2.0-draft");
         assert_eq!(m.extra["title"], "com.t.blank");
         assert_eq!(m.extra["dataModelRevision"], 9);
-        let c = m.container.unwrap();
+        let c = m.root_container().cloned().unwrap();
         assert_eq!(c.identity_instance_id, result.identity_instance_id);
         assert!(
             c.anchor_instance_id.is_none(),
@@ -978,8 +982,7 @@ mod tests {
 
         let manifest = store.load_manifest().unwrap();
         let container_id = manifest
-            .container
-            .as_ref()
+            .root_container()
             .and_then(|c| c.identity_instance_id.as_deref());
         assert_eq!(
             container_id,
@@ -996,8 +999,7 @@ mod tests {
 
         let manifest = store.load_manifest().unwrap();
         let members = manifest
-            .container
-            .as_ref()
+            .root_container()
             .and_then(|c| c.member_instance_ids.as_ref())
             .expect("member_instance_ids must be set");
         assert!(
@@ -1129,7 +1131,7 @@ mod tests {
         assert!(result.identity_instance_id.is_some());
 
         let manifest = store.load_manifest().unwrap();
-        let container = manifest.container.as_ref().expect("container must be set");
+        let container = manifest.root_container().expect("container must be set");
         assert_eq!(
             container.title, "com.semanticops.test",
             "container title must fall back to namespace when no title given"
@@ -1197,8 +1199,7 @@ mod tests {
         assert_eq!(record.type_id, core_purpose::PURPOSE_TYPE_ID);
 
         let container_id = manifest
-            .container
-            .as_ref()
+            .root_container()
             .and_then(|c| c.identity_instance_id.as_deref());
         assert_eq!(
             container_id,

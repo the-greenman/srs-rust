@@ -75,7 +75,7 @@ pub fn migration_status(
     store: &dyn RepositoryStore,
 ) -> Result<IdentityMigrationStatus, RepositoryError> {
     let manifest = store.load_manifest()?;
-    let mc = match manifest.container.as_ref() {
+    let mc = match manifest.root_container() {
         None => return Ok(IdentityMigrationStatus::NotApplicable),
         Some(c) => c,
     };
@@ -120,8 +120,7 @@ pub fn migrate_identity(
     let manifest = store.load_manifest()?;
 
     let mc = manifest
-        .container
-        .as_ref()
+        .root_container()
         .ok_or_else(|| RepositoryError::InvalidInput {
             message: "manifest.container is not set".to_string(),
         })?
@@ -166,7 +165,7 @@ pub fn migrate_identity(
             // Reload manifest to capture the index entry create_record just wrote, then add
             // container metadata and write a second time (two manifest writes per ADR-021 batch).
             let mut manifest = store.load_manifest()?;
-            if let Some(ref mut container) = manifest.container {
+            if let Some(container) = manifest.root_container_mut() {
                 container.identity_instance_id = Some(new_id.clone());
                 container
                     .member_instance_ids
@@ -273,7 +272,7 @@ pub fn migrate_identity(
         // Reload manifest to capture the index entry create_record just wrote, then update
         // identity pointer and write a second time (two manifest writes per ADR-021 batch).
         let mut manifest = store.load_manifest()?;
-        if let Some(ref mut mc) = manifest.container {
+        if let Some(mc) = manifest.root_container_mut() {
             mc.identity_instance_id = Some(new_id.clone());
         }
         writer::write_manifest(store, &manifest)?;
@@ -399,7 +398,7 @@ mod tests {
         let mut manifest = store.load_manifest().unwrap();
         let mut root = bare_container(container_id);
         root.identity_instance_id = Some(note_id.to_string());
-        manifest.container = Some(root);
+        manifest.set_root_container(Some(root));
         write_manifest(&store, &manifest).unwrap();
 
         (store, container_id.to_string())
@@ -570,7 +569,11 @@ mod tests {
         let result = migrate_identity(&store).unwrap();
         let manifest = store.load_manifest().unwrap();
         assert_eq!(
-            manifest.container.unwrap().identity_instance_id,
+            manifest
+                .root_container()
+                .cloned()
+                .unwrap()
+                .identity_instance_id,
             Some(result.new_identity_id)
         );
     }
@@ -664,7 +667,7 @@ mod tests {
         let mut manifest = store.load_manifest().unwrap();
         let mut root = bare_container(container_id);
         root.identity_instance_id = Some(instance_id.to_string());
-        manifest.container = Some(root);
+        manifest.set_root_container(Some(root));
         write_manifest(&store, &manifest).unwrap();
 
         let err = migrate_identity(&store).unwrap_err();
@@ -725,7 +728,7 @@ mod tests {
         container.title = title.to_string();
         container.description = description.map(|d| d.to_string());
         let mut manifest = store.load_manifest().unwrap();
-        manifest.container = Some(container);
+        manifest.set_root_container(Some(container));
         write_manifest(&store, &manifest).unwrap();
         (store, container_id.to_string())
     }
@@ -763,7 +766,11 @@ mod tests {
         let result = migrate_identity(&store).unwrap();
         let manifest = store.load_manifest().unwrap();
         assert_eq!(
-            manifest.container.unwrap().identity_instance_id,
+            manifest
+                .root_container()
+                .cloned()
+                .unwrap()
+                .identity_instance_id,
             Some(result.new_identity_id)
         );
     }
@@ -789,7 +796,7 @@ mod tests {
         container.title = "".to_string();
         container.description = Some("We build SRS.".to_string());
         let mut manifest = store.load_manifest().unwrap();
-        manifest.container = Some(container);
+        manifest.set_root_container(Some(container));
         write_manifest(&store, &manifest).unwrap();
 
         let result = migrate_identity(&store).unwrap();
@@ -808,7 +815,7 @@ mod tests {
         let mut container = bare_container(container_id);
         container.title = "".to_string();
         let mut manifest = store.load_manifest().unwrap();
-        manifest.container = Some(container);
+        manifest.set_root_container(Some(container));
         write_manifest(&store, &manifest).unwrap();
 
         let err = migrate_identity(&store).unwrap_err();
@@ -917,7 +924,7 @@ mod tests {
         let section_note = make_note(section_member_id, Some("Section"), one_section("Body."));
         write_note(&store, &section_note, "records/notes/section.json").unwrap();
         let mut manifest = store.load_manifest().unwrap();
-        manifest.container = Some(container);
+        manifest.set_root_container(Some(container));
         write_manifest(&store, &manifest).unwrap();
 
         let result = migrate_identity(&store).unwrap();
