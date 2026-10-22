@@ -60,6 +60,7 @@ echo "ok - older-revision corpus passes as migration pending; corpus untouched"
 cp -a "$FIXTURE" "${WORK}/current"
 "$SRS" repo apply-migration --repo "${WORK}/current" --id rfc043-container-entries >/dev/null
 "$SRS" repo apply-migration --repo "${WORK}/current" --id rfc046-actor-provenance >/dev/null
+"$SRS" repo apply-migration --repo "${WORK}/current" --id rfc052-root-container >/dev/null
 out="$(gate 0 current="${WORK}/current")"
 grep -q "current: checked [1-9]" <<<"$out" || fail "current corpus did not validate as-is" "$out"
 grep -q "migration pending" <<<"$out" && fail "current corpus reported migration pending" "$out"
