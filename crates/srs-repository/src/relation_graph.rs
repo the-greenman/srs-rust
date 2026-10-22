@@ -207,6 +207,136 @@ pub(crate) fn sort_by_precedes_chain_diagnosed<T: PrecedesSortable>(
     (result, diagnostics)
 }
 
+/// At-rest relation-set diagnostics for `repo validate` (srs-rust#557; design
+/// note 044 relation principles R1/R6/R10, Invariant 20). Each item is
+/// `(is_error, text)`; the caller maps it to a severity and locator.
+///
+/// * a relation endpoint that is a `containerId` (I-20) is an error with its own
+///   code, rather than the misleading "unknown endpoint";
+/// * two relations with the same `(source, type, target)` are a duplicate edge
+///   (warning, once per distinct edge);
+/// * `precedes` is a 1:1 linked list, so a node with two successors or two
+///   predecessors, or any cycle, is a warning naming the nodes.
+pub(crate) fn relation_set_diagnostics(
+    relations: &[Relation],
+    container_ids: &HashSet<String>,
+) -> Vec<(bool, String)> {
+    let mut out = Vec::new();
+
+    for r in relations {
+        for (role, id) in [
+            ("source", &r.source_instance_id),
+            ("target", &r.target_instance_id),
+        ] {
+            if container_ids.contains(id) {
+                out.push((
+                    true,
+                    format!(
+                        "I-20: relation '{}' {} endpoint '{}' is a containerId; a Container is a grouping boundary, not an instance, and may not be a relation endpoint",
+                        r.relation_id, role, id
+                    ),
+                ));
+            }
+        }
+    }
+
+    let mut seen: HashMap<(&str, &str, &str), Vec<&str>> = HashMap::new();
+    for r in relations {
+        seen.entry((
+            r.source_instance_id.as_str(),
+            r.relation_type.as_str(),
+            r.target_instance_id.as_str(),
+        ))
+        .or_default()
+        .push(r.relation_id.as_str());
+    }
+    let mut dupes: Vec<_> = seen.into_iter().filter(|(_, ids)| ids.len() > 1).collect();
+    dupes.sort();
+    for ((src, ty, tgt), mut ids) in dupes {
+        ids.sort();
+        out.push((
+            false,
+            format!(
+                "duplicate relation edge ({src}, {ty}, {tgt}) asserted {} times by relationIds {}",
+                ids.len(),
+                ids.join(", ")
+            ),
+        ));
+    }
+
+    // `precedes` shape, over distinct edges.
+    let mut edges: Vec<(&str, &str)> = relations
+        .iter()
+        .filter(|r| r.relation_type == "precedes")
+        .map(|r| (r.source_instance_id.as_str(), r.target_instance_id.as_str()))
+        .collect();
+    edges.sort();
+    edges.dedup();
+    let mut succ: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut pred: HashMap<&str, usize> = HashMap::new();
+    let mut nodes: HashSet<&str> = HashSet::new();
+    for (s, t) in &edges {
+        succ.entry(s).or_default().push(t);
+        *pred.entry(t).or_insert(0) += 1;
+        nodes.insert(s);
+        nodes.insert(t);
+    }
+    let mut forks: Vec<(&str, usize, &str)> = succ
+        .iter()
+        .filter(|(_, v)| v.len() > 1)
+        .map(|(k, v)| (*k, v.len(), "successors"))
+        .chain(
+            pred.iter()
+                .filter(|(_, n)| **n > 1)
+                .map(|(k, n)| (*k, *n, "predecessors")),
+        )
+        .collect();
+    forks.sort();
+    for (id, n, dir) in forks {
+        out.push((
+            false,
+            format!(
+                "`precedes` fork at {id}: {n} {dir}; precedes is a 1:1 linked list, so the rendered order is resolved by tiebreak and the intent is ambiguous"
+            ),
+        ));
+    }
+
+    // Kahn's algorithm: whatever cannot be peeled is in, or downstream of, a cycle.
+    let mut indeg: HashMap<&str, usize> = nodes.iter().map(|n| (*n, 0)).collect();
+    for (_, t) in &edges {
+        *indeg.entry(t).or_insert(0) += 1;
+    }
+    let mut ready: Vec<&str> = indeg
+        .iter()
+        .filter(|(_, d)| **d == 0)
+        .map(|(n, _)| *n)
+        .collect();
+    let mut peeled: HashSet<&str> = HashSet::new();
+    while let Some(n) = ready.pop() {
+        peeled.insert(n);
+        for t in succ.get(n).into_iter().flatten() {
+            let d = indeg.entry(t).or_insert(0);
+            *d -= 1;
+            if *d == 0 {
+                ready.push(t);
+            }
+        }
+    }
+    let mut cyclic: Vec<&str> = nodes.difference(&peeled).copied().collect();
+    cyclic.sort();
+    if !cyclic.is_empty() {
+        out.push((
+            false,
+            format!(
+                "`precedes` cycle: {} cannot be placed by topological order; rendering falls back to the (createdAt, instanceId) tiebreak",
+                cyclic.join(", ")
+            ),
+        ));
+    }
+
+    out
+}
+
 /// Return child instances reached via `relation_type` edges from `source_id`,
 /// ordered by precedes chain. Tier-aware: a target that resolves to a Tier-0
 /// Note loads as `LoadedInstance::Note` rather than through the Tier-2-only
@@ -361,6 +491,75 @@ pub(crate) fn passes_type_filter(
 
 #[cfg(test)]
 mod tests {
+
+    fn rel(id: &str, ty: &str, s: &str, t: &str) -> Relation {
+        Relation {
+            relation_id: id.to_string(),
+            relation_type: ty.to_string(),
+            source_instance_id: s.to_string(),
+            target_instance_id: t.to_string(),
+            created_at: None,
+            created_by: None,
+            notes: None,
+            source_refs: None,
+            meta: None,
+        }
+    }
+
+    #[test]
+    fn relation_set_clean_chain_is_silent() {
+        let rels = [
+            rel("1", "precedes", "a", "b"),
+            rel("2", "precedes", "b", "c"),
+        ];
+        assert!(relation_set_diagnostics(&rels, &HashSet::new()).is_empty());
+    }
+
+    #[test]
+    fn relation_set_flags_container_endpoint_as_error() {
+        let containers: HashSet<String> = ["c1".to_string()].into();
+        let d = relation_set_diagnostics(&[rel("1", "contains", "c1", "x")], &containers);
+        assert_eq!(d.len(), 1);
+        assert!(d[0].0 && d[0].1.starts_with("I-20"));
+    }
+
+    #[test]
+    fn relation_set_flags_duplicate_edge_once() {
+        let rels = [
+            rel("1", "depends-on", "a", "b"),
+            rel("2", "depends-on", "a", "b"),
+            rel("3", "depends-on", "b", "a"),
+        ];
+        let d = relation_set_diagnostics(&rels, &HashSet::new());
+        assert_eq!(d.len(), 1);
+        assert!(!d[0].0 && d[0].1.contains("duplicate relation edge"));
+    }
+
+    #[test]
+    fn relation_set_flags_fanout_join_and_cycle() {
+        let fan = [
+            rel("1", "precedes", "a", "b"),
+            rel("2", "precedes", "a", "c"),
+        ];
+        let d = relation_set_diagnostics(&fan, &HashSet::new());
+        assert!(d
+            .iter()
+            .any(|(e, m)| !e && m.contains("fork at a: 2 successors")));
+        let join = [
+            rel("1", "precedes", "a", "c"),
+            rel("2", "precedes", "b", "c"),
+        ];
+        let d = relation_set_diagnostics(&join, &HashSet::new());
+        assert!(d
+            .iter()
+            .any(|(_, m)| m.contains("fork at c: 2 predecessors")));
+        let cyc = [
+            rel("1", "precedes", "a", "b"),
+            rel("2", "precedes", "b", "a"),
+        ];
+        let d = relation_set_diagnostics(&cyc, &HashSet::new());
+        assert!(d.iter().any(|(_, m)| m.contains("cycle: a, b")));
+    }
     use super::*;
     use srs_core::types::record::{FieldValues, Record};
     use srs_core::types::relation::Relation;

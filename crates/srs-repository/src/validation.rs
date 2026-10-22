@@ -1577,6 +1577,34 @@ pub fn validate_repository(
         }
     }
 
+    // --- srs-rust#557: relation-set diagnostics (I-20, duplicate edges, precedes shape) ---
+    {
+        let mut all_relations: Vec<srs_core::types::relation::Relation> = Vec::new();
+        if let Ok(Some((_, v))) = crate::relation_service::resolve_relations_source(store) {
+            if let Ok(coll) = serde_json::from_value::<RelationsCollection>(v) {
+                all_relations.extend(coll.relations);
+            }
+        }
+        if let Ok(standalone) = store.list_relations() {
+            all_relations.extend(standalone);
+        }
+        let container_ids: HashSet<String> = cat.containers.iter().map(|c| c.id.clone()).collect();
+        for (is_error, message) in
+            crate::relation_graph::relation_set_diagnostics(&all_relations, &container_ids)
+        {
+            diagnostics.push(ValidationDiagnostic {
+                severity: if is_error {
+                    DiagnosticSeverity::Error
+                } else {
+                    DiagnosticSeverity::Warning
+                },
+                relative_path: "relations".to_string(),
+                schema_id: None,
+                message,
+            });
+        }
+    }
+
     // --- RFC-043 arrangement + RFC-009 I-145 anchor, for every non-root container ---
     // (the root container is checked above with its manifest locator). Needs no package
     // resolution, so it is not gated behind a successful package load.
