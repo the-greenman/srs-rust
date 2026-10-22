@@ -1118,6 +1118,35 @@ impl SrsRepository {
         to_js(&result)
     }
 
+    /// Delete a container (same service as `srs container delete`): its members stay. The
+    /// repository root is refused. Returns `{ containerId }`.
+    pub fn delete_container(&self, container_id: &str) -> Result<JsValue, JsValue> {
+        let id = container_service::delete_container(&self.store, container_id)
+            .map_err(|e| js_err(&e))?;
+        to_js(&serde_json::json!({ "containerId": id }))
+    }
+
+    /// What deleting `container_ids_json` (a JSON array of container ids) takes with it, and with
+    /// `apply` delete it (srs-rust#1436; same service as `srs container delete-plan [--apply]`):
+    /// the instances only those containers hold go, relations cascaded, then the containers.
+    /// Returns `{ containerIds, missingContainerIds, instanceIds, kept: [{ instanceId, reason:
+    /// "held-elsewhere" | "lineage" }] }`.
+    pub fn container_delete_plan(
+        &self,
+        container_ids_json: &str,
+        apply: bool,
+    ) -> Result<JsValue, JsValue> {
+        let ids: Vec<String> = serde_json::from_str(container_ids_json)
+            .map_err(|e| js_invalid_input(format!("container ids: {e}")))?;
+        let plan = if apply {
+            container_service::delete_containers_with_records(&self.store, &ids)
+        } else {
+            container_service::container_delete_plan(&self.store, &ids)
+        }
+        .map_err(|e| js_err(&e))?;
+        to_js(&plan)
+    }
+
     /// Fork `instance_id` and its nested children inside `container_id` (srs-rust#1136; same
     /// service as `srs record fork` and the MCP `record_fork` tool). Returns
     /// `{ containerId, forks: [{originalId, forkId, carriedRelationIds?}], relations, carriedRelations? }`.

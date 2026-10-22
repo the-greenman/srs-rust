@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ContainerDeletePlanPayload",
+  "description": "Payload for `container delete-plan` (srs-rust#1436): what deleting the containers takes with them, and whether `--apply` carried it out.",
+  "type": "object",
+  "required": [
+    "applied",
+    "containerIds",
+    "instanceIds",
+    "kept",
+    "missingContainerIds"
+  ],
+  "properties": {
+    "applied": {
+      "type": "boolean"
+    },
+    "containerIds": {
+      "description": "The requested containers that exist (deleted when applied).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "instanceIds": {
+      "description": "The instances only these containers hold (deleted with them when applied).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "kept": {
+      "description": "`[{ instanceId, reason: \"held-elsewhere\" | \"lineage\" }]`: members that stay."
+    },
+    "missingContainerIds": {
+      "description": "Requested ids naming no container.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

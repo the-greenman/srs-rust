@@ -662,6 +662,23 @@ pub struct ContainerDeletePayload {
     pub container_id: String,
 }
 
+/// Payload for `container delete-plan` (srs-rust#1436): what deleting the containers takes with
+/// them, and whether `--apply` carried it out.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerDeletePlanPayload {
+    /// The requested containers that exist (deleted when applied).
+    pub container_ids: Vec<String>,
+    /// Requested ids naming no container.
+    pub missing_container_ids: Vec<String>,
+    /// The instances only these containers hold (deleted with them when applied).
+    pub instance_ids: Vec<String>,
+    /// `[{ instanceId, reason: "held-elsewhere" | "lineage" }]`: members that stay.
+    #[schemars(with = "serde_json::Value")]
+    pub kept: Vec<srs_repository::container_service::KeptInstance>,
+    pub applied: bool,
+}
+
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ContainerMembersPayload {

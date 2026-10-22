@@ -4772,6 +4772,49 @@ fn container_delete_removes_container() {
 }
 
 #[test]
+fn container_delete_plan_then_apply() {
+    // srs-rust#1436: the plan names what only the container holds and writes nothing; --apply
+    // deletes those instances and the container.
+    let temp = make_container_test_repo();
+    let id = "00000000-0000-4000-8000-000000000001";
+    let member = "11111111-1111-4111-8111-111111111111";
+    let payload = serde_json::json!({
+        "containerId": id, "title": "Page", "memberInstanceIds": [{ "instanceId": member }]
+    })
+    .to_string();
+    run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
+
+    let plan = run_srs_in_dir(
+        temp.path(),
+        &[
+            "container",
+            "delete-plan",
+            id,
+            "00000000-0000-4000-8000-0000000000ff",
+        ],
+    );
+    assert_eq!(plan["ok"], true, "{plan}");
+    assert_eq!(plan["payload"]["instanceIds"], serde_json::json!([member]));
+    assert_eq!(
+        plan["payload"]["missingContainerIds"],
+        serde_json::json!(["00000000-0000-4000-8000-0000000000ff"])
+    );
+    assert_eq!(plan["payload"]["applied"], false);
+    let listed = run_srs_in_dir(temp.path(), &["container", "list"]);
+    assert_eq!(
+        listed["payload"]["containers"].as_array().unwrap().len(),
+        1,
+        "a plan writes nothing"
+    );
+
+    let applied = run_srs_in_dir(temp.path(), &["container", "delete-plan", id, "--apply"]);
+    assert_eq!(applied["ok"], true, "{applied}");
+    assert_eq!(applied["payload"]["applied"], true);
+    let listed = run_srs_in_dir(temp.path(), &["container", "list"]);
+    assert_eq!(listed["payload"]["containers"], serde_json::json!([]));
+}
+
+#[test]
 fn container_members_add_list_remove() {
     let temp = make_container_test_repo();
     let payload = serde_json::json!({
