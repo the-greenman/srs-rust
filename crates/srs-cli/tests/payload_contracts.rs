@@ -196,6 +196,11 @@ fn container_get() {
 }
 
 #[test]
+fn container_delete_plan() {
+    check::<ContainerDeletePlanPayload>("container-delete-plan");
+}
+
+#[test]
 fn container_copy() {
     check::<ContainerCopyPayload>("container-copy");
 }

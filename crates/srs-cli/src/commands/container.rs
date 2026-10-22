@@ -1,18 +1,18 @@
 use crate::commands::{with_store, CliContext, ContainerCommand, ContainerMembersCommand};
 use crate::output;
 use crate::payload::{
-    ContainerCopyPayload, ContainerDeletePayload, ContainerListPayload,
+    ContainerCopyPayload, ContainerDeletePayload, ContainerDeletePlanPayload, ContainerListPayload,
     ContainerMembersMutatePayload, ContainerMembersOutlinePayload, ContainerMembersPayload,
     ContainerPayload, ContainerValidatePayload, ContainerViewPayload,
 };
 use anyhow::Result;
 use srs_core::arrangement::RelativeMove;
 use srs_repository::container_service::{
-    add_member, add_member_relative, copy_container, create_container, delete_container,
-    get_arrangement, get_container, get_outline, list_containers, move_member,
-    move_member_relative, remove_member, repair_members, update_container,
-    validate_container_invariants, ArrangementResult, ContainerCopyInput, ContainerCreateInput,
-    ContainerListFilter, ContainerPatch,
+    add_member, add_member_relative, container_delete_plan, copy_container, create_container,
+    delete_container, delete_containers_with_records, get_arrangement, get_container, get_outline,
+    list_containers, move_member, move_member_relative, remove_member, repair_members,
+    update_container, validate_container_invariants, ArrangementResult, ContainerCopyInput,
+    ContainerCreateInput, ContainerListFilter, ContainerPatch,
 };
 use srs_repository::container_view_service::{resolve_container_view, ResolveContainerViewInput};
 use srs_repository::error::RepositoryError;
@@ -33,6 +33,10 @@ pub fn dispatch(ctx: CliContext, cmd: ContainerCommand) -> Result<String> {
         ContainerCommand::Get { container_id } => cmd_get(ctx, container_id),
         ContainerCommand::Update { container_id } => cmd_update(ctx, container_id),
         ContainerCommand::Delete { container_id } => cmd_delete(ctx, container_id),
+        ContainerCommand::DeletePlan {
+            container_ids,
+            apply,
+        } => cmd_delete_plan(ctx, container_ids, apply),
         ContainerCommand::Members(sub) => dispatch_members(ctx, sub),
         ContainerCommand::Validate { container_id } => cmd_validate(ctx, container_id),
         ContainerCommand::ResolveView {
@@ -144,6 +148,29 @@ fn cmd_delete(ctx: CliContext, container_id: String) -> Result<String> {
             ContainerDeletePayload { container_id: id },
         ),
         Err(e) => Ok(output::any_err("container delete", &e)),
+    }
+}
+
+fn cmd_delete_plan(ctx: CliContext, container_ids: Vec<String>, apply: bool) -> Result<String> {
+    let run = |store: &dyn srs_repository::store::RepositoryStore| {
+        Ok(if apply {
+            delete_containers_with_records(store, &container_ids)?
+        } else {
+            container_delete_plan(store, &container_ids)?
+        })
+    };
+    match with_store(&ctx, run) {
+        Ok(plan) => output::serialize(
+            "container delete-plan",
+            ContainerDeletePlanPayload {
+                container_ids: plan.container_ids,
+                missing_container_ids: plan.missing_container_ids,
+                instance_ids: plan.instance_ids,
+                kept: plan.kept,
+                applied: apply,
+            },
+        ),
+        Err(e) => Ok(output::any_err("container delete-plan", &e)),
     }
 }
 

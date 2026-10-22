@@ -516,6 +516,16 @@ pub enum ContainerCommand {
     },
     /// Delete a container by ID
     Delete { container_id: String },
+    /// What deleting these containers takes with them: the instances only they hold (no other
+    /// container lists them, and no record that stays derives from them). `--apply` deletes them
+    /// and the containers (srs-rust#1436).
+    DeletePlan {
+        #[arg(required = true)]
+        container_ids: Vec<String>,
+        /// Carry out the plan: delete those instances (relations cascaded), then the containers
+        #[arg(long)]
+        apply: bool,
+    },
     /// Member instance management
     #[command(subcommand)]
     Members(ContainerMembersCommand),
