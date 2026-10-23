@@ -171,8 +171,9 @@ impl McpSession {
     }
 
     /// Install a write guard for this session, replacing any previous one
-    /// (srs-rust#1165): `{"containerIds":[..],"instanceIds":[..],"fillOnlyFields":[..]}`,
-    /// every key optional. Guarded records are read-only to MCP writes except
+    /// (srs-rust#1165): `{"containerIds":[..],"addOnlyContainerIds":[..],"instanceIds":[..],"fillOnlyFields":[..]}`,
+    /// every key optional (add-only containers, srs-rust#1324, accept new members and nothing
+    /// else). Guarded records are read-only to MCP writes except
     /// `fillOnlyFields` while unset; rejections are tool errors. The UI's own
     /// writes through `SrsRepository` are unaffected.
     pub fn set_write_guard(&mut self, json: &str) -> Result<(), JsValue> {

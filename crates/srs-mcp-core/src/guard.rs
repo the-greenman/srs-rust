@@ -21,6 +21,13 @@ pub struct WriteGuard {
     /// Guarded containers: the container itself and every member at write time.
     #[serde(default)]
     pub container_ids: Vec<String>,
+    /// Add-only containers (srs-rust#1324), with their `childContainerIds`
+    /// closure: the session may add members (`container_member_add`, or a
+    /// create/graduate filed into them) and nothing else. Remove, move,
+    /// repair, fork (which swaps the fork in for the original) and replacing the container are rejected. The members stay
+    /// writable; a container also in `containerIds` is fully protected.
+    #[serde(default)]
+    pub add_only_container_ids: Vec<String>,
     /// Individually guarded records.
     #[serde(default)]
     pub instance_ids: Vec<String>,
@@ -58,6 +65,17 @@ impl WriteGuard {
 
     fn container_guarded(&self, store: &dyn RepositoryStore, id: &str) -> Result<bool, String> {
         Ok(self.guarded_containers(store)?.iter().any(|c| c == id))
+    }
+
+    fn container_add_only(&self, store: &dyn RepositoryStore, id: &str) -> Result<bool, String> {
+        for c in &self.add_only_container_ids {
+            let closure = container_service::container_closure(store, c)
+                .map_err(|e| self.deny(&format!("cannot resolve add-only container '{c}': {e}")))?;
+            if closure.iter().any(|x| x == id) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn record_guarded(&self, store: &dyn RepositoryStore, id: &str) -> Result<bool, String> {
@@ -115,6 +133,19 @@ impl WriteGuard {
                     "container '{c}' is protected; {name} is not allowed on it"
                 )));
             }
+            // Filing into an add-only container is the one write it allows.
+            let adds = matches!(
+                name,
+                tools::TOOL_CONTAINER_MEMBER_ADD
+                    | tools::TOOL_RECORD_CREATE
+                    | tools::TOOL_NOTE_CREATE
+                    | tools::TOOL_NOTE_GRADUATE
+            );
+            if !adds && self.container_add_only(store, &c)? {
+                return Err(self.deny(&format!(
+                    "container '{c}' is add-only; {name} is not allowed on it"
+                )));
+            }
             return Ok(());
         }
         // A guarded session retracts only its own relations (#1246): no policy field.
@@ -133,6 +164,11 @@ impl WriteGuard {
                         "container '{c}' is protected; {name} would overwrite it"
                     )));
                 }
+                if self.container_add_only(store, &c)? {
+                    return Err(self.deny(&format!(
+                        "container '{c}' is add-only; {name} would overwrite it"
+                    )));
+                }
             }
             return Ok(());
         }
@@ -144,6 +180,11 @@ impl WriteGuard {
                 if self.container_guarded(store, &c)? {
                     return Err(self.deny(&format!(
                         "container '{c}' is protected; {name} would overwrite it"
+                    )));
+                }
+                if self.container_add_only(store, &c)? {
+                    return Err(self.deny(&format!(
+                        "container '{c}' is add-only; {name} would overwrite it"
                     )));
                 }
             }
