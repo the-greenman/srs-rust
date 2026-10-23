@@ -675,6 +675,74 @@ impl SubPackageIds {
     }
 }
 
+/// Undo `core_package::merge_core_into_package` on the primary package, so a
+/// copy carries the package as stored (srs-rust#1447; compass "preserve over
+/// recognize"). The merge is right for resolution — RFC-048 [R11] makes core
+/// govern every core relation-type key — but it is not the corpus's content:
+/// it swaps a local definition of a core key for core's and adds every core
+/// definition the corpus never declared. Here a core definition stays only
+/// when the primary package.json declares it, and the corpus's own
+/// definition of each core relation-type key is read back from its file.
+/// Removing a reference copy stays the explicit
+/// `core-relation-type-reference-cleanup` migration.
+fn unmerge_core(
+    source: &dyn RepositoryStore,
+    raw_package_json: Option<&serde_json::Value>,
+    pkg: &mut crate::package::Package,
+) {
+    let cp = crate::core_package::core_package();
+    let declared = |list: &str| -> Vec<serde_json::Value> {
+        raw_package_json
+            .and_then(|p| p.get(list))
+            .and_then(|v| v.as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v.as_str())
+            .filter_map(|p| source.load_instance_json(&format!("package/{p}")).ok())
+            .collect()
+    };
+    let declares = |defs: &[serde_json::Value], id: &str, version: u32| {
+        defs.iter()
+            .any(|d| d["id"] == id && d["version"] == serde_json::json!(version))
+    };
+
+    let fields = declared("fields");
+    pkg.fields.retain(|f| {
+        !cp.fields
+            .iter()
+            .any(|c| c.id == f.id && c.version == f.version)
+            || declares(&fields, &f.id, f.version)
+    });
+    let types = declared("types");
+    pkg.record_types.retain(|t| {
+        !cp.record_types
+            .iter()
+            .any(|c| c.id == t.id && c.version == t.version)
+            || declares(&types, &t.id, t.version)
+    });
+    let local: Vec<RelationTypeDefinition> = declared("relationTypes")
+        .into_iter()
+        .filter_map(|v| serde_json::from_value::<RelationTypeDefinition>(v).ok())
+        .collect();
+    pkg.relation_type_definitions
+        .retain(|d| !cp.relation_types.iter().any(|c| c.key == d.key));
+    pkg.relation_type_definitions.extend(
+        local
+            .iter()
+            .filter(|d| cp.relation_types.iter().any(|c| c.key == d.key))
+            .cloned(),
+    );
+    // Declared order, as stored; anything not declared (an in-memory
+    // fixture) after it. The sort is stable, so ties keep the merged order.
+    let position = |d: &RelationTypeDefinition| {
+        local
+            .iter()
+            .position(|l| l.id == d.id && l.key == d.key)
+            .unwrap_or(usize::MAX)
+    };
+    pkg.relation_type_definitions.sort_by_key(|d| position(d));
+}
+
 fn export_package_boundary(
     source: &dyn RepositoryStore,
     boundary_path: Option<String>,
@@ -690,16 +758,17 @@ fn export_package_boundary(
         // definitions under the primary too (srs-rust#934): each definition
         // must keep its one on-disk package-root home. Subtract anything
         // already claimed by a sub-package boundary (computed by the caller
-        // from that boundary's own `export_package_boundary` result) —
-        // whatever is left is the primary's own content plus any
-        // core-injected definitions no sub-package claimed.
-        let pkg = source.load_package()?;
+        // from that boundary's own `export_package_boundary` result), and
+        // undo the core merge (srs-rust#1447) — whatever is left is the
+        // primary's own content.
+        let mut pkg = source.load_package()?;
         // Best-effort: the primary package.json is normally file-backed even for
         // MemoryStore fixtures, but some in-memory test sources never wrote one at
         // all (they construct `Package` fields programmatically) — `.ok()` treats
         // that as "no raw metadata to carry", the same fallback behavior import
         // already had before this fix, not a new failure mode.
         let raw_package_json = source.load_instance_json("package/package.json").ok();
+        unmerge_core(source, raw_package_json.as_ref(), &mut pkg);
         return Ok(PackageBoundarySnapshot {
             boundary_path: None,
             metadata: PrimaryPackageMetadata {
@@ -1873,6 +1942,78 @@ mod tests {
         // 2 = root container (embed-only, from manifest.container) + explicitly added container.
         assert_eq!(summaries.len(), 2);
         assert_eq!(load_relations(&target).unwrap().len(), 1);
+    }
+
+    /// srs-rust#1447: a copy carries the corpus's own package exactly. A local
+    /// definition of a core relation-type key (RFC-048 [R11] shadow) stays as
+    /// stored, and no core definition the corpus never declared is injected —
+    /// directly (dir → dir) and through a `.srsj` tree session (dir → srsj → dir).
+    #[test]
+    fn copy_preserves_local_definitions_of_core_relation_type_keys() {
+        let memory = MemoryStore::uninitialized();
+        memory.initialize_repository(&make_input()).unwrap();
+        let src_dir = TempDir::new().unwrap();
+        let src = FileStore::new(src_dir.path());
+        copy_repository(&memory, &src).unwrap();
+
+        let rel = "package/relation-types/precedes-0e0e0e0e.json";
+        src.ensure_instance_dir("package/relation-types").unwrap();
+        src.save_instance_json(
+            rel,
+            &serde_json::json!({
+                "$schema": srs_schema::RELATION_TYPE_SCHEMA_ID,
+                "category": "sequence",
+                "createdAt": "2026-05-31T00:00:00Z",
+                "description": "A local copy of a core key, without acyclic.",
+                "id": "0e0e0e0e-0000-4000-8000-000000000001",
+                "irreflexive": true,
+                "key": "precedes",
+                "label": "Precedes",
+                "namespace": "governance",
+                "version": 1
+            }),
+        )
+        .unwrap();
+        let mut pkg = src.load_instance_json("package/package.json").unwrap();
+        pkg["relationTypes"] = serde_json::json!(["relation-types/precedes-0e0e0e0e.json"]);
+        src.save_instance_json("package/package.json", &pkg)
+            .unwrap();
+
+        // Compared as JSON values: a copy re-serializes each definition, so
+        // key order on disk is the writer's, but no value may change.
+        fn walk(
+            root: &std::path::Path,
+            dir: &std::path::Path,
+            out: &mut std::collections::BTreeMap<String, serde_json::Value>,
+        ) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    walk(root, &path, out);
+                } else {
+                    let rel = path.strip_prefix(root).unwrap().display().to_string();
+                    let text = std::fs::read_to_string(&path).unwrap();
+                    out.insert(rel, serde_json::from_str(&text).unwrap());
+                }
+            }
+        }
+        let package_files = |root: &std::path::Path| {
+            let mut out = std::collections::BTreeMap::new();
+            walk(root, &root.join("package"), &mut out);
+            out
+        };
+        let expected = package_files(src_dir.path());
+        assert!(expected.contains_key(rel));
+
+        let direct = TempDir::new().unwrap();
+        copy_repository(&src, &FileStore::new(direct.path())).unwrap();
+        assert_eq!(package_files(direct.path()), expected, "dir → dir");
+
+        let srsj = crate::tree_session::new_tree_session();
+        copy_repository(&src, &srsj).unwrap();
+        let via_srsj = TempDir::new().unwrap();
+        copy_repository(&srsj, &FileStore::new(via_srsj.path())).unwrap();
+        assert_eq!(package_files(via_srsj.path()), expected, "dir → srsj → dir");
     }
 
     #[test]
