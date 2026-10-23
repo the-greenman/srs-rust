@@ -230,14 +230,20 @@ pub enum RepositoryError {
         counterparts: Vec<String>,
     },
 
-    /// Owner ruling srs-rust#742 (2026-09-08): identity is a very explicit modification.
-    /// `container delete` must refuse the repository's root container (the RFC-013
-    /// `manifest.container` embed) rather than making the repository rootless as a side
-    /// effect of a generic CRUD verb — `repo unset-root-container` is the only path.
+    /// Owner ruling srs-rust#742 (2026-09-08): the root container is the repository's
+    /// identity object; operations that would treat it as an ordinary container (copy, fork)
+    /// refuse it.
     #[error(
-        "container '{container_id}' is the repository's root container; use `repo unset-root-container` to remove repository identity, not `container delete`"
+        "container '{container_id}' is the repository's root container (manifest.rootContainerId); this operation does not apply to it"
     )]
     ContainerIsRepositoryRoot { container_id: String },
+
+    /// RFC-052 [R6]: deleting the container `manifest.rootContainerId` names is refused,
+    /// changing nothing (`container-root-delete`).
+    #[error(
+        "container '{container_id}' is the repository's root container (manifest.rootContainerId); deleting it is refused and nothing was changed (RFC-052 [R6])"
+    )]
+    ContainerRootDelete { container_id: String },
 
     #[error("container validation failed: {source}")]
     ContainerValidation {
@@ -524,10 +530,37 @@ pub enum RepositoryError {
     #[error("manifest.json declares retired property '{property}' — removed by RFC-038 [R2]; run the rfc038-storage migration")]
     RetiredManifestProperty { property: String },
 
-    /// RFC-043 [R16]: a revision-8 binary does not interpret revision-7 container shapes
-    /// (`rootInstanceIds`, string `memberInstanceIds`); it names the registry migration instead.
-    #[error("manifest.json carries a dataModelRevision 7 container shape (rootInstanceIds or bare-id memberInstanceIds); this build reads dataModelRevision 8 (RFC-043 [R16]) — run `srs repo apply-migration --id rfc043-container-entries`")]
-    Rfc043MigrationNeeded,
+    /// RFC-052 [R7]: a manifest below dataModelRevision 10 that still embeds the root
+    /// container. This build reads only the revision-10 form, so it refuses every operation
+    /// except the registry migration and names it. `legacy_rfc043_shape` marks a root still
+    /// in the revision-7 shape (RFC-043 [R16]), which needs `rfc043-container-entries` first.
+    #[error("manifest.json declares dataModelRevision {declared} and embeds the root container; this build reads dataModelRevision 10, where the root container lives in the container set (RFC-052 [R7]) — run `srs repo migrations` and apply the needed migrations in order{}, ending with `srs repo apply-migration --id rfc052-root-container`", if *legacy_rfc043_shape { " (this root is still in the dataModelRevision 7 shape: `rfc043-container-entries` and `rfc046-actor-provenance` come first, RFC-043 [R16])" } else { "" })]
+    ContainerMigrationNeeded {
+        declared: u64,
+        legacy_rfc043_shape: bool,
+    },
+
+    /// RFC-052 [R1]: a revision-10 manifest that embeds the root container
+    /// (`manifest-root-container-inline`) or names none
+    /// (`manifest-root-container-missing`). Fatal to the load.
+    #[error("{message}")]
+    ManifestRootContainer {
+        #[serde(skip)]
+        code: &'static str,
+        #[serde(skip)]
+        message: String,
+    },
+
+    /// A registry migration refused before writing anything. `code` names the reason
+    /// (RFC-052 [R7]: `migration-root-path-exists`, `migration-root-duplicate`,
+    /// `migration-root-missing`, `migration-gate-failed`).
+    #[error("{message}")]
+    MigrationRefused {
+        #[serde(skip)]
+        code: &'static str,
+        #[serde(skip)]
+        message: String,
+    },
 
     /// RFC-046 actor-provenance refusal. `code` is one of `actor-invalid`,
     /// `actor-supplied`, `actor-changed`, `revision-too-old` ([R4]/[R5]/[R11]-[R13]);
@@ -1186,6 +1219,7 @@ impl RepositoryError {
             Self::ContainerAlreadyExists { .. } => "container-already-exists",
             Self::ForkAmbiguousCounterpart { .. } => "fork-ambiguous-counterpart",
             Self::ContainerIsRepositoryRoot { .. } => "container-is-repository-root",
+            Self::ContainerRootDelete { .. } => "container-root-delete",
             Self::ContainerValidation { .. } => "container-validation",
             Self::InvalidValueType { .. } => "invalid-value-type",
             Self::ViewLoad { .. } => "view-load",
@@ -1249,7 +1283,9 @@ impl RepositoryError {
             Self::CatalogLoad { .. } => "catalog-load",
             Self::CatalogUnsupported { .. } => "catalog-unsupported",
             Self::RetiredManifestProperty { .. } => "retired-manifest-property",
-            Self::Rfc043MigrationNeeded { .. } => "rfc043-migration-needed",
+            Self::ContainerMigrationNeeded { .. } => "container-migration-needed",
+            Self::ManifestRootContainer { code, .. } => code,
+            Self::MigrationRefused { code, .. } => code,
             Self::ActorProvenance { code, .. } => code,
             Self::InvalidPackageBundle { code, .. } => code,
             Self::SliceRefused { code, .. } => code,
@@ -1425,6 +1461,9 @@ mod tests {
                 counterparts: vec![],
             },
             R::ContainerIsRepositoryRoot {
+                container_id: "x".into(),
+            },
+            R::ContainerRootDelete {
                 container_id: "x".into(),
             },
             R::ContainerValidation { source: ce() },
@@ -1606,7 +1645,18 @@ mod tests {
             R::RetiredManifestProperty {
                 property: "x".into(),
             },
-            R::Rfc043MigrationNeeded,
+            R::ContainerMigrationNeeded {
+                declared: 9,
+                legacy_rfc043_shape: false,
+            },
+            R::ManifestRootContainer {
+                code: "manifest-root-x",
+                message: "x".into(),
+            },
+            R::MigrationRefused {
+                code: "migration-x",
+                message: "x".into(),
+            },
             R::ActorProvenance {
                 code: "actor-x",
                 message: "x".into(),
@@ -1627,7 +1677,11 @@ mod tests {
     #[test]
     fn codes_are_kebab_case() {
         let all = all_variants();
-        assert_eq!(all.len(), 98, "all_variants() is out of step with the enum");
+        assert_eq!(
+            all.len(),
+            101,
+            "all_variants() is out of step with the enum"
+        );
         let mut seen = std::collections::HashSet::new();
         for e in &all {
             let c = e.code();

@@ -11,8 +11,17 @@
 //! canonical resolution).
 
 use srs_repository::package_dependency_service::installed_set;
-use srs_repository::srsj::open_srsj;
 use srs_repository::store::RepositoryStore;
+
+/// `.srsj` fixtures here are written with the pre-RFC-052 embedded root; open them in the
+/// revision-10 form (root in the container set, named by `rootContainerId`).
+fn open_srsj(
+    text: &str,
+) -> Result<srs_repository::store::FileStore, srs_repository::error::RepositoryError> {
+    let mut doc: serde_json::Value = serde_json::from_str(text).expect("fixture is JSON");
+    srs_repository::rfc052_root_container_migration_service::rewrite_srsj_fixture(&mut doc);
+    srs_repository::srsj::open_srsj(&doc.to_string())
+}
 
 const PRIMARY_ID: &str = "00000000-0000-4000-8000-00000000a0a0";
 const SUB_ID: &str = "00000000-0000-4000-8000-00000000b0b0";

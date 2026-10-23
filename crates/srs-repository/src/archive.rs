@@ -537,7 +537,10 @@ pub fn archive_to_tree(reader: impl Read + Seek) -> Result<FileStore, Repository
     let missing = missing_tree_definitions(&bytes_map, &manifest_val);
     if missing.is_empty() {
         bytes_map.remove("package/package.snapshot.json");
-        return open_tree(bytes_map.into_iter().collect());
+        // RFC-052 Change C: a revision-9 archive that embeds its root opens migrated.
+        let mut tree: BTreeMap<String, Vec<u8>> = bytes_map.into_iter().collect();
+        crate::rfc052_root_container_migration_service::transform_tree(&mut tree)?;
+        return open_tree(tree);
     }
 
     if bytes_map.contains_key("package/package.snapshot.json") {

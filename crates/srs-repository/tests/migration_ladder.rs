@@ -15,7 +15,7 @@
 use srs_repository::migration_registry_service::{
     apply_migration, list_migrations, MigrationStatus,
 };
-use srs_repository::srsj::open_srsj;
+use srs_repository::srsj::open_srsj_for_migration;
 use srs_repository::store::RepositoryStore;
 use srs_repository::validation::validate_repository;
 
@@ -27,7 +27,8 @@ use srs_repository::validation::validate_repository;
 /// fixture (used there to test `rfc038-storage` in isolation) — same shape,
 /// driven here through the whole registry instead of one entry.
 fn rev2_fixture() -> srs_repository::store::FileStore {
-    open_srsj(
+    // The migration tooling surface: the document as it is, no pre-load transformer.
+    open_srsj_for_migration(
         &serde_json::json!({
             "srsj": "2",
             "manifest": {
@@ -64,7 +65,6 @@ fn rev2_fixture() -> srs_repository::store::FileStore {
         .to_string(),
     )
     .unwrap()
-    .with_rfc038_exemption()
 }
 
 #[test]
@@ -74,16 +74,31 @@ fn a_rev2_fixture_climbs_the_full_registry_to_current() {
     // One ordered pass applying every migration the registry reports
     // `Needed` for, in the registry's own order (which is also its
     // documented dependency order — see migration_registry_service.rs).
+    // Each entry's status is read when the pass reaches it: an earlier entry
+    // can make a later one applicable (`rfc052-root-container` puts the root
+    // in the container set, where `migrate-identity` reads it).
+    let ids: Vec<String> = list_migrations(&store)
+        .expect("list_migrations must not error")
+        .into_iter()
+        .map(|m| m.id)
+        .collect();
     let mut applied = Vec::new();
-    for m in list_migrations(&store).expect("list_migrations must not error") {
-        if m.status == MigrationStatus::Needed {
-            apply_migration(&store, &m.id)
-                .unwrap_or_else(|e| panic!("migration '{}' must apply cleanly: {e}", m.id));
-            applied.push(m.id);
+    for id in ids {
+        let status = list_migrations(&store)
+            .expect("list_migrations must not error")
+            .into_iter()
+            .find(|m| m.id == id)
+            .expect("registry entry")
+            .status;
+        if status == MigrationStatus::Needed {
+            apply_migration(&store, &id)
+                .unwrap_or_else(|e| panic!("migration '{id}' must apply cleanly: {e}"));
+            applied.push(id);
         }
     }
     assert!(
         applied.contains(&"discovery-query-cutover".to_string())
+            && applied.contains(&"rfc052-root-container".to_string())
             && applied.contains(&"rfc038-storage".to_string()),
         "expected the full revision climb (…, discovery-query-cutover) plus the \
          structural rfc038-storage migration to run; got: {applied:?}"

@@ -15,7 +15,10 @@
 //! *under* `.srs/` (agent profiles) are ordinary content and ride through.
 //!
 //! [R20]: only `srsj: "2"` is read. An unrecognised version is refused, never
-//! coerced — there is no old-format reader here and no shadow migration.
+//! coerced — there is no old-format reader here and no shadow migration. The
+//! one pre-load transformer is RFC-052 Change C's: a revision-9 document that
+//! embeds its root container opens rewritten to the `rfc052-root-container`
+//! outcome (so published, immutable seeds open in a revision-10 build).
 
 use crate::error::RepositoryError;
 use crate::store::{FileStore, RepositoryStore};
@@ -100,7 +103,16 @@ pub fn tree_from_srsj(content: &str) -> Result<BTreeMap<String, Vec<u8>>, Reposi
 /// Open a `.srsj` document as an in-memory tree session — the identical
 /// `FileStore` the CLI runs on disk (ADR-038).
 pub fn open_srsj(content: &str) -> Result<FileStore, RepositoryError> {
-    open_tree(tree_from_srsj(content)?)
+    let mut tree = tree_from_srsj(content)?;
+    crate::rfc052_root_container_migration_service::transform_tree(&mut tree)?;
+    open_tree(tree)
+}
+
+/// Open a `.srsj` document for the migration tooling surface only: the tree as it is, with
+/// no pre-load transformer, under the RFC-038 [R21] migrator exemption — so the registry
+/// entries see (and rewrite) what the document actually holds.
+pub fn open_srsj_for_migration(content: &str) -> Result<FileStore, RepositoryError> {
+    Ok(open_tree(tree_from_srsj(content)?)?.with_rfc038_exemption())
 }
 
 /// Project any repository as a `.srsj` document.
@@ -299,10 +311,12 @@ impl SrsjSession {
             path: path.clone(),
             source: std::io::Error::new(std::io::ErrorKind::InvalidData, e),
         })?;
-        let mut store = open_srsj(&raw)?.rooted_at(session_root(&path));
-        if rfc038_exempt {
-            store = store.with_rfc038_exemption();
+        let store = if rfc038_exempt {
+            open_srsj_for_migration(&raw)?
+        } else {
+            open_srsj(&raw)?
         }
+        .rooted_at(session_root(&path));
         let baseline = export_tree(&store)?;
         Ok(Self {
             path,
@@ -514,7 +528,9 @@ mod tests {
             serde_json::json!("https://srs.semanticops.com/schema/2.0/manifest.json");
         doc["manifest"]["title"] = serde_json::json!("Test Repo");
         doc["manifest"]["createdAt"] = serde_json::json!("2026-01-01T00:00:00Z");
-        doc["manifest"]["container"] = serde_json::json!({
+        doc["manifest"]["rootContainerId"] =
+            serde_json::json!("00000000-0000-4000-8000-00000000cccc");
+        doc["data"]["containers/00000000-0000-4000-8000-00000000cccc.json"] = serde_json::json!({
             "containerId": "00000000-0000-4000-8000-00000000cccc",
             "title": "Test Repo",
         });

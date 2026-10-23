@@ -16,7 +16,7 @@ const CONTAINER_ID: &str = "550e8400-e29b-41d4-a716-446655440000";
 const IDENTITY_ID: &str = "aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa";
 
 #[test]
-fn set_root_container_writes_canonical_manifest_embed() {
+fn set_root_container_writes_the_root_and_names_it() {
     let tmp = TempDir::new().unwrap();
     create_minimal_repo(tmp.path());
     let store = FileStore::new(tmp.path());
@@ -36,24 +36,22 @@ fn set_root_container_writes_canonical_manifest_embed() {
     assert_eq!(result.title, "Test Repo");
     assert_eq!(result.member_instance_ids, vec![IDENTITY_ID]);
 
+    // RFC-052: the manifest names the root; the root lives at containers/<containerId>.json.
     let manifest_str = std::fs::read_to_string(tmp.path().join("manifest.json")).unwrap();
     let manifest_val: serde_json::Value = serde_json::from_str(&manifest_str).unwrap();
+    assert_eq!(manifest_val["rootContainerId"].as_str(), Some(CONTAINER_ID));
+    assert!(manifest_val.get("container").is_none());
 
+    let root_str =
+        std::fs::read_to_string(tmp.path().join(format!("containers/{CONTAINER_ID}.json")))
+            .unwrap();
+    let root: serde_json::Value = serde_json::from_str(&root_str).unwrap();
+    assert_eq!(root["containerId"].as_str(), Some(CONTAINER_ID));
+    assert_eq!(root["identityInstanceId"].as_str(), Some(IDENTITY_ID));
+    // Canonical shape (RFC-013): non-empty title + identity in memberInstanceIds.
+    assert_eq!(root["title"].as_str(), Some("Test Repo"));
     assert_eq!(
-        manifest_val["container"]["containerId"].as_str(),
-        Some(CONTAINER_ID)
-    );
-    assert_eq!(
-        manifest_val["container"]["identityInstanceId"].as_str(),
-        Some(IDENTITY_ID)
-    );
-    // Canonical embed shape (RFC-013): non-empty title + identity in memberInstanceIds.
-    assert_eq!(
-        manifest_val["container"]["title"].as_str(),
-        Some("Test Repo")
-    );
-    assert_eq!(
-        manifest_val["container"]["memberInstanceIds"],
+        root["memberInstanceIds"],
         serde_json::json!([{"instanceId": IDENTITY_ID}])
     );
 }

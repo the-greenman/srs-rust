@@ -771,7 +771,7 @@ mod tests {
         // package, list_blueprint_structure must surface their names — not just the
         // bare ids the srs-rust#1046 issue's V2 example showed leaking.
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,

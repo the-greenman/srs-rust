@@ -127,7 +127,8 @@ pub struct RepositorySnapshot {
     pub packages: Vec<PackageBoundarySnapshot>,
     pub instances: Vec<SnapshotInstance>,
     pub containers: Vec<Container>,
-    /// RFC-013 `manifest.container` root-container pointer, if the source declares one.
+    /// The RFC-013 root container (`manifest.rootContainerId` names it, RFC-052), if the
+    /// source declares one. Carried here rather than in `containers`.
     /// Distinct from `containers` (the container definitions themselves): this is the
     /// manifest-level identity/navigation-root marker that `repo navigation` resolves.
     #[serde(default)]
@@ -250,26 +251,13 @@ pub fn export_repository_snapshot_with_options(
         });
     }
 
-    // Identify the embed-only root container ID, if any. An embed-only root exists in
-    // `manifest.container` but has no file-backed container — it is already
-    // preserved in `root_container` below, so including it in `containers` would
-    // double-capture it and cause `create_container` UUID-validation failures on import
-    // for repositories whose id pre-dates the UUID requirement (e.g. legacy test repos).
-    let embed_only_root_id: Option<String> = manifest.root_container().and_then(|mc| {
-        let file_backed = catalog.containers.iter().any(|e| {
-            e.id == mc.container_id
-                && e.locator.as_deref() != Some(crate::catalog::ROOT_CONTAINER_LOCATOR)
-        });
-        if file_backed {
-            None
-        } else {
-            Some(mc.container_id.clone())
-        }
-    });
-
+    // RFC-052: the root container is an ordinary member of the container set,
+    // but the snapshot carries it separately (`rootContainer`), so it is left
+    // out of `containers` here rather than captured twice.
+    let root_container = crate::container_service::resolve_root_container(source, &manifest)?;
     let mut containers = Vec::new();
     for summary in list_containers(source, &ContainerListFilter::default())? {
-        if embed_only_root_id.as_deref() == Some(summary.container_id.as_str()) {
+        if manifest.root_container_id() == Some(summary.container_id.as_str()) {
             continue;
         }
         containers.push(get_container(source, &summary.container_id)?);
@@ -409,7 +397,7 @@ pub fn export_repository_snapshot_with_options(
         packages,
         instances,
         containers,
-        root_container: manifest.root_container().cloned(),
+        root_container,
         container_index: None,
         // Retired by RFC-038 Change K — `containers` above (catalog-backed) is
         // the real data; this field is never populated or read any more.
@@ -514,15 +502,20 @@ fn do_import(
         ensure_instance_parent(target, rel_path)?;
         target.save_instance_json(rel_path, &instance.value)?;
     }
-    // Only override the placeholder `initialize_repository` assigned when the source
+    // Only replace the default root `initialize_repository` wrote when the source
     // actually declared a root container — some in-memory test sources predate RFC-013
-    // and carry no `manifest.container` at all, in which case the target's freshly
-    // initialized default (which does satisfy the required-container invariant) should
-    // stand rather than being clobbered to `None`. `manifest.container` is a sanctioned
-    // write ([R1] — the manifest is authoritative for the inline root container);
-    // `containerIndex` is retired (Change K) and is never written.
+    // and carry none, in which case the target's freshly initialized default (which does
+    // satisfy the required-container invariant) stands. RFC-052: the root is written to
+    // the container set and named by `rootContainerId`; a default root under another id
+    // is removed so the target has exactly one root.
     if let Some(root_container) = &snapshot.root_container {
-        manifest.set_root_container(Some(root_container.clone()));
+        if let Some(default_id) = manifest.root_container_id() {
+            if default_id != root_container.container_id {
+                target.delete_instance_file(&crate::store::root_container_path(default_id))?;
+            }
+        }
+        crate::store::save_root_container(target, root_container)?;
+        manifest.set_root_container_id(Some(root_container.container_id.clone()));
     }
 
     // Materialize source documents (RFC-017 R3/R12). RFC-038 [R25]: no
@@ -578,6 +571,10 @@ fn do_import(
     target.save_manifest(&manifest)?;
 
     for container in &snapshot.containers {
+        // The root was written above (an older exporter may also list it here).
+        if manifest.root_container_id() == Some(container.container_id.as_str()) {
+            continue;
+        }
         // Bulk materialization writes the container file directly. The
         // catalog-backed `create_container` would require the just-written
         // target tree to already be catalog-valid, defeating the #688
@@ -1418,25 +1415,17 @@ fn instance_path_with_id_fragment(
 /// their first 8 hex characters — e.g. deterministic UUID5s like gallery.srsj's decision
 /// instances `…5801`/`…5802`, both of which start `00000000` — and the id8-only scheme mapped
 /// them to the same file, making an otherwise valid repository fail to load or copy.
-/// Materialise one snapshot container as a file (or the root embed) without a
-/// catalog read — import is a faithful bulk write, judged by `repo validate`
-/// afterwards ([R24]'s reporting disposition; see call site in `do_import`).
-/// Mirrors `RepositoryStore::save_container`'s placement rules: same id as the
-/// root embed updates `manifest.container` ([R1], never a duplicate file —
-/// [R12]); otherwise a collision-safe `containers/{slug}-{id8}.json` filename.
+/// Materialise one snapshot container as a file without a catalog read —
+/// import is a faithful bulk write, judged by `repo validate` afterwards
+/// ([R24]'s reporting disposition; see call site in `do_import`). Mirrors
+/// `RepositoryStore::save_container`'s placement rule for a new container: a
+/// collision-safe `containers/{slug}-{id8}.json` filename. The root container
+/// is written by `do_import` itself (RFC-052).
 fn import_container_file(
     target: &dyn RepositoryStore,
     container: &srs_core::types::container::Container,
 ) -> Result<(), RepositoryError> {
     let id = &container.container_id;
-    let mut manifest = target.load_manifest()?;
-    if manifest
-        .root_container()
-        .is_some_and(|c| &c.container_id == id)
-    {
-        manifest.set_root_container(Some(container.clone()));
-        return target.save_manifest(&manifest);
-    }
     let val = serde_json::to_value(container).map_err(|source| RepositoryError::Serialize {
         path: std::path::PathBuf::from("containers"),
         source,
@@ -1642,25 +1631,30 @@ mod tests {
             )
             .unwrap();
         let mut manifest = source.load_manifest().unwrap();
-        manifest.set_root_container(Some(Container {
-            container_id: "99999999-9999-4999-8999-999999999999".to_string(),
-            title: "Root".to_string(),
-            namespace: None,
-            name: None,
-            description: None,
-            container_type: None,
-            identity_instance_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
-            member_instance_ids: Some(srs_core::types::container::entries(vec![
-                "11111111-1111-4111-8111-111111111111".to_string(),
-            ])),
-            anchor_instance_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
-            child_container_ids: None,
-            tags: None,
-            created_at: None,
-            updated_at: None,
-            meta: None,
-            extra: std::collections::BTreeMap::new(),
-        }));
+        crate::container_service::set_root_container(
+            &source,
+            &mut manifest,
+            &Container {
+                container_id: "99999999-9999-4999-8999-999999999999".to_string(),
+                title: "Root".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
+                member_instance_ids: Some(srs_core::types::container::entries(vec![
+                    "11111111-1111-4111-8111-111111111111".to_string(),
+                ])),
+                anchor_instance_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
+                child_container_ids: None,
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: std::collections::BTreeMap::new(),
+            },
+        )
+        .unwrap();
         source.save_manifest(&manifest).unwrap();
 
         let mut snapshot = export_repository_snapshot(&source).unwrap();
@@ -1690,8 +1684,8 @@ mod tests {
         import_repository_snapshot(&target, &snapshot).unwrap();
 
         let copied = target.load_manifest().unwrap();
-        let container = copied
-            .root_container()
+        let container = crate::container_service::resolve_root_container(&target, &copied)
+            .unwrap()
             .expect("manifest.container must survive copy");
         assert_eq!(
             container.container_id, "99999999-9999-4999-8999-999999999999",

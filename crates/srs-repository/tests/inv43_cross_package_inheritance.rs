@@ -6,8 +6,17 @@
 
 use serde_json::json;
 use srs_repository::field_type_migration_service::CURRENT_DATA_MODEL_REVISION;
-use srs_repository::srsj::open_srsj;
 use srs_repository::validation::validate_repository;
+
+/// `.srsj` fixtures here are written with the pre-RFC-052 embedded root; open them in the
+/// revision-10 form (root in the container set, named by `rootContainerId`).
+fn open_srsj(
+    text: &str,
+) -> Result<srs_repository::store::FileStore, srs_repository::error::RepositoryError> {
+    let mut doc: serde_json::Value = serde_json::from_str(text).expect("fixture is JSON");
+    srs_repository::rfc052_root_container_migration_service::rewrite_srsj_fixture(&mut doc);
+    srs_repository::srsj::open_srsj(&doc.to_string())
+}
 
 const CHILD_TYPE_ID: &str = "e1000001-0000-4000-a000-000000000001";
 const BASE_TYPE_ID: &str = "e1000002-0000-4000-a000-000000000002";

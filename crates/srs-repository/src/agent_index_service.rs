@@ -330,25 +330,30 @@ mod tests {
             .unwrap();
 
         let mut manifest = store.load_manifest().unwrap();
-        manifest.set_root_container(Some(srs_core::types::container::Container {
-            container_id: "00000000-0000-4000-8000-0000000000c0".to_string(),
-            title: "Root".to_string(),
-            namespace: None,
-            name: None,
-            description: None,
-            container_type: None,
-            identity_instance_id: None,
-            anchor_instance_id: None,
-            member_instance_ids: Some(vec![srs_core::types::container::ContainerEntry::new(
-                root_id,
-            )]),
-            child_container_ids: None,
-            tags: None,
-            created_at: None,
-            updated_at: None,
-            meta: None,
-            extra: BTreeMap::new(),
-        }));
+        crate::container_service::set_root_container(
+            &store,
+            &mut manifest,
+            &srs_core::types::container::Container {
+                container_id: "00000000-0000-4000-8000-0000000000c0".to_string(),
+                title: "Root".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: None,
+                anchor_instance_id: None,
+                member_instance_ids: Some(vec![srs_core::types::container::ContainerEntry::new(
+                    root_id,
+                )]),
+                child_container_ids: None,
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: BTreeMap::new(),
+            },
+        )
+        .unwrap();
         store.save_manifest(&manifest).unwrap();
 
         store.vfs().as_mem_snapshot().unwrap()

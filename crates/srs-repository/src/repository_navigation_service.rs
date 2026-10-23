@@ -77,22 +77,20 @@ pub fn repository_navigation_with_depth(
     max_depth: Option<u32>,
 ) -> Result<RepositoryNavigation, RepositoryError> {
     let manifest = store.load_manifest()?;
-    let Some(container_ref) = manifest.root_container() else {
+    // RFC-052: the container `manifest.rootContainerId` names, from the container set.
+    let Some(root_container) = container_service::resolve_root_container(store, &manifest)? else {
         return Ok(RepositoryNavigation {
             root_container_id: String::new(),
             identity: None,
             sections: Vec::new(),
             diagnostics: vec![
-                "repository-navigation: manifest.container is absent; repo predates RFC-013 root container (epic #95)"
+                "repository-navigation: manifest.rootContainerId is absent; repo predates RFC-013 root container (epic #95)"
                     .to_string(),
             ],
         });
     };
+    let container_ref = &root_container;
 
-    // Prefer the materialised container; fall back to the manifest.container embed for
-    // embed-only roots (the embed is the canonical repository-identity source, RFC-013).
-    let root_container = container_service::resolve_root_container(store, &manifest)?
-        .expect("manifest.container presence checked above");
     // The identity comes from identityInstanceId and from nothing else. RFC-029 (line 104) makes a
     // root container with no identityInstanceId valid, so its absence is reported, never inferred
     // from the first root — inferring it would present an ordinary section as the repository's
@@ -475,30 +473,32 @@ mod tests {
     /// the container write nulled it, and the happy-path assertions passed only because the
     /// first-root fallback re-promoted a100. That is exactly the fabrication this change removes.
     fn nav_store_with_identity(identity: Option<String>) -> MemoryStore {
+        let root_container = Container {
+            container_id: "00000000-0000-4000-8000-00000000a000".to_string(),
+            title: String::new(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            identity_instance_id: identity.clone(),
+            anchor_instance_id: None,
+            member_instance_ids: None,
+            child_container_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::BTreeMap::new(),
+        };
         let manifest = Manifest {
-            container: Some(Container {
-                container_id: "00000000-0000-4000-8000-00000000a000".to_string(),
-                title: String::new(),
-                namespace: None,
-                name: None,
-                description: None,
-                container_type: None,
-                identity_instance_id: identity.clone(),
-                anchor_instance_id: None,
-                member_instance_ids: None,
-                child_container_ids: None,
-                tags: None,
-                created_at: None,
-                updated_at: None,
-                meta: None,
-                extra: std::collections::BTreeMap::new(),
-            }),
+            root_container_id: Some(root_container.container_id.clone()),
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: PathBuf::from("/memory"),
         };
         let store = MemoryStore::new(manifest, empty_package());
+        crate::store::save_root_container(&store, &root_container).unwrap();
         let store = add_record(
             store,
             record(
@@ -690,33 +690,35 @@ mod tests {
         // Root container exists ONLY as the manifest.container embed — no container file,
         // no containerIndex entry. This is the shape written by `repo set-root-container`
         // and by RFC-013 migrations of pre-container repos (e.g. the spec repo, srs#165).
+        let root_container = Container {
+            container_id: "00000000-0000-4000-8000-00000000a000".to_string(),
+            title: "Embed Only".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            identity_instance_id: Some("00000000-0000-4000-8000-00000000a100".to_string()),
+            anchor_instance_id: None,
+            member_instance_ids: Some(srs_core::types::container::entries(vec![
+                "00000000-0000-4000-8000-00000000a100".to_string(),
+                "00000000-0000-4000-8000-00000000a200".to_string(),
+            ])),
+            child_container_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::BTreeMap::new(),
+        };
         let manifest = Manifest {
-            container: Some(Container {
-                container_id: "00000000-0000-4000-8000-00000000a000".to_string(),
-                title: "Embed Only".to_string(),
-                namespace: None,
-                name: None,
-                description: None,
-                container_type: None,
-                identity_instance_id: Some("00000000-0000-4000-8000-00000000a100".to_string()),
-                anchor_instance_id: None,
-                member_instance_ids: Some(srs_core::types::container::entries(vec![
-                    "00000000-0000-4000-8000-00000000a100".to_string(),
-                    "00000000-0000-4000-8000-00000000a200".to_string(),
-                ])),
-                child_container_ids: None,
-                tags: None,
-                created_at: None,
-                updated_at: None,
-                meta: None,
-                extra: std::collections::BTreeMap::new(),
-            }),
+            root_container_id: Some(root_container.container_id.clone()),
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: PathBuf::from("/memory"),
         };
         let store = MemoryStore::new(manifest, empty_package());
+        crate::store::save_root_container(&store, &root_container).unwrap();
         let store = add_record(
             store,
             record(
@@ -773,7 +775,7 @@ mod tests {
         assert_eq!(
             nav.diagnostics,
             vec![
-                "repository-navigation: manifest.container is absent; repo predates RFC-013 root container (epic #95)"
+                "repository-navigation: manifest.rootContainerId is absent; repo predates RFC-013 root container (epic #95)"
                     .to_string()
             ]
         );
@@ -781,34 +783,34 @@ mod tests {
 
     fn tier0_note_store(note_title: Option<&str>) -> MemoryStore {
         let note_id = "00000000-0000-4000-8000-00000000d100".to_string();
+        let root_container = Container {
+            container_id: "00000000-0000-4000-8000-00000000a000".to_string(),
+            title: "Test Repo".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            identity_instance_id: Some(note_id.clone()),
+            anchor_instance_id: None,
+            member_instance_ids: Some(srs_core::types::container::entries(vec![note_id.clone()])),
+            child_container_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::BTreeMap::new(),
+        };
         let manifest = Manifest {
             // Embed-only root ([R1]): a containers/*.json file sharing the
             // embed's id is a fatal SRS038-R12-DUPLICATE-ID under the catalog.
-            container: Some(Container {
-                container_id: "00000000-0000-4000-8000-00000000a000".to_string(),
-                title: "Test Repo".to_string(),
-                namespace: None,
-                name: None,
-                description: None,
-                container_type: None,
-                identity_instance_id: Some(note_id.clone()),
-                anchor_instance_id: None,
-                member_instance_ids: Some(srs_core::types::container::entries(vec![
-                    note_id.clone()
-                ])),
-                child_container_ids: None,
-                tags: None,
-                created_at: None,
-                updated_at: None,
-                meta: None,
-                extra: std::collections::BTreeMap::new(),
-            }),
+            root_container_id: Some(root_container.container_id.clone()),
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: PathBuf::from("/memory"),
         };
         let store = MemoryStore::new(manifest, empty_package());
+        crate::store::save_root_container(&store, &root_container).unwrap();
 
         // The identity note must exist as a real instance in the tree
         // (RFC-038 [R13]); its display title comes from the body.
@@ -982,34 +984,36 @@ mod tests {
     fn repository_navigation_yields_every_non_identity_entry_in_order() {
         // RFC-043 [R12]: every non-identity entry of the root container's outline is a
         // navigation entry, in entry order.
+        let root_container = Container {
+            container_id: "00000000-0000-4000-8000-00000000e000".to_string(),
+            title: "Root IDs Only".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            identity_instance_id: Some("00000000-0000-4000-8000-00000000e100".to_string()),
+            anchor_instance_id: Some("00000000-0000-4000-8000-00000000e200".to_string()),
+            member_instance_ids: Some(srs_core::types::container::entries(vec![
+                "00000000-0000-4000-8000-00000000e100".to_string(),
+                "00000000-0000-4000-8000-00000000e200".to_string(),
+                "00000000-0000-4000-8000-00000000e300".to_string(),
+            ])),
+            child_container_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::BTreeMap::new(),
+        };
         let manifest = Manifest {
-            container: Some(Container {
-                container_id: "00000000-0000-4000-8000-00000000e000".to_string(),
-                title: "Root IDs Only".to_string(),
-                namespace: None,
-                name: None,
-                description: None,
-                container_type: None,
-                identity_instance_id: Some("00000000-0000-4000-8000-00000000e100".to_string()),
-                anchor_instance_id: Some("00000000-0000-4000-8000-00000000e200".to_string()),
-                member_instance_ids: Some(srs_core::types::container::entries(vec![
-                    "00000000-0000-4000-8000-00000000e100".to_string(),
-                    "00000000-0000-4000-8000-00000000e200".to_string(),
-                    "00000000-0000-4000-8000-00000000e300".to_string(),
-                ])),
-                child_container_ids: None,
-                tags: None,
-                created_at: None,
-                updated_at: None,
-                meta: None,
-                extra: std::collections::BTreeMap::new(),
-            }),
+            root_container_id: Some(root_container.container_id.clone()),
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: PathBuf::from("/memory"),
         };
         let store = MemoryStore::new(manifest, empty_package());
+        crate::store::save_root_container(&store, &root_container).unwrap();
         let store = add_record(
             store,
             record(
@@ -1132,35 +1136,37 @@ mod tests {
 
     #[test]
     fn repository_navigation_lists_a_single_entry_section_once() {
+        let root_container = Container {
+            container_id: "00000000-0000-4000-8000-00000000f000".to_string(),
+            title: "Dedup Test".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            identity_instance_id: Some("00000000-0000-4000-8000-00000000f100".to_string()),
+            // Section ID appears in BOTH arrays (the dedup scenario), in the
+            // embed itself — RFC-038 [R1]: the root container is embed-only.
+            anchor_instance_id: Some("00000000-0000-4000-8000-00000000f200".to_string()),
+            member_instance_ids: Some(srs_core::types::container::entries(vec![
+                "00000000-0000-4000-8000-00000000f100".to_string(),
+                "00000000-0000-4000-8000-00000000f200".to_string(),
+            ])),
+            child_container_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::BTreeMap::new(),
+        };
         let manifest = Manifest {
-            container: Some(Container {
-                container_id: "00000000-0000-4000-8000-00000000f000".to_string(),
-                title: "Dedup Test".to_string(),
-                namespace: None,
-                name: None,
-                description: None,
-                container_type: None,
-                identity_instance_id: Some("00000000-0000-4000-8000-00000000f100".to_string()),
-                // Section ID appears in BOTH arrays (the dedup scenario), in the
-                // embed itself — RFC-038 [R1]: the root container is embed-only.
-                anchor_instance_id: Some("00000000-0000-4000-8000-00000000f200".to_string()),
-                member_instance_ids: Some(srs_core::types::container::entries(vec![
-                    "00000000-0000-4000-8000-00000000f100".to_string(),
-                    "00000000-0000-4000-8000-00000000f200".to_string(),
-                ])),
-                child_container_ids: None,
-                tags: None,
-                created_at: None,
-                updated_at: None,
-                meta: None,
-                extra: std::collections::BTreeMap::new(),
-            }),
+            root_container_id: Some(root_container.container_id.clone()),
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: PathBuf::from("/memory"),
         };
         let store = MemoryStore::new(manifest, empty_package());
+        crate::store::save_root_container(&store, &root_container).unwrap();
         let store = add_record(
             store,
             record(

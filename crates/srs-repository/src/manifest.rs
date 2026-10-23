@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use srs_core::extensions::import_tracking::UpstreamPackage;
-use srs_core::types::container::Container;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -12,8 +11,10 @@ pub struct Manifest {
     // `relationsPath`) have no typed fields: membership is the tree via the
     // catalog, and `rfc038::check_manifest` denies the raw keys at load so
     // the `extra` catch-all can never silently absorb one.
+    /// RFC-052 [R1]: the `containerId` of the root container, which lives in
+    /// the container set (`containers/`) like every other container.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) container: Option<Container>,
+    pub(crate) root_container_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub upstream_package: Option<UpstreamPackage>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -29,7 +30,7 @@ pub struct Manifest {
 impl Default for Manifest {
     fn default() -> Self {
         Self {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             source_documents_path: None,
             extra: std::collections::BTreeMap::new(),
@@ -38,39 +39,23 @@ impl Default for Manifest {
     }
 }
 
-/// The root container accessor (srs-rust#1435, RFC-052 preparation).
+/// The root container pointer (RFC-052, dataModelRevision 10).
 ///
-/// The `container` field is crate-private and, outside this module, is
-/// named only by struct literals that build a fresh `Manifest`: every read
-/// and write of the root container a manifest declares goes through these
-/// methods (other crates cannot reach the field at all), so the
-/// revision-10 change (RFC-052: the manifest names the root by
-/// `rootContainerId` and the body moves to `containers/`) swaps the source in
-/// this one place. Store-aware callers resolve the root through
-/// [`crate::container_service::resolve_root_container`] and test identity
-/// with `container_service::is_root_container`, both built on these methods.
-/// The raw-tree migration readers (RFC-043) read `manifest.json` as JSON and
-/// do not use them.
+/// The manifest names the root container by `rootContainerId` and holds no
+/// container content ([R3]). The body is an ordinary member of the container
+/// set: read it with [`crate::container_service::resolve_root_container`] and
+/// write it with `RepositoryStore::save_container`. The raw-tree migration
+/// readers read `manifest.json` as JSON and do not use these methods.
 impl Manifest {
-    /// The root container as declared by this manifest (RFC-013), if any.
-    pub fn root_container(&self) -> Option<&Container> {
-        self.container.as_ref()
-    }
-
-    /// The declared root container's id, if any.
+    /// The id of the root container this manifest names (RFC-052 [R1]), if any.
     pub fn root_container_id(&self) -> Option<&str> {
-        self.root_container().map(|c| c.container_id.as_str())
+        self.root_container_id.as_deref()
     }
 
-    /// Mutable access to the declared root container, if any.
-    pub fn root_container_mut(&mut self) -> Option<&mut Container> {
-        self.container.as_mut()
-    }
-
-    /// The one write path: replace (or, with `None`, remove) the declared
-    /// root container, returning the previous one.
-    pub fn set_root_container(&mut self, container: Option<Container>) -> Option<Container> {
-        std::mem::replace(&mut self.container, container)
+    /// The one write path for the pointer: replace (or, with `None`, remove)
+    /// the root container id, returning the previous one.
+    pub fn set_root_container_id(&mut self, id: Option<String>) -> Option<String> {
+        std::mem::replace(&mut self.root_container_id, id)
     }
 }
 
@@ -112,17 +97,64 @@ pub(crate) mod rfc038 {
         if declared < MIN_SUPPORTED_DATA_MODEL_REVISION {
             return Err(RepositoryError::StorageGenerationUnsupported { declared });
         }
-        // RFC-043 [R16]: refuse (naming the migration) rather than misread a revision-7 shape.
-        if crate::rfc043_container_entries_migration_service::raw_manifest_container_is_legacy(raw)
-        {
-            return Err(RepositoryError::Rfc043MigrationNeeded);
-        }
         for prop in RETIRED_PROPERTIES {
             if raw.get(*prop).is_some() {
                 return Err(RepositoryError::RetiredManifestProperty {
                     property: (*prop).to_string(),
                 });
             }
+        }
+        super::rfc052::check_root_container(raw, declared)
+    }
+}
+
+/// RFC-052 [R1]/[R7]: the root-container load gate.
+pub(crate) mod rfc052 {
+    use crate::error::RepositoryError;
+    use crate::field_type_migration_service::RFC052_ROOT_CONTAINER_REVISION;
+
+    /// Detection is by shape below revision 10: a manifest that still carries
+    /// the inline `container` is refused naming the migration ([R7]); a
+    /// revision-10 manifest must name its root and must not embed it ([R1]).
+    /// A pre-10 manifest with no inline root (a rootless legacy corpus, which
+    /// `repo validate` already reports under I-79) keeps loading as before.
+    pub(crate) fn check_root_container(
+        raw: &serde_json::Value,
+        declared: u64,
+    ) -> Result<(), RepositoryError> {
+        let inline = raw.get("container").is_some();
+        if declared < RFC052_ROOT_CONTAINER_REVISION {
+            if inline {
+                return Err(RepositoryError::ContainerMigrationNeeded {
+                    declared,
+                    legacy_rfc043_shape:
+                        crate::rfc043_container_entries_migration_service::raw_manifest_container_is_legacy(raw),
+                });
+            }
+            return Ok(());
+        }
+        if inline {
+            return Err(RepositoryError::ManifestRootContainer {
+                code: "manifest-root-container-inline",
+                message: format!(
+                    "manifest.json declares dataModelRevision {declared} and carries the inline \
+                     `container`; at revision {RFC052_ROOT_CONTAINER_REVISION} the root container \
+                     lives in the container set and the manifest names it by `rootContainerId` \
+                     (RFC-052 [R1])"
+                ),
+            });
+        }
+        if !raw
+            .get("rootContainerId")
+            .is_some_and(serde_json::Value::is_string)
+        {
+            return Err(RepositoryError::ManifestRootContainer {
+                code: "manifest-root-container-missing",
+                message: format!(
+                    "manifest.json declares dataModelRevision {declared} and names no root \
+                     container: `rootContainerId` is required (RFC-052 [R1])"
+                ),
+            });
         }
         Ok(())
     }
@@ -242,6 +274,37 @@ mod rfc038_tests {
     }
 
     #[test]
+    fn rfc052_r7_refuses_an_embedded_root_below_revision_10() {
+        let raw = serde_json::json!({
+            "dataModelRevision": 9,
+            "container": {"containerId": "c", "title": "Root"},
+        });
+        let err = check_manifest(&raw).unwrap_err();
+        assert_eq!(err.code(), "container-migration-needed");
+        assert!(err.to_string().contains("rfc052-root-container"));
+    }
+
+    #[test]
+    fn rfc052_r1_refuses_an_inline_or_missing_root_at_revision_10() {
+        let inline = serde_json::json!({
+            "dataModelRevision": 10,
+            "rootContainerId": "c",
+            "container": {"containerId": "c", "title": "Root"},
+        });
+        assert_eq!(
+            check_manifest(&inline).unwrap_err().code(),
+            "manifest-root-container-inline"
+        );
+        let missing = serde_json::json!({ "dataModelRevision": 10 });
+        assert_eq!(
+            check_manifest(&missing).unwrap_err().code(),
+            "manifest-root-container-missing"
+        );
+        let ok = serde_json::json!({ "dataModelRevision": 10, "rootContainerId": "c" });
+        assert!(check_manifest(&ok).is_ok());
+    }
+
+    #[test]
     fn r21_and_r2_pass_together_on_a_clean_generation_2_manifest() {
         let raw = serde_json::json!({ "dataModelRevision": 2 });
         assert!(check_manifest(&raw).is_ok());
@@ -291,44 +354,28 @@ mod tests {
         for prop in super::rfc038::RETIRED_PROPERTIES {
             assert!(!manifest.extra.contains_key(*prop), "{prop} survived");
         }
-        assert!(manifest.container.is_some());
+        assert!(manifest.root_container_id().is_some());
     }
 
     #[test]
-    fn manifest_with_container_roundtrips() {
-        let json = r#"{
-            "container": {
-                "containerId": "550e8400-e29b-41d4-a716-446655440000",
-                "identityInstanceId": "aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa"
-            }
-        }"#;
+    fn manifest_root_container_id_roundtrips() {
+        let json = r#"{ "rootContainerId": "550e8400-e29b-41d4-a716-446655440000" }"#;
         let manifest: Manifest = serde_json::from_str(json).unwrap();
-        let container = manifest.container.as_ref().unwrap();
         assert_eq!(
-            container.container_id,
-            "550e8400-e29b-41d4-a716-446655440000"
-        );
-        assert_eq!(
-            container.identity_instance_id.as_deref(),
-            Some("aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa")
+            manifest.root_container_id(),
+            Some("550e8400-e29b-41d4-a716-446655440000")
         );
         // must not appear in extra
-        assert!(!manifest.extra.contains_key("container"));
-
-        // serialise and re-parse
-        let serialised = serde_json::to_string(&manifest).unwrap();
-        let reparsed: Manifest = serde_json::from_str(&serialised).unwrap();
-        assert_eq!(
-            reparsed.container.as_ref().unwrap().identity_instance_id,
-            container.identity_instance_id
-        );
+        assert!(!manifest.extra.contains_key("rootContainerId"));
+        let reparsed: Manifest =
+            serde_json::from_str(&serde_json::to_string(&manifest).unwrap()).unwrap();
+        assert_eq!(reparsed.root_container_id(), manifest.root_container_id());
     }
 
     #[test]
-    fn manifest_absent_container_fields_are_none() {
-        let json = r#"{}"#;
-        let manifest: Manifest = serde_json::from_str(json).unwrap();
-        assert!(manifest.container.is_none());
+    fn manifest_absent_root_container_id_is_none() {
+        let manifest: Manifest = serde_json::from_str("{}").unwrap();
+        assert!(manifest.root_container_id().is_none());
     }
 
     #[test]

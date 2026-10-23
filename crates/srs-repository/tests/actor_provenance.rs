@@ -210,9 +210,8 @@ fn no_session_actor_creates_unattributed_and_never_errors() {
 fn repo_create_stamps_the_scaffolded_purpose_record() {
     let (_d, store) = new_repo(Some(human()));
     let manifest = store.load_manifest().unwrap();
-    let identity = manifest
-        .root_container()
-        .cloned()
+    let identity = srs_repository::container_service::resolve_root_container(&store, &manifest)
+        .unwrap()
         .unwrap()
         .identity_instance_id
         .unwrap();

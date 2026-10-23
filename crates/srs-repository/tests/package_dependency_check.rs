@@ -12,9 +12,18 @@ use srs_repository::package_dependency_service::{
     BundleRequirements, DependencyWriteAction, PackageDependencyFinding,
     RemovePackageDependencyInput, CODE_INVALID, CODE_LABEL_MISMATCH, CODE_UNSATISFIED,
 };
-use srs_repository::srsj::open_srsj;
 use srs_repository::store::{FileStore, RepositoryStore};
 use srs_repository::validation::{validate_repository, DiagnosticSeverity};
+
+/// `.srsj` fixtures here are written with the pre-RFC-052 embedded root; open them in the
+/// revision-10 form (root in the container set, named by `rootContainerId`).
+fn open_srsj(
+    text: &str,
+) -> Result<srs_repository::store::FileStore, srs_repository::error::RepositoryError> {
+    let mut doc: serde_json::Value = serde_json::from_str(text).expect("fixture is JSON");
+    srs_repository::rfc052_root_container_migration_service::rewrite_srsj_fixture(&mut doc);
+    srs_repository::srsj::open_srsj(&doc.to_string())
+}
 
 const G: &str = "1cd9622e-3d05-4214-a683-4cb81d0c44d9"; // governance
 const A: &str = "126eeba4-3124-4ee6-a9e5-5a943cb87cb5"; // argument

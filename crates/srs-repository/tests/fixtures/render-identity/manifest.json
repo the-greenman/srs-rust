@@ -1,13 +1,10 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
-  "srsVersion": "2.0",
-  "dataModelRevision": 2,
-  "repositoryId": "00000000-0000-4000-8000-000000000900",
-  "title": "Render Identity Fixture",
+  "createdAt": "2026-01-01T00:00:00Z",
+  "dataModelRevision": 10,
   "namespace": "fixture.render",
-  "container": {
-    "containerId": "00000000-0000-4000-8000-000000000900",
-    "title": "Render Identity Fixture"
-  },
-  "createdAt": "2026-01-01T00:00:00Z"
+  "repositoryId": "00000000-0000-4000-8000-000000000900",
+  "srsVersion": "2.0",
+  "title": "Render Identity Fixture",
+  "rootContainerId": "00000000-0000-4000-8000-000000000900"
 }

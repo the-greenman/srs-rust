@@ -508,12 +508,56 @@ static MIGRATIONS: &[MigrationDefinition] = &[
             })
         },
     },
+    // Ordered after `rfc046-actor-provenance` (it requires revision 9) and raw-tree: a
+    // revision-10 build refuses the embedded root on load (RFC-052 [R7]).
+    MigrationDefinition {
+        id: "rfc052-root-container",
+        title: "Adopt RFC-052: the root container is stored in the container set",
+        description: "Moves the root container from manifest.container to \
+                       containers/<containerId>.json, replaces manifest.container with \
+                       rootContainerId, and stamps dataModelRevision: 10 on the manifest and \
+                       every stamped package manifest. This is data-model migration #10 \
+                       (revision 9 -> 10), per srs-rust#1417 (RFC-052, srs#941). Reads and \
+                       writes the raw file tree — the sole sanctioned reader of the embedded \
+                       root. All-or-nothing: it refuses before any write when \
+                       containers/<containerId>.json already exists \
+                       (`migration-root-path-exists`), when a container file already declares \
+                       the root's id (`migration-root-duplicate`), when the manifest names no \
+                       root (`migration-root-missing`), or when the gate finds a difference \
+                       (`migration-gate-failed`: navigation and identity, read the revision-9 \
+                       way, and every Composition, rendered before and after on in-memory \
+                       trees, must be identical). Requires revision 9 (rfc046-actor-provenance) \
+                       first.",
+        revision_step: Some(RevisionStep {
+            from: crate::field_type_migration_service::RFC052_ROOT_CONTAINER_REVISION - 1,
+            to: crate::field_type_migration_service::RFC052_ROOT_CONTAINER_REVISION,
+            // A Package Bundle carries no manifest and no container: nothing it carries
+            // changes shape at this step (RFC-003 [C6]).
+            bundle: BundleForm::Restamp,
+        }),
+        status_fn: |store| {
+            if crate::rfc052_root_container_migration_service::migration_needed(store) {
+                Ok(MigrationStatus::Needed)
+            } else {
+                Ok(MigrationStatus::AlreadyApplied)
+            }
+        },
+        apply_fn: |store| {
+            let result =
+                crate::rfc052_root_container_migration_service::migrate_rfc052_root_container(
+                    store,
+                )?;
+            serde_json::to_value(&result).map_err(|e| RepositoryError::InvalidSnapshotData {
+                message: format!("failed to serialize rfc052-root-container migration result: {e}"),
+            })
+        },
+    },
     MigrationDefinition {
         id: "migrate-identity",
         title: "Graduate identity to purpose record",
         description: "Converts a Tier-0 note identity (or a container with no identity \
                        pointer) to a typed com.semanticops.core/purpose Tier-2 Record \
-                       and repoints manifest.container.identityInstanceId. Satisfies RFC-018.",
+                       and repoints the root container's identityInstanceId. Satisfies RFC-018.",
         revision_step: None,
         status_fn: |store| {
             use crate::migrate_identity_service::IdentityMigrationStatus;
@@ -677,11 +721,13 @@ pub fn list_migrations(
                 // missing manifest, real I/O failure, ...) still propagates
                 // unchanged.
                 Err(RepositoryError::CatalogLoad { .. }) => MigrationStatus::Needed,
-                // A revision-7 root container does not parse as a typed Manifest (RFC-043
-                // [R16]); the typed-manifest probes cannot run, so report the conservative
-                // `Needed` rather than failing the listing that tells the user what to do.
+                // A manifest the load gate refuses (an embedded root below revision 10,
+                // RFC-052 [R7]) or that does not parse: the typed-manifest probes cannot run,
+                // so report the conservative `Needed` rather than failing the listing that
+                // tells the user what to do.
                 Err(
-                    RepositoryError::ManifestParse { .. } | RepositoryError::Rfc043MigrationNeeded,
+                    RepositoryError::ManifestParse { .. }
+                    | RepositoryError::ContainerMigrationNeeded { .. },
                 ) => MigrationStatus::Needed,
                 Err(e) => return Err(e),
             };
@@ -693,6 +739,31 @@ pub fn list_migrations(
             })
         })
         .collect()
+}
+
+/// Apply, in registry order, every revision-keyed entry the store still needs, reading each
+/// status when the pass reaches it (an earlier step makes a later one applicable). The
+/// in-memory pre-load transformer's path to the current revision (RFC-052 Change C).
+pub(crate) fn apply_revision_ladder(
+    store: &dyn RepositoryStore,
+) -> Result<Vec<&'static str>, RepositoryError> {
+    let mut applied = Vec::new();
+    for m in MIGRATIONS.iter().filter(|m| m.revision_step.is_some()) {
+        let needed = match (m.status_fn)(store) {
+            Ok(s) => s == MigrationStatus::Needed,
+            Err(
+                RepositoryError::CatalogLoad { .. }
+                | RepositoryError::ManifestParse { .. }
+                | RepositoryError::ContainerMigrationNeeded { .. },
+            ) => true,
+            Err(e) => return Err(e),
+        };
+        if needed {
+            (m.apply_fn)(store)?;
+            applied.push(m.id);
+        }
+    }
+    Ok(applied)
 }
 
 pub fn apply_migration(
@@ -773,7 +844,7 @@ mod tests {
         let mut manifest = store.load_manifest().unwrap();
         let mut root = bare_container(container_id);
         root.identity_instance_id = Some(note_id.to_string());
-        manifest.set_root_container(Some(root));
+        crate::container_service::set_root_container(&store, &mut manifest, &root).unwrap();
         write_manifest(&store, &manifest).unwrap();
 
         (store, container_id.to_string())
@@ -797,7 +868,12 @@ mod tests {
         // Embed-only root container ([R1]): a physical containers/*.json file with the
         // same id as manifest.container would be a fatal SRS038-R12-DUPLICATE-ID.
         let mut manifest = store.load_manifest().unwrap();
-        manifest.set_root_container(Some(bare_container(container_id)));
+        crate::container_service::set_root_container(
+            &store,
+            &mut manifest,
+            &bare_container(container_id),
+        )
+        .unwrap();
         // This fixture models a PRE-migration repository: strip the
         // generation stamp MemoryStore now writes by default.
         manifest.extra.remove("dataModelRevision");
@@ -809,7 +885,7 @@ mod tests {
     fn list_migrations_returns_every_entry_for_store_with_no_identity_note() {
         let store = make_store_with_container_no_identity();
         let migrations = list_migrations(&store).unwrap();
-        assert_eq!(migrations.len(), 15);
+        assert_eq!(migrations.len(), 16);
         assert_eq!(migrations[0].id, "graduated-at-cleanup");
         assert_eq!(migrations[1].id, "revisions-sidecar-cleanup");
         assert_eq!(migrations[2].id, "field-type");
@@ -821,10 +897,11 @@ mod tests {
         assert_eq!(migrations[8].id, "discovery-query-cutover");
         assert_eq!(migrations[9].id, "rfc043-container-entries");
         assert_eq!(migrations[10].id, "rfc046-actor-provenance");
-        assert_eq!(migrations[11].id, "migrate-identity");
-        assert_eq!(migrations[12].id, "repo-upgrade");
-        assert_eq!(migrations[13].id, "core-relation-type-reference-cleanup");
-        assert_eq!(migrations[14].id, "rfc038-storage");
+        assert_eq!(migrations[11].id, "rfc052-root-container");
+        assert_eq!(migrations[12].id, "migrate-identity");
+        assert_eq!(migrations[13].id, "repo-upgrade");
+        assert_eq!(migrations[14].id, "core-relation-type-reference-cleanup");
+        assert_eq!(migrations[15].id, "rfc038-storage");
         // No legacy graduatedAt Notes → AlreadyApplied
         assert_eq!(migrations[0].status, MigrationStatus::AlreadyApplied);
         // No .revisions.json sidecars → AlreadyApplied
@@ -847,14 +924,16 @@ mod tests {
         assert_eq!(migrations[9].status, MigrationStatus::Needed);
         // Revision < 9 → rfc046-actor-provenance Needed
         assert_eq!(migrations[10].status, MigrationStatus::Needed);
-        // Container exists but identity_instance_id is None → migrate-identity Needed
+        // Revision < 10 → rfc052-root-container Needed
         assert_eq!(migrations[11].status, MigrationStatus::Needed);
+        // Container exists but identity_instance_id is None → migrate-identity Needed
+        assert_eq!(migrations[12].status, MigrationStatus::Needed);
         // Zero instances → all paths canonical → AlreadyApplied
-        assert_eq!(migrations[12].status, MigrationStatus::AlreadyApplied);
-        // No local relation-type definitions at all → nothing to clean up.
         assert_eq!(migrations[13].status, MigrationStatus::AlreadyApplied);
+        // No local relation-type definitions at all → nothing to clean up.
+        assert_eq!(migrations[14].status, MigrationStatus::AlreadyApplied);
         // MemoryStore is not a file tree — there is no storage layout to place.
-        assert_eq!(migrations[14].status, MigrationStatus::NotApplicable);
+        assert_eq!(migrations[15].status, MigrationStatus::NotApplicable);
     }
 
     fn indexed_srsj_store() -> crate::store::FileStore {
