@@ -649,6 +649,8 @@ This is issue #298 (parent plan §4): `srs-gov list` composes `container resolve
    ```
    Confirm `repositoryId: "seed-repo-id"` and `namespace: "com.mudemocracy.governance"` — this is the seed identity, not the organisation's.
 
+   A published seed below `dataModelRevision` 10 (the governance seeds are revision 7) opens migrated in memory: `repo validate` reports `migrated-in-memory`, and `init-new`, like every write, is refused with `migration-required-before-write` (srs-rust#1444). Apply each migration `srs repo migrations` lists as needed with `srs repo apply-migration --id <id>` first.
+
 3. Re-stamp with the organisation's identity:
    ```bash
    srs repo init-new --repo /tmp/dogfood-s16.srsj \

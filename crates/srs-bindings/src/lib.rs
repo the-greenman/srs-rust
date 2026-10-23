@@ -195,6 +195,8 @@ impl McpSession {
     /// Host-supplied only — never from tool arguments. The JSON is not validated here:
     /// an invalid actor refuses every creating tool call with `actor-invalid` (R12),
     /// and an actor on a corpus below dataModelRevision 9 with `revision-too-old` (R11).
+    /// A document migrated in memory on load refuses every write first, with
+    /// `migration-required-before-write` (see `SrsRepository::migration_notice`).
     pub fn set_actor(&mut self, json: &str) -> Result<(), JsValue> {
         let actor: serde_json::Value =
             serde_json::from_str(json).map_err(|e| js_invalid_input(e.to_string()))?;
@@ -344,6 +346,22 @@ impl SrsRepository {
         }
         let store = srs_repository::open_tree(map).map_err(|e| js_err(&e))?;
         Ok(SrsRepository { store })
+    }
+
+    /// What the loader migrated in memory when this document was opened (srs-rust#1444):
+    /// `{ sourceRevision, migrations: string[] }`, or `null` when it opened as stored.
+    /// While it is non-null every write through this handle (and its MCP sessions) is
+    /// refused with code `migration-required-before-write`, so the document is never
+    /// saved at the new revision unasked. Ask the user, then call [`Self::accept_migration`].
+    pub fn migration_notice(&self) -> Result<JsValue, JsValue> {
+        to_js(&self.store.migration_notice())
+    }
+
+    /// The explicit act that lets a document migrated in memory be written (and so saved
+    /// at the current revision): clears the notice for this handle and its MCP sessions.
+    /// Returns the notice it cleared, or `null`.
+    pub fn accept_migration(&self) -> Result<JsValue, JsValue> {
+        to_js(&self.store.accept_migration())
     }
 
     /// Validate the repository. Returns a `RepositoryValidationReport` as a JS value with two

@@ -98,5 +98,7 @@ pub use package_types::{
 pub use repository_portability::{
     upgrade_repository_paths, InstancePathRename, UpgradeRepositoryPathsResult,
 };
-pub use store::{ChangeEntry, ChangeKind, ChangeTarget, FileStore, RepositoryStore};
+pub use store::{
+    ChangeEntry, ChangeKind, ChangeTarget, FileStore, MigrationNotice, RepositoryStore,
+};
 pub use tree_session::{export_tree, materialize_tree, new_tree_session, open_tree};

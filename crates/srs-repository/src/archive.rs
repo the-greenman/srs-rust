@@ -539,8 +539,8 @@ pub fn archive_to_tree(reader: impl Read + Seek) -> Result<FileStore, Repository
         bytes_map.remove("package/package.snapshot.json");
         // RFC-052 Change C: a revision-9 archive that embeds its root opens migrated.
         let mut tree: BTreeMap<String, Vec<u8>> = bytes_map.into_iter().collect();
-        crate::rfc052_root_container_migration_service::transform_tree(&mut tree)?;
-        return open_tree(tree);
+        let notice = crate::rfc052_root_container_migration_service::transform_tree(&mut tree)?;
+        return Ok(open_tree(tree)?.with_migration_notice(notice));
     }
 
     if bytes_map.contains_key("package/package.snapshot.json") {

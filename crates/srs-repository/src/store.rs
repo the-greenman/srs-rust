@@ -291,6 +291,14 @@ pub trait RepositoryStore {
     /// requests never do). A no-op for stores that cannot carry a session actor.
     fn set_session_actor(&self, _actor: Option<serde_json::Value>) {}
 
+    /// What the pre-load transformer migrated in memory when this store was opened
+    /// (srs-rust#1444), `None` when it opened as stored. While it is set, every write is
+    /// refused with `migration-required-before-write`, so a document is never saved at
+    /// the new revision unasked.
+    fn migration_notice(&self) -> Option<MigrationNotice> {
+        None
+    }
+
     /// Take the record/relation/container changes written since the last drain
     /// (ADR-049). Session telemetry, never persisted. Stores that do not record
     /// return none.
@@ -970,6 +978,15 @@ pub type DiscoveryIndexCache = RefCell<Option<Rc<dyn crate::discovery_index::Dis
 // FileStore — file-backed implementation
 // ---------------------------------------------------------------------------
 
+/// A document the pre-load transformer migrated in memory (srs-rust#1444): the revision it
+/// is stored at, and the registry migrations applied, in order.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MigrationNotice {
+    pub source_revision: u64,
+    pub migrations: Vec<String>,
+}
+
 /// File-backed implementation of [`RepositoryStore`].
 ///
 /// All I/O is funnelled through the [`Vfs`] seam (ADR-038): `DiskVfs` for the
@@ -1026,6 +1043,9 @@ pub struct FileStore {
     changes: Rc<RefCell<Vec<(String, ChangeEntry)>>>,
     /// Opt-in (shared by clones): CLI and bulk paths never drain, so they never record.
     recording: Rc<Cell<bool>>,
+    /// Set when the document was migrated in memory on open; shared by clones (a WASM
+    /// handle and its MCP sessions) so accepting it once lifts the write refusal for all.
+    migration_notice: Rc<RefCell<Option<MigrationNotice>>>,
 }
 
 // Manual Clone: `#[derive(Clone)]` would carry the cached `Rc<RepositoryCatalog>`
@@ -1049,6 +1069,7 @@ impl Clone for FileStore {
             session_actor: RefCell::new(self.session_actor.borrow().clone()),
             changes: self.changes.clone(),
             recording: self.recording.clone(),
+            migration_notice: self.migration_notice.clone(),
         }
     }
 }
@@ -1070,6 +1091,7 @@ impl FileStore {
             session_actor: RefCell::new(None),
             changes: Rc::default(),
             recording: Rc::default(),
+            migration_notice: Rc::default(),
         }
     }
 
@@ -1089,6 +1111,7 @@ impl FileStore {
             session_actor: RefCell::new(None),
             changes: Rc::default(),
             recording: Rc::default(),
+            migration_notice: Rc::default(),
         }
     }
 
@@ -1122,6 +1145,39 @@ impl FileStore {
     pub fn rooted_at(mut self, repo_root: impl Into<PathBuf>) -> Self {
         self.repo_root = repo_root.into();
         self
+    }
+
+    /// Attach what the pre-load transformer applied (see
+    /// [`RepositoryStore::migration_notice`]).
+    pub fn with_migration_notice(self, notice: Option<MigrationNotice>) -> Self {
+        *self.migration_notice.borrow_mut() = notice;
+        self
+    }
+
+    /// The explicit act that lets a document migrated in memory be saved at the current
+    /// revision: clears the notice for this store and every clone. Returns the notice it
+    /// cleared.
+    pub fn accept_migration(&self) -> Option<MigrationNotice> {
+        self.migration_notice.borrow_mut().take()
+    }
+
+    /// Refuse a write while the document is only migrated in memory (srs-rust#1444).
+    fn ensure_writable(&self) -> Result<(), RepositoryError> {
+        let Some(n) = self.migration_notice.borrow().clone() else {
+            return Ok(());
+        };
+        Err(RepositoryError::MigrationRefused {
+            code: "migration-required-before-write",
+            message: format!(
+                "this document is stored at dataModelRevision {} and was migrated in memory \
+                 ({}); writing would save it at revision {} without being asked. Run `srs \
+                 repo migrations` and apply them explicitly with `srs repo apply-migration \
+                 --id <id>` (or accept the migration in the client), then retry",
+                n.source_revision,
+                n.migrations.join(", "),
+                crate::field_type_migration_service::CURRENT_DATA_MODEL_REVISION,
+            ),
+        })
     }
 
     pub fn repo_root(&self) -> &std::path::Path {
@@ -1218,6 +1274,7 @@ impl FileStore {
     }
 
     fn vfs_write(&self, rel: &str, content: &[u8]) -> Result<(), RepositoryError> {
+        self.ensure_writable()?;
         let target = ChangeTarget::from_path(rel).filter(|_| self.recording.get());
         let existed = target.is_some() && self.vfs.exists(rel);
         self.sync_cache_epoch();
@@ -1240,6 +1297,7 @@ impl FileStore {
     }
 
     fn vfs_remove(&self, rel: &str) -> Result<(), RepositoryError> {
+        self.ensure_writable()?;
         // Read the id first: after removal only the path is left.
         let found = ChangeTarget::from_path(rel)
             .filter(|_| self.recording.get())
@@ -1324,6 +1382,7 @@ impl FileStore {
     }
 
     fn vfs_create_dir_all(&self, rel: &str) -> Result<(), RepositoryError> {
+        self.ensure_writable()?;
         self.sync_cache_epoch();
         self.vfs.create_dir_all(rel)?;
         // The catalog enumerates files only: an (empty) directory changes
@@ -1599,6 +1658,10 @@ impl RepositoryStore for FileStore {
 
     fn set_session_actor(&self, actor: Option<serde_json::Value>) {
         *self.session_actor.borrow_mut() = actor;
+    }
+
+    fn migration_notice(&self) -> Option<MigrationNotice> {
+        self.migration_notice.borrow().clone()
     }
 
     fn rfc038_exempt(&self) -> bool {

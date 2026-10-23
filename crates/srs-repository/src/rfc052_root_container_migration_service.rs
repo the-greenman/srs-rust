@@ -565,23 +565,29 @@ fn write_manifest_raw(
 /// registry entries a repository on disk takes (every revision step it still needs, then
 /// `rfc052-root-container`, with their refusals and gates), before any store is built — so a
 /// published seed (immutable, never rewritten on disk; the governance seeds are revision 7)
-/// opens in a revision-10 build. Any other tree is left as it is. Returns whether the tree was
-/// rewritten.
-pub fn transform_tree(files: &mut BTreeMap<String, Vec<u8>>) -> Result<bool, RepositoryError> {
+/// opens in a revision-10 build. Any other tree is left as it is. Returns what was applied
+/// (srs-rust#1444), `None` when the tree was not rewritten; the caller attaches it to the
+/// opened store so the store says so and refuses to be saved at the new revision unasked.
+pub fn transform_tree(
+    files: &mut BTreeMap<String, Vec<u8>>,
+) -> Result<Option<crate::store::MigrationNotice>, RepositoryError> {
     let Some(manifest) = files
         .get("manifest.json")
         .and_then(|b| serde_json::from_slice::<Value>(b).ok())
     else {
-        return Ok(false);
+        return Ok(None);
     };
-    if revision(&manifest) >= RFC052_ROOT_CONTAINER_REVISION || manifest.get("container").is_none()
-    {
-        return Ok(false);
+    let source_revision = revision(&manifest);
+    if source_revision >= RFC052_ROOT_CONTAINER_REVISION || manifest.get("container").is_none() {
+        return Ok(None);
     }
     let store = crate::tree_session::open_tree(std::mem::take(files))?.with_rfc038_exemption();
-    crate::migration_registry_service::apply_revision_ladder(&store)?;
+    let applied = crate::migration_registry_service::apply_revision_ladder(&store)?;
     *files = crate::tree_session::export_tree(&store)?;
-    Ok(true)
+    Ok(Some(crate::store::MigrationNotice {
+        source_revision,
+        migrations: applied.into_iter().map(str::to_string).collect(),
+    }))
 }
 
 #[cfg(test)]
@@ -894,8 +900,10 @@ mod tests {
         rev9_repo(tmp.path());
         let store = FileStore::new(tmp.path()).with_rfc038_exemption();
         let mut tree = crate::archive::tree_entries(&store).unwrap();
-        assert!(transform_tree(&mut tree).unwrap());
-        assert!(!transform_tree(&mut tree).unwrap(), "idempotent");
+        let notice = transform_tree(&mut tree).unwrap().expect("rewritten");
+        assert_eq!(notice.source_revision, 9);
+        assert_eq!(notice.migrations, [MIGRATION_ID]);
+        assert!(transform_tree(&mut tree).unwrap().is_none(), "idempotent");
         migrate_rfc052_root_container(&store).unwrap();
         let migrated = crate::archive::tree_entries(&FileStore::new(tmp.path())).unwrap();
         for key in ["manifest.json", &format!("containers/{ROOT}.json")] {

@@ -104,8 +104,8 @@ pub fn tree_from_srsj(content: &str) -> Result<BTreeMap<String, Vec<u8>>, Reposi
 /// `FileStore` the CLI runs on disk (ADR-038).
 pub fn open_srsj(content: &str) -> Result<FileStore, RepositoryError> {
     let mut tree = tree_from_srsj(content)?;
-    crate::rfc052_root_container_migration_service::transform_tree(&mut tree)?;
-    open_tree(tree)
+    let notice = crate::rfc052_root_container_migration_service::transform_tree(&mut tree)?;
+    Ok(open_tree(tree)?.with_migration_notice(notice))
 }
 
 /// Open a `.srsj` document for the migration tooling surface only: the tree as it is, with
