@@ -1,9 +1,34 @@
 # ADR-046: The vendored governance seed is a bounded fork, not a byte-copy
 
-- **Status:** accepted
+- **Status:** superseded: the fork converged (2026-10-23, srs-rust#1452)
 - **Date:** 2026-08-15
 - **Supersedes:** —
-- **Superseded by:** —
+- **Superseded by:** the convergence addendum below (decision 2)
+
+## Addendum (2026-10-23, srs-rust#1452): converged, the fork ends
+
+Decision 2's convergence point is reached. srs published `com.mudemocracy.governance` **1.2.3**
+(srs#957) with its seed built at `dataModelRevision` 10, and that seed, copied byte-for-byte over
+`crates/srs-repository/tests/fixtures/governance-seed.srsj`, passes every scaffold and binding test
+unrepaired (scaffolded repository: 0 diagnostics at revision 10). Rows 1a, 1b and 3 converged
+upstream: the published compositions are now identical to the vendored ones. Rows 5 to 8 converge
+by being dropped (the published seed carries its own `package.json`, the protocol, the lifecycle
+key and `meta.upstreamPackage`).
+
+Row 2 did **not** converge upstream. The published seed still has `aiGuidance.purpose: ""` on 8
+Fields (`amendmentrule`, `articlenumber`, `articletext`, `authority`, `boundary`,
+`protectedstatus`, `roleholder`, `sourceofauthority`); the field schema and the loader accept an
+empty purpose, so the byte-copy loads and validates, but a scaffolded repository loses the authored
+purpose text the fork carried for those Fields. The repair belongs upstream in the next published
+version (the-greenman/srs#960), not here (decision 1).
+
+From here the vendored seed is a byte-copy of the published seed for the version its own
+`manifest.upstreamPackage` names, never a fork. `scaffold::seed_is_a_byte_copy_of_the_published_seed`
+enforces that against a fresh srs checkout, which replaces the review-only bound described under
+Consequences. To re-vendor: `cp <srs>/packages/com.mudemocracy.governance/<version>/seed/empty-governance-document.srsj
+crates/srs-repository/tests/fixtures/governance-seed.srsj`. The 1.2.3 seed also carries the core
+definitions for `derived-from`, `evidences`, `precedes` and `supersedes` in place of the package's
+own; that comes from `srs repo copy` (srs-rust#1447) and is vendored as published.
 
 ## Addendum (2026-09-02, srs-rust#910)
 
