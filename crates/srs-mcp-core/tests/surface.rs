@@ -1238,6 +1238,63 @@ mod write_guard {
     }
 
     #[test]
+    fn add_only_container_accepts_members_and_nothing_else() {
+        let (_dir, mut d) = guarded();
+        let ty = "com.example.surface/para2";
+        let c = tool(&mut d, "container_create", json!({ "title": "Comments" }));
+        let cid = c["result"]["structuredContent"]["containerId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let first = create(&mut d, ty, json!({ "body": "a" }), Some(&cid));
+        guard(&mut d, json!({ "addOnlyContainerIds": [cid] }));
+        // Adding is allowed, by member_add and by filing a new record into it.
+        let other = create(&mut d, ty, json!({ "body": "b" }), None);
+        assert_ok(
+            &mut d,
+            "container_member_add",
+            json!({ "containerId": cid, "instanceId": other }),
+        );
+        let filed = create(&mut d, ty, json!({ "body": "c" }), Some(&cid));
+        // Nothing else is.
+        assert_rejected(
+            &mut d,
+            "container_member_remove",
+            json!({ "containerId": cid, "instanceId": first }),
+        );
+        assert_rejected(
+            &mut d,
+            "container_member_move",
+            json!({ "containerId": cid, "instanceId": first, "position": 1 }),
+        );
+        assert_rejected(
+            &mut d,
+            "container_member_repair",
+            json!({ "containerId": cid }),
+        );
+        assert_rejected(
+            &mut d,
+            "container_create",
+            json!({ "containerId": cid, "title": "Empty" }),
+        );
+        // A fork swaps the copy in for the original, so it removes a member.
+        assert_rejected(
+            &mut d,
+            "record_fork",
+            json!({ "containerId": cid, "instanceId": first }),
+        );
+        // The members themselves are not protected.
+        assert_ok(
+            &mut d,
+            "record_update",
+            json!({ "instanceId": filed, "fieldValues": { "body": "edited" } }),
+        );
+        let members =
+            srs_repository::container_service::list_members(d.application().store(), &cid).unwrap();
+        assert_eq!(members, vec![first, other, filed]);
+    }
+
+    #[test]
     fn child_containers_of_a_guarded_container_are_guarded() {
         let (_dir, mut d) = guarded();
         let ty = "com.example.surface/para2";
