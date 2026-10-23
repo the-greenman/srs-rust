@@ -74,9 +74,11 @@ fn scaffold_from_raw_seed_produces_valid_repository() {
 /// revision-8 seed after the revision-9 (RFC-046) bump landed — a document
 /// created from it then prompted for a migration in srs-web immediately on
 /// re-import (the-greenman/srs-web#360). When `CURRENT_DATA_MODEL_REVISION`
-/// moves, this test goes red until the seed is re-stamped with
-/// `srs repo apply-migration --id <new-migration-id> --repo
-/// crates/srs-repository/tests/fixtures/governance-seed.srsj` (the single copy; also the release asset).
+/// moves, this test goes red until the seed is re-vendored: srs republishes
+/// `com.mudemocracy.governance` with a seed built at the new revision, and
+/// `packages/com.mudemocracy.governance/<version>/seed/empty-governance-document.srsj`
+/// is copied byte-for-byte over this fixture (the single copy; also the release
+/// asset). `seed_is_a_byte_copy_of_the_published_seed` holds the copy exact.
 #[test]
 fn seed_is_stamped_at_the_current_data_model_revision() {
     let raw = std::fs::read_to_string(concat!(
@@ -93,7 +95,62 @@ fn seed_is_stamped_at_the_current_data_model_revision() {
     assert_eq!(
         revision, CURRENT_DATA_MODEL_REVISION,
         "governance-seed.srsj is stamped at dataModelRevision {revision}, but the binary's \
-         current revision is {CURRENT_DATA_MODEL_REVISION} — re-stamp the seed (both the \
-         srs-gov asset and this fixture copy) via `srs repo apply-migration`"
+         current revision is {CURRENT_DATA_MODEL_REVISION} — re-vendor the seed srs publishes \
+         at that revision"
+    );
+}
+
+/// srs-rust#1452 (ADR-046, convergence): the vendored seed is the published
+/// `com.mudemocracy.governance` seed byte-for-byte — for the version its own
+/// `manifest.upstreamPackage` names — never a hand-edited fork. Resolves the spec
+/// repo as `core_bundle_drift` does: `SRS_SPEC_DIR`, else a sibling `srs`
+/// checkout on master; skips when neither is present.
+#[test]
+fn seed_is_a_byte_copy_of_the_published_seed() {
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/governance-seed.srsj");
+    let raw = std::fs::read_to_string(&fixture).expect("governance-seed.srsj fixture must exist");
+    let seed: serde_json::Value = serde_json::from_str(&raw).expect("seed must parse as JSON");
+    let version = seed["manifest"]["upstreamPackage"]["version"]
+        .as_str()
+        .expect("manifest.upstreamPackage.version names the published version");
+    let rel = format!(
+        "packages/com.mudemocracy.governance/{version}/seed/empty-governance-document.srsj"
+    );
+
+    let spec = match std::env::var("SRS_SPEC_DIR") {
+        Ok(dir) => std::path::PathBuf::from(dir),
+        Err(_) => {
+            let sibling = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../srs");
+            if !sibling.join(&rel).exists() {
+                return;
+            }
+            let out = std::process::Command::new("git")
+                .args([
+                    "-C",
+                    sibling.to_str().unwrap_or("."),
+                    "rev-parse",
+                    "--abbrev-ref",
+                    "HEAD",
+                ])
+                .output();
+            if let Ok(out) = out {
+                let branch = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                assert!(
+                    !out.status.success() || branch == "master",
+                    "srs sibling checkout is on '{branch}', not master — set SRS_SPEC_DIR to a \
+                     fresh `origin/master` clone (srs-rust#874)"
+                );
+            }
+            sibling
+        }
+    };
+    let Ok(published) = std::fs::read_to_string(spec.join(&rel)) else {
+        return; // explicit but unusable SRS_SPEC_DIR: skip, as core_bundle_drift does
+    };
+    assert!(
+        raw == published,
+        "governance-seed.srsj is not a byte-copy of srs {rel} — re-vendor it with `cp`, \
+         never hand-edit (ADR-046)"
     );
 }
