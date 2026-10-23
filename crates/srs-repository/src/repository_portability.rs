@@ -1974,10 +1974,40 @@ mod tests {
             }),
         )
         .unwrap();
+        // The corpus also declares core definitions of its own (as every corpus
+        // copied by an earlier binary does): an identical reference copy of a
+        // core relation type, a core field and a core type. Those must stay.
+        let cp = crate::core_package::core_package();
+        let core_rt = &cp.relation_types[0];
+        let core_rt_path = format!("relation-types/{}-core.json", core_rt.key);
+        src.save_instance_json(
+            &format!("package/{core_rt_path}"),
+            &serde_json::to_value(core_rt).unwrap(),
+        )
+        .unwrap();
+        src.ensure_instance_dir("package/fields").unwrap();
+        src.ensure_instance_dir("package/types").unwrap();
+        let mut field_json = serde_json::to_value(&cp.fields[0]).unwrap();
+        field_json["$schema"] = serde_json::json!(srs_schema::FIELD_SCHEMA_ID);
+        src.save_instance_json("package/fields/core-field.json", &field_json)
+            .unwrap();
+        let mut type_json = serde_json::to_value(&cp.record_types[0]).unwrap();
+        type_json["$schema"] = serde_json::json!(srs_schema::TYPE_SCHEMA_ID);
+        src.save_instance_json("package/types/core-type.json", &type_json)
+            .unwrap();
         let mut pkg = src.load_instance_json("package/package.json").unwrap();
-        pkg["relationTypes"] = serde_json::json!(["relation-types/precedes-0e0e0e0e.json"]);
+        pkg["relationTypes"] =
+            serde_json::json!(["relation-types/precedes-0e0e0e0e.json", core_rt_path]);
+        pkg["fields"] = serde_json::json!(["fields/core-field.json"]);
+        pkg["types"] = serde_json::json!(["types/core-type.json"]);
         src.save_instance_json("package/package.json", &pkg)
             .unwrap();
+        // Normalize the source through one copy so file names and key order
+        // are the writer's; a copy of that copy must then change nothing.
+        let norm_dir = TempDir::new().unwrap();
+        let norm = FileStore::new(norm_dir.path());
+        copy_repository(&src, &norm).unwrap();
+        let (src, src_dir) = (norm, norm_dir);
 
         // Compared as JSON values: a copy re-serializes each definition, so
         // key order on disk is the writer's, but no value may change.
@@ -2004,6 +2034,17 @@ mod tests {
         };
         let expected = package_files(src_dir.path());
         assert!(expected.contains_key(rel));
+        let count = |dir: &str| expected.keys().filter(|k| k.contains(dir)).count();
+        assert_eq!(
+            (
+                count("/relation-types/"),
+                count("/fields/"),
+                count("/types/")
+            ),
+            (2, 1, 1),
+            "the declared core definitions survive, nothing else is added: {:?}",
+            expected.keys().collect::<Vec<_>>()
+        );
 
         let direct = TempDir::new().unwrap();
         copy_repository(&src, &FileStore::new(direct.path())).unwrap();
