@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "srs-context": {
-      "command": "srs",
+      "command": "../srs-context/hooks/srs-pinned",
       "args": ["mcp", "serve", "--repo", "${SRS_CONTEXT_REPO:-../srs-context/context}"]
     }
   }
