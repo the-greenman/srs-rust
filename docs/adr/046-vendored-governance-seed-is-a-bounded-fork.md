@@ -10,11 +10,17 @@
 Decision 2's convergence point is reached. srs published `com.mudemocracy.governance` **1.2.3**
 (srs#957) with its seed built at `dataModelRevision` 10, and that seed, copied byte-for-byte over
 `crates/srs-repository/tests/fixtures/governance-seed.srsj`, passes every scaffold and binding test
-unrepaired (scaffolded repository: 0 diagnostics at revision 10). Rows 1a, 1b, 2 and 3 no longer
-need a repair here: the published views now use the shapes the scaffold binds, and the loader no
-longer rejects the remaining empty `aiGuidance.purpose`. Rows 5 to 8 converge by being dropped
-(the published seed carries its own `package.json`, the protocol, the lifecycle key and
-`meta.upstreamPackage`).
+unrepaired (scaffolded repository: 0 diagnostics at revision 10). Rows 1a, 1b and 3 converged
+upstream: the published compositions are now identical to the vendored ones. Rows 5 to 8 converge
+by being dropped (the published seed carries its own `package.json`, the protocol, the lifecycle
+key and `meta.upstreamPackage`).
+
+Row 2 did **not** converge upstream. The published seed still has `aiGuidance.purpose: ""` on 8
+Fields (`amendmentrule`, `articlenumber`, `articletext`, `authority`, `boundary`,
+`protectedstatus`, `roleholder`, `sourceofauthority`); the field schema and the loader accept an
+empty purpose, so the byte-copy loads and validates, but a scaffolded repository loses the authored
+purpose text the fork carried for those Fields. The repair belongs upstream in the next published
+version (the-greenman/srs#960), not here (decision 1).
 
 From here the vendored seed is a byte-copy of the published seed for the version its own
 `manifest.upstreamPackage` names, never a fork. `scaffold::seed_is_a_byte_copy_of_the_published_seed`
