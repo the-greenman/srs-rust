@@ -5730,7 +5730,7 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -6019,7 +6019,7 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -6273,7 +6273,7 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -6616,7 +6616,7 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -7467,7 +7467,7 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -7825,7 +7825,7 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -8103,7 +8103,7 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -8630,7 +8630,7 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -9209,7 +9209,7 @@ mod tests {
             .collect();
 
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -9640,7 +9640,7 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -10080,7 +10080,7 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -10583,7 +10583,7 @@ mod tests {
         use crate::store::RepositoryStore;
 
         let manifest = Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -11036,7 +11036,7 @@ mod tests {
             None,
         );
         let manifest = Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -11868,7 +11868,7 @@ mod tests {
         );
 
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -12184,7 +12184,7 @@ mod tests {
             .collect();
 
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -12686,7 +12686,7 @@ mod tests {
         );
 
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -12898,7 +12898,7 @@ mod tests {
 
     fn minimal_manifest_no_index() -> crate::manifest::Manifest {
         crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -13060,7 +13060,7 @@ mod tests {
         let store = FileStore::new(repo_root);
 
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -13214,7 +13214,7 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -13415,7 +13415,7 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -13624,7 +13624,7 @@ mod tests {
         relations: &[Relation],
     ) -> crate::store::memory::MemoryStore {
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -14204,7 +14204,7 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -14500,7 +14500,7 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -14902,7 +14902,7 @@ mod tests {
 
         // ── MemoryStore path ───────────────────────────────────────────────
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -16002,7 +16002,7 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -16254,7 +16254,7 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -16390,7 +16390,7 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -16636,7 +16636,7 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,

@@ -33,10 +33,14 @@ const TEST_COMPOSITION_ID: &str = "3a000099-0000-4000-a000-000000000099";
 
 /// RFC-043: this build reads dataModelRevision 8; the `srs` corpus is migrated by the phase-2
 /// corpus-migration PR (srs#852). Until then a spec checkout is skipped, not failed.
-fn spec_is_revision_8(spec: PathBuf) -> Option<PathBuf> {
+fn spec_is_current_revision(spec: PathBuf) -> Option<PathBuf> {
     let raw = std::fs::read_to_string(spec.join("srs/manifest.json")).ok()?;
     let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
-    (v.get("dataModelRevision").and_then(|r| r.as_u64()) >= Some(8)).then_some(spec)
+    // RFC-052: this build reads dataModelRevision 10; skip until the srs corpus-migration
+    // PR (srs#948) lands it.
+    (v.get("dataModelRevision").and_then(|r| r.as_u64())
+        >= Some(srs_repository::field_type_migration_service::RFC052_ROOT_CONTAINER_REVISION))
+    .then_some(spec)
 }
 
 /// The spec repo checkout, or `None` when it is not available. Mirrors
@@ -47,7 +51,7 @@ fn spec_repo() -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("SRS_SPEC_DIR") {
         let p = PathBuf::from(dir);
         if p.join("srs/manifest.json").is_file() {
-            return spec_is_revision_8(p);
+            return spec_is_current_revision(p);
         }
         return None; // an explicit but unusable SRS_SPEC_DIR: skip, don't silently fall through
     }
@@ -77,7 +81,7 @@ fn spec_repo() -> Option<PathBuf> {
             }
         }
     }
-    spec_is_revision_8(sibling)
+    spec_is_current_revision(sibling)
 }
 
 /// Copy the spec repo's `srs/` SRS repository into a scratch temp dir, then

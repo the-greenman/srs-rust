@@ -1,12 +1,9 @@
 {
-  "title": "Repeatable Fields Fixture",
-  "container": {
-    "containerId": "00000000-0000-4000-8000-000000000990",
-    "title": "Repeatable Fields Fixture"
-  },
   "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
   "createdAt": "2026-01-01T00:00:00Z",
-  "dataModelRevision": 2,
+  "dataModelRevision": 10,
   "repositoryId": "00000000-0000-4000-8000-000000000990",
-  "srsVersion": "2.0"
+  "srsVersion": "2.0",
+  "title": "Repeatable Fields Fixture",
+  "rootContainerId": "00000000-0000-4000-8000-000000000990"
 }

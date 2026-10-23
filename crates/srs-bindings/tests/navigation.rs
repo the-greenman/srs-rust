@@ -8,6 +8,16 @@
 
 use srs_repository::repository_navigation_service::repository_navigation;
 
+/// `.srsj` fixtures here are written with the pre-RFC-052 embedded root; open them in the
+/// revision-10 form (root in the container set, named by `rootContainerId`).
+fn open_srsj(
+    text: &str,
+) -> Result<srs_repository::store::FileStore, srs_repository::error::RepositoryError> {
+    let mut doc: serde_json::Value = serde_json::from_str(text).expect("fixture is JSON");
+    srs_repository::rfc052_root_container_migration_service::rewrite_srsj_fixture(&mut doc);
+    srs_repository::srsj::open_srsj(&doc.to_string())
+}
+
 const IDENTITY_ID: &str = "00000000-0000-4000-8000-00000000a100";
 const ARTICLES_ID: &str = "00000000-0000-4000-8000-00000000a200";
 const DECISIONS_ID: &str = "00000000-0000-4000-8000-00000000a300";
@@ -115,8 +125,7 @@ fn nav_fixture_srsj() -> String {
 /// Happy path: identity, two precedes-ordered sections, sectionContainerId resolved.
 #[test]
 fn repository_navigation_returns_identity_and_sections() {
-    let store =
-        srs_repository::srsj::open_srsj(&nav_fixture_srsj()).expect("fixture srsj must load");
+    let store = open_srsj(&nav_fixture_srsj()).expect("fixture srsj must load");
     let nav = repository_navigation(&store).expect("navigation must succeed");
 
     assert_eq!(nav.root_container_id, ROOT_CONTAINER_ID);
@@ -258,8 +267,7 @@ fn tier0_nav_fixture_srsj(note_title: Option<&str>) -> String {
 #[test]
 fn repository_navigation_tier0_note_identity_returns_diagnostic() {
     let store =
-        srs_repository::srsj::open_srsj(&tier0_nav_fixture_srsj(Some("Example Governance")))
-            .expect("fixture must load");
+        open_srsj(&tier0_nav_fixture_srsj(Some("Example Governance"))).expect("fixture must load");
     let nav = repository_navigation(&store).expect("navigation must return Ok, not Err");
 
     assert_eq!(
@@ -292,8 +300,7 @@ fn repository_navigation_tier0_note_identity_returns_diagnostic() {
 /// Tier-0 note with no title in the index: display label falls back to the instance ID.
 #[test]
 fn repository_navigation_tier0_note_identity_no_title_uses_id_as_label() {
-    let store =
-        srs_repository::srsj::open_srsj(&tier0_nav_fixture_srsj(None)).expect("fixture must load");
+    let store = open_srsj(&tier0_nav_fixture_srsj(None)).expect("fixture must load");
     let nav = repository_navigation(&store).expect("navigation must return Ok, not Err");
 
     assert_eq!(
@@ -409,7 +416,7 @@ fn repository_navigation_root_is_member_of_its_own_sub_container() {
     })
     .to_string();
 
-    let store = srs_repository::srsj::open_srsj(&srsj).expect("fixture srsj must load");
+    let store = open_srsj(&srsj).expect("fixture srsj must load");
     let nav = repository_navigation(&store).expect("navigation must succeed");
 
     assert_eq!(nav.sections.len(), 2);
@@ -433,7 +440,7 @@ fn repository_navigation_root_is_member_of_its_own_sub_container() {
 #[test]
 fn repository_navigation_without_manifest_container_returns_diagnostic() {
     let srsj = include_str!("../../srs-repository/tests/fixtures/gallery.srsj");
-    let store = srs_repository::srsj::open_srsj(srsj).expect("gallery fixture must load");
+    let store = open_srsj(srsj).expect("gallery fixture must load");
     let nav = repository_navigation(&store).expect("navigation must return ok (not error)");
 
     assert_eq!(nav.root_container_id, "");
@@ -442,5 +449,5 @@ fn repository_navigation_without_manifest_container_returns_diagnostic() {
     assert!(nav.identity.is_none());
     assert!(nav.sections.is_empty());
     assert_eq!(nav.diagnostics.len(), 1);
-    assert!(nav.diagnostics[0].contains("manifest.container is absent"));
+    assert!(nav.diagnostics[0].contains("manifest.rootContainerId is absent"));
 }

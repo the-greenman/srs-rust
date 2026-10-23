@@ -33,7 +33,7 @@
 //!   packages not carried, which would otherwise name absent paths).
 
 use crate::archive::{carrying_file, pack_tree, tree_entries};
-use crate::catalog::{self, INSTANCE_ROOT_NAMES, ROOT_CONTAINER_LOCATOR};
+use crate::catalog::{self, INSTANCE_ROOT_NAMES};
 use crate::error::RepositoryError;
 use crate::package_install_service::load_boundary_definitions;
 use crate::package_types::DefinitionKind;
@@ -214,14 +214,10 @@ pub fn export_container_slice(
         let Some(loc) = e.locator.as_deref() else {
             continue;
         };
-        if loc == ROOT_CONTAINER_LOCATOR {
-            let v = manifest.get("container").cloned().unwrap_or(Value::Null);
-            containers.push((e.id.clone(), format!("containers/{}.json", e.id), v));
-        } else {
-            let path = carrying_file(store, loc)?;
-            let v = parse(&tree, &path)?;
-            containers.push((e.id.clone(), path, v));
-        }
+        // RFC-052: the root container is a file in the container set like any other.
+        let path = carrying_file(store, loc)?;
+        let v = parse(&tree, &path)?;
+        containers.push((e.id.clone(), path, v));
     }
     let entries_of = |v: &Value| -> Vec<ContainerEntry> {
         v.get("memberInstanceIds")
@@ -342,16 +338,18 @@ pub fn export_container_slice(
     }
     external.sort_by(|a, b| a.0.cmp(&b.0));
 
-    // --- Declared descendants, written whole (RFC-034 [R9]). The boundary
-    // itself goes inline. -------------------------------------------------
-    for (id, path, v) in &containers {
-        if *id == input.container_id || !closure.contains(id) {
+    // --- The boundary and its declared descendants, written whole (RFC-034
+    // [R9]). The boundary is the slice's root container (RFC-052: stored in the
+    // container set and named by `rootContainerId`); it is rewritten only when
+    // entries naming no instance were dropped above. -------------------------
+    for (id, path, _) in &containers {
+        if !closure.contains(id) {
             continue;
         }
-        let bytes = match tree.get(path) {
-            Some(b) => b.clone(),
-            // The source root container is inline in its manifest.
-            None => pretty(v),
+        let bytes = if *id == input.container_id && !dropped.is_empty() {
+            pretty(&boundary)
+        } else {
+            tree[path].clone()
         };
         out.insert(path.clone(), bytes);
     }
@@ -423,12 +421,9 @@ pub fn export_container_slice(
 
     // --- Manifest (Change A/B, C step 1). ---------------------------------
     manifest["repositoryId"] = json!(slice_repository_id);
-    // The manifest embed is a bare Container (no `$schema`, which a container
-    // file may carry).
-    if let Some(o) = boundary.as_object_mut() {
-        o.remove("$schema");
-    }
-    manifest["container"] = boundary;
+    // RFC-052 [R2]: the slice's manifest names its root (the closure root) by
+    // `rootContainerId`.
+    manifest["rootContainerId"] = json!(input.container_id);
     let exts = manifest
         .as_object_mut()
         .expect("manifest is an object")

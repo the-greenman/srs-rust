@@ -102,12 +102,17 @@ fn fixture_catalog_reproduces_identity_sets_ignoring_manifest() {
         .iter()
         .all(|e| e.kind == CatalogKind::Relation && e.tier.is_none()));
 
-    // Containers: twelve files plus the inline root container ([R1]).
+    // Containers: thirteen files, the root container included (RFC-052: it is
+    // stored in the container set at containers/<containerId>.json).
     assert_eq!(cat.containers.len(), 13);
-    assert!(cat
-        .containers
-        .iter()
-        .any(|e| e.locator.as_deref() == Some("manifest.json#/container")));
+    let root_id = store
+        .load_manifest()
+        .unwrap()
+        .root_container_id()
+        .unwrap()
+        .to_string();
+    assert!(cat.containers.iter().any(|e| e.id == root_id
+        && e.locator.as_deref() == Some(format!("containers/{root_id}.json").as_str())));
 
     assert_eq!(cat.source_documents.len(), 5);
 

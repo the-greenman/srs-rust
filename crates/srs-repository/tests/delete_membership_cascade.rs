@@ -6,8 +6,8 @@
 //! `SRS038-R13-DANGLING-REFERENCE`, which RFC-038 [R24] makes fatal.
 //!
 //! RFC-038 Change F classifies removing a deleted member from a container as an
-//! *explicit container-membership operation*, so it may write `manifest.json`
-//! where [R22] forbids routine writes from doing so.
+//! *explicit container-membership operation*; since RFC-052 it writes the root
+//! container's file, never `manifest.json` ([R4]).
 //!
 //! The reproduction runs against both `MemoryStore` and `FileStore`: they share
 //! the service path but enumerate instances differently, and CLAUDE.md requires a
@@ -127,7 +127,7 @@ fn populate(store: &dyn RepositoryStore) {
         RECORD_ID.to_string(),
     ]));
     let mut manifest = store.load_manifest().unwrap();
-    manifest.set_root_container(Some(root));
+    srs_repository::container_service::set_root_container(store, &mut manifest, &root).unwrap();
     store.save_manifest(&manifest).unwrap();
 
     let mut section = container(SECTION_CONTAINER_ID, "Section");
@@ -167,12 +167,12 @@ fn run_cascade_suite(store: &dyn RepositoryStore) {
     services::delete_note(store, NOTE_ID).unwrap();
     assert_loads_clean(store, "after deleting a container member (note)");
 
-    let root = store
-        .load_manifest()
-        .unwrap()
-        .root_container()
-        .cloned()
-        .unwrap();
+    let root = srs_repository::container_service::resolve_root_container(
+        store,
+        &store.load_manifest().unwrap(),
+    )
+    .unwrap()
+    .unwrap();
     assert_eq!(
         root.member_ids(),
         vec![KEEPER_ID.to_string()],
@@ -261,8 +261,8 @@ fn file_store_rejects_a_cascade_that_would_remove_a_pointer_entry() {
 
 /// The ordering claim, made testable: the cascade runs *before* the instance is
 /// removed, so an interruption can never produce the unloadable repository #834
-/// is about. `FailPoint::SaveManifest` fires on the inline root container's write
-/// — the first thing the cascade does here.
+/// is about. `FailPoint::SaveInstanceJsonAt` fires on the root container's write
+/// (its file in the container set, RFC-052) — the first thing the cascade does here.
 ///
 /// Cascade-first (this code): the delete aborts with the record still on disk and
 /// the repository loads. Cascade-last (the regression this guards): the record is
@@ -273,7 +273,21 @@ fn a_failed_membership_write_never_leaves_the_repository_unloadable() {
     populate(&store);
     assert_loads_clean(&store, "before the delete");
 
-    store.arm_fail_at(FailPoint::SaveManifest);
+    let root_id = store
+        .load_manifest()
+        .unwrap()
+        .root_container_id()
+        .unwrap()
+        .to_string();
+    let root_path = store
+        .catalog()
+        .unwrap()
+        .containers
+        .iter()
+        .find(|e| e.id == root_id)
+        .and_then(|e| e.locator.clone())
+        .unwrap();
+    store.arm_fail_at(FailPoint::SaveInstanceJsonAt(root_path));
     let err = record_store::delete_record(&store, RECORD_ID, true)
         .expect_err("the injected manifest-write fault must surface, not be swallowed");
     assert!(
@@ -309,12 +323,12 @@ fn deleting_a_container_identity_record_is_rejected_and_changes_nothing() {
 
     assert_loads_clean(&store, "after a rejected identity delete");
     assert!(store.find_instance(&identity).unwrap().is_some());
-    let root = store
-        .load_manifest()
-        .unwrap()
-        .root_container()
-        .cloned()
-        .unwrap();
+    let root = srs_repository::container_service::resolve_root_container(
+        &store,
+        &store.load_manifest().unwrap(),
+    )
+    .unwrap()
+    .unwrap();
     assert_eq!(
         root.identity_instance_id.as_deref(),
         Some(identity.as_str())
@@ -346,4 +360,22 @@ fn file_store_delete_cascades_container_membership() {
     let store = FileStore::new(tmp.path());
     create_repository(&store, &init_input()).unwrap();
     run_cascade_suite(&store);
+}
+
+/// RFC-052 [R4]: a record delete's cascade removes the record's entry from the root
+/// container by writing the root container's file; `manifest.json` is not modified.
+#[test]
+fn file_store_delete_cascade_never_writes_the_manifest() {
+    let tmp = TempDir::new().unwrap();
+    let store = FileStore::new(tmp.path());
+    create_repository(&store, &init_input()).unwrap();
+    populate(&store);
+    let manifest = std::fs::read(tmp.path().join("manifest.json")).unwrap();
+    record_store::delete_record(&store, RECORD_ID, true).unwrap();
+    assert_loads_clean(&store, "after the delete");
+    assert_eq!(
+        std::fs::read(tmp.path().join("manifest.json")).unwrap(),
+        manifest,
+        "a record delete's cascade must not modify manifest.json (RFC-052 [R4])"
+    );
 }

@@ -81,8 +81,8 @@ pub struct CreateGovernanceRepositoryResult {
 /// - `governance/decision_log` container + root record
 /// - untyped root container linking identity and decision-log root
 ///
-/// The store's `manifest.container` navigation pointer is set to the root container
-/// via `set_manifest_root_container`.
+/// The store's `manifest.rootContainerId` navigation pointer is set to the root container
+/// via `set_manifest_root_container` (RFC-052).
 ///
 /// Finally, the installed document views are re-bound to the containers created above
 /// (srs#163): the canonical package ships gallery-example container UUIDs, which are

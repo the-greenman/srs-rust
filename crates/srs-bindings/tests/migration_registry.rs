@@ -6,6 +6,16 @@
 
 use srs_repository::migration_registry_service::{self, MigrationStatus};
 
+/// `.srsj` fixtures here are written with the pre-RFC-052 embedded root; open them in the
+/// revision-10 form (root in the container set, named by `rootContainerId`).
+fn open_srsj(
+    text: &str,
+) -> Result<srs_repository::store::FileStore, srs_repository::error::RepositoryError> {
+    let mut doc: serde_json::Value = serde_json::from_str(text).expect("fixture is JSON");
+    srs_repository::rfc052_root_container_migration_service::rewrite_srsj_fixture(&mut doc);
+    srs_repository::srsj::open_srsj(&doc.to_string())
+}
+
 // A deliberately PRE-migration document: unstamped manifest still carrying
 // `instanceIndex`. Read through the [R21] migrator exemption, as the WASM
 // upgrade flow does (`SrsRepository::load_for_migration`).
@@ -44,14 +54,14 @@ fn minimal_srsj() -> String {
 
 #[test]
 fn available_migrations_lists_the_registered_migrations_with_status() {
-    let store = srs_repository::srsj::open_srsj(&minimal_srsj())
+    let store = open_srsj(&minimal_srsj())
         .expect("fixture must load")
         .with_rfc038_exemption();
 
     let migrations =
         migration_registry_service::list_migrations(&store).expect("list_migrations must succeed");
 
-    assert_eq!(migrations.len(), 15, "expected exactly fifteen migrations");
+    assert_eq!(migrations.len(), 16, "expected exactly sixteen migrations");
     assert_eq!(migrations[0].id, "graduated-at-cleanup");
     assert_eq!(migrations[1].id, "revisions-sidecar-cleanup");
     assert_eq!(migrations[2].id, "field-type");
@@ -63,16 +73,17 @@ fn available_migrations_lists_the_registered_migrations_with_status() {
     assert_eq!(migrations[8].id, "discovery-query-cutover");
     assert_eq!(migrations[9].id, "rfc043-container-entries");
     assert_eq!(migrations[10].id, "rfc046-actor-provenance");
-    assert_eq!(migrations[11].id, "migrate-identity");
-    assert_eq!(migrations[12].id, "repo-upgrade");
-    assert_eq!(migrations[13].id, "core-relation-type-reference-cleanup");
-    assert_eq!(migrations[14].id, "rfc038-storage");
+    assert_eq!(migrations[11].id, "rfc052-root-container");
+    assert_eq!(migrations[12].id, "migrate-identity");
+    assert_eq!(migrations[13].id, "repo-upgrade");
+    assert_eq!(migrations[14].id, "core-relation-type-reference-cleanup");
+    assert_eq!(migrations[15].id, "rfc038-storage");
 
     // No legacy graduatedAt Notes → graduated-at-cleanup AlreadyApplied; no
     // .revisions.json sidecars → revisions-sidecar-cleanup AlreadyApplied;
     // unstamped manifest → field-type, rfc039-carrier, metamodel-v1-1-0,
     // tier1-removal, substrate-properties-to-meta, composition-cutover, and
-    // discovery-query-cutover are all Needed; no container → migrate-identity
+    // discovery-query-cutover (and rfc043, rfc046, rfc052) are all Needed; no container → migrate-identity
     // is NotApplicable; no instances → repo-upgrade is AlreadyApplied; the
     // manifest still carries `instanceIndex` → rfc038-storage is Needed
     // (truthful status; its apply refuses until srs-rust#828); the fixture
@@ -88,10 +99,11 @@ fn available_migrations_lists_the_registered_migrations_with_status() {
     assert_eq!(migrations[8].status, MigrationStatus::Needed);
     assert_eq!(migrations[9].status, MigrationStatus::Needed);
     assert_eq!(migrations[10].status, MigrationStatus::Needed);
-    assert_eq!(migrations[11].status, MigrationStatus::NotApplicable);
-    assert_eq!(migrations[12].status, MigrationStatus::AlreadyApplied);
+    assert_eq!(migrations[11].status, MigrationStatus::Needed);
+    assert_eq!(migrations[12].status, MigrationStatus::NotApplicable);
     assert_eq!(migrations[13].status, MigrationStatus::AlreadyApplied);
-    assert_eq!(migrations[14].status, MigrationStatus::Needed);
+    assert_eq!(migrations[14].status, MigrationStatus::AlreadyApplied);
+    assert_eq!(migrations[15].status, MigrationStatus::Needed);
 
     // Result serialises in camelCase for to_js.
     let json = serde_json::to_value(&migrations[0]).expect("must serialise");
@@ -103,7 +115,7 @@ fn available_migrations_lists_the_registered_migrations_with_status() {
 
 #[test]
 fn apply_migration_repo_upgrade_on_canonical_repo() {
-    let store = srs_repository::srsj::open_srsj(&minimal_srsj())
+    let store = open_srsj(&minimal_srsj())
         .expect("fixture must load")
         .with_rfc038_exemption();
 
@@ -119,7 +131,7 @@ fn apply_migration_repo_upgrade_on_canonical_repo() {
 
 #[test]
 fn apply_migration_unknown_id_returns_error() {
-    let store = srs_repository::srsj::open_srsj(&minimal_srsj())
+    let store = open_srsj(&minimal_srsj())
         .expect("fixture must load")
         .with_rfc038_exemption();
 
@@ -181,7 +193,7 @@ fn apply_migration_via_registry_migrate_identity() {
     })
     .to_string();
 
-    let store = srs_repository::srsj::open_srsj(&srsj).expect("fixture must load");
+    let store = open_srsj(&srsj).expect("fixture must load");
 
     // Before apply: migrate-identity should be Needed.
     let before = migration_registry_service::list_migrations(&store).unwrap();

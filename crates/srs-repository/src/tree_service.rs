@@ -504,7 +504,7 @@ mod tests {
 
     fn make_store(fields: Vec<Field>, types: Vec<RecordType>) -> MemoryStore {
         let manifest = crate::manifest::Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,

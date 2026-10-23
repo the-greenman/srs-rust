@@ -24,7 +24,7 @@
 
 use crate::error::RepositoryError;
 use crate::store::RepositoryStore;
-use crate::writer::{new_instance_id, write_manifest};
+use crate::writer::new_instance_id;
 use serde::{Deserialize, Deserializer, Serialize};
 use srs_core::arrangement;
 use srs_core::types::container::{Container, ContainerEntry};
@@ -91,22 +91,19 @@ pub fn list_containers(
     store: &dyn RepositoryStore,
     filter: &ContainerListFilter,
 ) -> Result<Vec<ContainerSummary>, RepositoryError> {
+    // RFC-052: the root container is an ordinary member of the container set. It is listed
+    // first, as it was while the manifest embedded it.
     let mut summaries_raw = store.list_container_summaries()?;
-
-    // Include manifest.container embed root if not already in containerIndex (RFC-013).
-    let manifest = store.load_manifest()?;
-    if let Some(embed) = manifest.root_container() {
-        if !summaries_raw
-            .iter()
-            .any(|(id, _)| id == &embed.container_id)
-        {
-            summaries_raw.insert(0, (embed.container_id.clone(), embed.title.clone()));
+    if let Some(root_id) = store.load_manifest()?.root_container_id() {
+        if let Some(i) = summaries_raw.iter().position(|(id, _)| id == root_id) {
+            let root = summaries_raw.remove(i);
+            summaries_raw.insert(0, root);
         }
     }
 
     let mut summaries = Vec::new();
     for (container_id, _title) in summaries_raw {
-        let (container, _) = load_container_with_embed_fallback(store, &container_id)?;
+        let container = store.load_container(&container_id)?;
         if let Some(ref ct) = filter.container_type {
             if container.container_type.as_deref() != Some(ct.as_str()) {
                 continue;
@@ -145,7 +142,7 @@ pub fn membership_index(
 ) -> Result<std::collections::HashMap<String, Vec<String>>, RepositoryError> {
     let mut index: std::collections::HashMap<String, Vec<String>> = Default::default();
     for summary in list_containers(store, &ContainerListFilter::default())? {
-        let (container, _) = load_container_with_embed_fallback(store, &summary.container_id)?;
+        let container = store.load_container(&summary.container_id)?;
         for id in direct_member_ids(&container) {
             index
                 .entry(id)
@@ -243,9 +240,9 @@ pub fn create_container(
     }
 
     // srs-rust#1167: create is a create, not an upsert — an id that already resolves
-    // (file-backed, or the manifest's embedded root with no file yet) is refused.
+    // is refused.
     // Callers that mean "replace" go through `update_container`.
-    match load_container_with_embed_fallback(store, &container.container_id) {
+    match store.load_container(&container.container_id) {
         Ok(_) => {
             return Err(RepositoryError::ContainerAlreadyExists {
                 container_id: container.container_id.clone(),
@@ -287,169 +284,35 @@ pub fn get_container(
     store: &dyn RepositoryStore,
     container_id: &str,
 ) -> Result<Container, RepositoryError> {
-    let (container, _) = load_container_with_embed_fallback(store, container_id)?;
+    let container = store.load_container(container_id)?;
     Ok(container)
 }
 
-/// Resolve the repository's root container declared by `manifest.container`.
-///
-/// The `manifest.container` embed is the **sole authoritative form** of the
-/// root container (RFC-013, RFC-038 [R1]). No write path ever materialises a
-/// `containers/*.json` file sharing the embed's id — `save_container_at`
-/// detects that the id matches `manifest.container` and folds the write back
-/// into the embed instead of creating a file.
-///
-/// A `containers/*.json` file that *does* share the embed's id regardless
-/// (e.g. from a hand-edited or pre-RFC-038 legacy repo) is not a second,
-/// richer source to prefer over the embed: the embed unconditionally
-/// contributes its own entry (locator `manifest.json#/container`) to the
-/// catalog's container set, so a same-id file produces a second entry for
-/// that id and catalog build fails fatally on `SRS038-R12-DUPLICATE-ID`
-/// before any locator can be resolved. Since `store.load_container` below
-/// builds that catalog first, this state surfaces here as a propagated
-/// `CatalogLoad` error, not as a successful `Ok(container)` — the `Ok` arm
-/// of the match is unreachable for the embed's own id under any state that
-/// is not already fatal.
-///
-/// Resolution is therefore effectively single-source:
-/// 1. `store.load_container(embed.container_id)` — `ContainerNotFound`
-///    (the catalog has no *file-backed* entry for that id, the ordinary case)
-///    falls back to the embed itself, step 2 below. Any other error,
-///    including [R12] on the coexistence case above, propagates.
-/// 2. The `manifest.container` embed itself — the ordinary case for an
-///    embed-only root (as written by `repo set-root-container`,
-///    `repo create`, or migrations of pre-RFC-013 repos), which resolves
-///    without any container file existing.
-///
-/// Returns `Ok(None)` when the manifest declares no root container at all.
+/// Resolve the repository's root container: the container
+/// `manifest.rootContainerId` names, read from the container set like any
+/// other (RFC-052 Change A). Returns `Ok(None)` when the manifest names no root
+/// container (a rootless legacy corpus below revision 10; at revision 10 the
+/// load gate refuses that manifest, [R1]).
 pub fn resolve_root_container(
     store: &dyn RepositoryStore,
     manifest: &crate::manifest::Manifest,
 ) -> Result<Option<Container>, RepositoryError> {
-    let Some(embed) = manifest.root_container() else {
-        return Ok(None);
-    };
-    match store.load_container(&embed.container_id) {
-        Ok(container) => Ok(Some(container)),
-        Err(RepositoryError::ContainerNotFound { .. }) => Ok(Some(embed.clone())),
-        Err(e) => Err(e),
-    }
+    manifest
+        .root_container_id()
+        .map(|id| store.load_container(id))
+        .transpose()
 }
 
-fn load_container_with_embed_fallback(
+/// Make `container` the repository's root container (RFC-052): write it to the container
+/// set (at `containers/<containerId>.json` when it has no file yet) and point
+/// `manifest.rootContainerId` at it. Updates `manifest` in place; the caller saves it.
+pub fn set_root_container(
     store: &dyn RepositoryStore,
-    container_id: &str,
-) -> Result<(Container, bool), RepositoryError> {
-    match store.load_container(container_id) {
-        Ok(c) => Ok((c, false)),
-        Err(RepositoryError::ContainerNotFound { .. }) => {
-            let manifest = store.load_manifest()?;
-            match resolve_root_container(store, &manifest)? {
-                Some(c) if c.container_id == container_id => Ok((c, true)),
-                _ => Err(RepositoryError::ContainerNotFound {
-                    container_id: container_id.to_string(),
-                }),
-            }
-        }
-        Err(e) => Err(e),
-    }
-}
-
-/// [`load_container_with_embed_fallback`] for a **repair** operation (ADR-045).
-///
-/// Two deliberate differences, both required for the caller to be able to act on
-/// a repository whose catalog build is fatal under [R24]:
-/// - the file-backed lookup goes through `load_container_unchecked`;
-/// - the embed fallback reads `manifest.container` directly rather than calling
-///   `resolve_root_container`, which routes through the **checked**
-///   `store.load_container` and so would re-raise the very error being repaired.
-pub(crate) fn load_container_for_repair(
-    store: &dyn RepositoryStore,
-    container_id: &str,
-) -> Result<(Container, bool), RepositoryError> {
-    match store.load_container_unchecked(container_id) {
-        Ok(c) => Ok((c, false)),
-        Err(RepositoryError::ContainerNotFound { .. }) => {
-            match store.load_manifest()?.root_container().cloned() {
-                Some(c) if c.container_id == container_id => Ok((c, true)),
-                _ => Err(RepositoryError::ContainerNotFound {
-                    container_id: container_id.to_string(),
-                }),
-            }
-        }
-        Err(e) => Err(e),
-    }
-}
-
-/// [`save_container_syncing_embed`] for a **repair** operation (ADR-045) — the
-/// write half of [`load_container_for_repair`]. Mirrors the
-/// `sync_file_backed_root = false` behaviour of its checked counterpart.
-fn save_container_for_repair(
-    store: &dyn RepositoryStore,
+    manifest: &mut crate::manifest::Manifest,
     container: &Container,
-    is_embed_only: bool,
 ) -> Result<(), RepositoryError> {
-    if is_embed_only {
-        let mut manifest = store.load_manifest()?;
-        if manifest.root_container_id() == Some(container.container_id.as_str()) {
-            manifest.set_root_container(Some(container.clone()));
-            write_manifest(store, &manifest)?;
-        }
-        return Ok(());
-    }
-    store.save_container_unchecked(container)
-}
-
-/// Save a container, syncing `manifest.container` when appropriate.
-///
-/// `sync_file_backed_root`: when true and the container is a file-backed root, do a
-/// dual write (file + manifest) under the batch seam (ADR-041 G6). When false, only
-/// the file is written — callers that manage manifest.container themselves (e.g.
-/// `migrate_identity`) pass false to avoid overwriting their own manifest writes.
-fn save_container_syncing_embed(
-    store: &dyn RepositoryStore,
-    container: &Container,
-    is_embed_only: bool,
-    sync_file_backed_root: bool,
-) -> Result<(), RepositoryError> {
-    if is_embed_only {
-        // Caller guarantees is_embed_only=true only when container_id matches manifest.container
-        // (load_container_with_embed_fallback enforces this). If the ID somehow doesn't match,
-        // assert loudly rather than silently returning Ok without writing.
-        let mut manifest = store.load_manifest()?;
-        debug_assert_eq!(
-            manifest.root_container_id(),
-            Some(container.container_id.as_str()),
-            "save_container_syncing_embed: is_embed_only=true but container_id does not match manifest.container"
-        );
-        if manifest.root_container_id() == Some(container.container_id.as_str()) {
-            manifest.set_root_container(Some(container.clone()));
-            write_manifest(store, &manifest)?;
-        }
-        return Ok(());
-    }
-    if sync_file_backed_root {
-        let mut manifest = store.load_manifest()?;
-        let is_root = manifest.root_container_id() == Some(container.container_id.as_str());
-        if is_root {
-            manifest.set_root_container(Some(container.clone()));
-            store.begin_batch();
-            if let Err(e) = store.save_container(container) {
-                let _ = store.abort_batch();
-                return Err(e);
-            }
-            if let Err(e) = write_manifest(store, &manifest) {
-                let _ = store.abort_batch();
-                return Err(e);
-            }
-            if let Err(e) = store.commit_batch() {
-                let _ = store.abort_batch();
-                return Err(e);
-            }
-            return Ok(());
-        }
-    }
-    store.save_container(container)?;
+    crate::store::save_root_container(store, container)?;
+    manifest.set_root_container_id(Some(container.container_id.clone()));
     Ok(())
 }
 
@@ -494,7 +357,7 @@ pub fn update_container(
     container_id: &str,
     patch: ContainerPatch,
 ) -> Result<ContainerUpdateResult, RepositoryError> {
-    let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
+    let mut container = store.load_container(container_id)?;
     let before_members = container.member_ids();
     let before_children = container.child_container_ids.clone().unwrap_or_default();
     if let Some(v) = patch.title {
@@ -566,7 +429,7 @@ pub fn update_container(
         container.child_container_ids.as_deref().unwrap_or(&[]),
     )?;
 
-    save_container_syncing_embed(store, &container, is_embed_only, true)?;
+    store.save_container(&container)?;
     Ok(ContainerUpdateResult {
         container,
         diagnostics,
@@ -577,12 +440,11 @@ pub fn delete_container(
     store: &dyn RepositoryStore,
     container_id: &str,
 ) -> Result<String, RepositoryError> {
-    // Owner ruling srs-rust#742: the RFC-013 root container is a protected identity
-    // object. Generic `container delete` must never make a repository rootless as a
-    // side effect — `repo unset-root-container` is the only path that removes it.
+    // RFC-052 [R6]: the container `manifest.rootContainerId` names is the repository's
+    // identity object (owner ruling srs-rust#742); deleting it is refused, changing nothing.
     let manifest = store.load_manifest()?;
     if manifest.root_container_id() == Some(container_id) {
-        return Err(RepositoryError::ContainerIsRepositoryRoot {
+        return Err(RepositoryError::ContainerRootDelete {
             container_id: container_id.to_string(),
         });
     }
@@ -653,15 +515,16 @@ pub fn container_delete_plan(
         .iter()
         .cloned()
         .partition(|id| existing.contains(id) || is_root_container(store, id));
+    // RFC-052 [R6]: the root container is never deleted.
     if let Some(root) = ours.iter().find(|id| is_root_container(store, id)) {
-        return Err(RepositoryError::ContainerIsRepositoryRoot {
+        return Err(RepositoryError::ContainerRootDelete {
             container_id: root.clone(),
         });
     }
 
     let mut members: Vec<String> = Vec::new();
     for id in &ours {
-        let (container, _) = load_container_with_embed_fallback(store, id)?;
+        let container = store.load_container(id)?;
         for m in direct_member_ids(&container) {
             if !members.contains(&m) {
                 members.push(m);
@@ -861,7 +724,7 @@ fn effective_member_ids_into(
         }
     }
     for child_id in container.child_container_ids.iter().flatten() {
-        let (child, _) = load_container_with_embed_fallback(store, child_id)?;
+        let child = store.load_container(child_id)?;
         effective_member_ids_into(store, &child, combined, seen, visited_containers)?;
     }
     Ok(())
@@ -903,7 +766,7 @@ fn require_valid_child_containers(
         if !visited.insert(id.clone()) {
             continue;
         }
-        let (child, _) = load_container_with_embed_fallback(store, &id).map_err(|e| match e {
+        let child = store.load_container(&id).map_err(|e| match e {
             RepositoryError::ContainerNotFound { container_id } => RepositoryError::InvalidInput {
                 message: format!(
                     "childContainerIds: '{container_id}' does not resolve to an existing Container"
@@ -943,7 +806,7 @@ pub fn container_closure(
         if out.contains(&id) {
             continue;
         }
-        let (c, _) = load_container_with_embed_fallback(store, &id)?;
+        let c = store.load_container(&id)?;
         stack.extend(c.child_container_ids.into_iter().flatten());
         out.push(id);
     }
@@ -1089,8 +952,7 @@ pub(crate) fn is_root_container(store: &dyn RepositoryStore, container_id: &str)
     store
         .load_manifest()
         .ok()
-        .and_then(|m| m.root_container().cloned())
-        .is_some_and(|c| c.container_id == container_id)
+        .is_some_and(|m| m.root_container_id() == Some(container_id))
 }
 
 fn pointer_error(container: &Container, instance_id: &str, what: &str) -> RepositoryError {
@@ -1143,7 +1005,7 @@ pub fn add_member(
     depth: Option<u32>,
 ) -> Result<ArrangementResult, RepositoryError> {
     require_resolvable_instances(store, [instance_id])?;
-    let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
+    let mut container = store.load_container(container_id)?;
     let entries = container.member_instance_ids.clone().unwrap_or_default();
     if entries.iter().any(|e| e.instance_id == instance_id) {
         if position.is_some() || depth.is_some() {
@@ -1167,7 +1029,7 @@ pub fn add_member(
     )
     .map_err(arrangement_error)?;
     store_entries(&mut container, out.clone());
-    save_container_syncing_embed(store, &container, is_embed_only, false)?;
+    store.save_container(&container)?;
     Ok(ArrangementResult {
         members: out,
         ..Default::default()
@@ -1183,7 +1045,7 @@ pub fn remove_member(
     container_id: &str,
     instance_id: &str,
 ) -> Result<ArrangementResult, RepositoryError> {
-    let (mut container, is_embed_only) = load_container_for_repair(store, container_id)?;
+    let mut container = store.load_container_unchecked(container_id)?;
     require_not_pointer(&container, instance_id)?;
     let entries = container.member_instance_ids.clone().unwrap_or_default();
     let Some((out, promoted)) = arrangement::remove_promoting(&entries, instance_id) else {
@@ -1193,7 +1055,7 @@ pub fn remove_member(
         });
     };
     store_entries(&mut container, out.clone());
-    save_container_for_repair(store, &container, is_embed_only)?;
+    store.save_container_unchecked(&container)?;
     Ok(ArrangementResult {
         members: out,
         promoted,
@@ -1235,12 +1097,12 @@ fn rearrange(
     container_id: &str,
     op: impl FnOnce(&[ContainerEntry], Option<&str>) -> Result<Vec<ContainerEntry>, RepositoryError>,
 ) -> Result<ArrangementResult, RepositoryError> {
-    let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
+    let mut container = store.load_container(container_id)?;
     let entries = container.member_instance_ids.clone().unwrap_or_default();
     let identity = root_identity(store, container_id, &container);
     let out = op(&entries, identity)?;
     store_entries(&mut container, out.clone());
-    save_container_syncing_embed(store, &container, is_embed_only, false)?;
+    store.save_container(&container)?;
     Ok(ArrangementResult {
         members: out,
         ..Default::default()
@@ -1296,7 +1158,7 @@ pub fn replace_members(
 ) -> Result<ArrangementResult, RepositoryError> {
     let new_ids: Vec<&str> = swaps.iter().map(|(_, n)| n.as_str()).collect();
     require_resolvable_instances(store, new_ids.iter().copied())?;
-    let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
+    let mut container = store.load_container(container_id)?;
     let mut entries = container.member_instance_ids.clone().unwrap_or_default();
     for (old, new) in swaps {
         require_not_pointer(&container, old)?;
@@ -1314,7 +1176,7 @@ pub fn replace_members(
         e.instance_id = new.clone();
     }
     store_entries(&mut container, entries.clone());
-    save_container_syncing_embed(store, &container, is_embed_only, false)?;
+    store.save_container(&container)?;
     Ok(ArrangementResult {
         members: entries,
         ..Default::default()
@@ -1367,7 +1229,7 @@ pub fn copy_container(
     copy.created_at = Some(now.clone());
     copy.updated_at = Some(now);
     // Fail early on an existing id, before forking anything.
-    match load_container_with_embed_fallback(store, &copy.container_id) {
+    match store.load_container(&copy.container_id) {
         Ok(_) => {
             return Err(RepositoryError::ContainerAlreadyExists {
                 container_id: copy.container_id,
@@ -1451,7 +1313,7 @@ pub fn repair_members(
     store: &dyn RepositoryStore,
     container_id: &str,
 ) -> Result<ArrangementResult, RepositoryError> {
-    let (mut container, is_embed_only) = load_container_for_repair(store, container_id)?;
+    let mut container = store.load_container_unchecked(container_id)?;
     let known: HashSet<String> = store
         .catalog_unchecked()?
         .instances
@@ -1467,7 +1329,7 @@ pub fn repair_members(
         });
     }
     store_entries(&mut container, out.clone());
-    save_container_for_repair(store, &container, is_embed_only)?;
+    store.save_container_unchecked(&container)?;
     Ok(ArrangementResult {
         members: out,
         promoted,
@@ -1490,19 +1352,13 @@ pub fn list_roots(
 /// reference — `SRS038-R13-DANGLING-REFERENCE`, which [R24] makes fatal, i.e. a
 /// successful delete would render the repository unloadable.
 ///
-/// [R22] forbids a routine delete from writing `manifest.json`, from writing
-/// `manifest.container`, and from writing "any object other than its own target"
-/// — but all three prohibitions are conditioned on the same qualifier: "A
-/// routine instance create, update, or delete **that is not an explicit
-/// container-membership operation**…". Change F classifies exactly this case out
-/// of that qualifier: "Deleting a root-container member is therefore **not** a
-/// routine unscoped operation: it is an explicit container-membership operation,
-/// and it writes the manifest." So none of the three apply here, which is what
-/// permits both the inline-root manifest write and the file-backed container
-/// writes below.
+/// RFC-052 [R4] (amending RFC-038 [R22]): a routine instance delete must not modify
+/// `manifest.json`, and a record delete's cascade must remove that record's entries from the
+/// root container as from any other. Since the root is stored in the container set, every
+/// write here is a container file; the manifest is never written.
 ///
-/// `containers_for_instance` matches `memberInstanceIds` across file-backed containers and
-/// the inline root alike — exactly the set the catalog draws its container references from.
+/// `containers_for_instance` matches `memberInstanceIds` across every container, the root
+/// included — exactly the set the catalog draws its container references from.
 ///
 /// Revision 8 (RFC-043 [R7]): each container drops the entry by the promoting removal
 /// (descendants move up one level). An entry named by `identityInstanceId` or
@@ -1520,20 +1376,19 @@ pub(crate) fn remove_instance_from_all_containers(
     // `anchorInstanceId` is rejected whole, before any container is written.
     let mut loaded = Vec::new();
     for summary in containers_for_instance(store, instance_id)? {
-        let (container, is_embed_only) =
-            load_container_with_embed_fallback(store, &summary.container_id)?;
+        let container = store.load_container(&summary.container_id)?;
         if container.has_member(instance_id) {
             require_not_pointer(&container, instance_id)?;
-            loaded.push((container, is_embed_only));
+            loaded.push(container);
         }
     }
-    for (mut container, is_embed_only) in loaded {
+    for mut container in loaded {
         let entries = container.member_instance_ids.clone().unwrap_or_default();
         let Some((out, _)) = arrangement::remove_promoting(&entries, instance_id) else {
             continue;
         };
         store_entries(&mut container, out);
-        save_container_syncing_embed(store, &container, is_embed_only, false)?;
+        store.save_container(&container)?;
     }
     Ok(())
 }
@@ -1566,13 +1421,6 @@ pub fn validate_container_invariants(
         .find(|e| e.id == container_id)
         .and_then(|e| e.locator.as_deref())
     {
-        Some(crate::catalog::ROOT_CONTAINER_LOCATOR) => store
-            .load_manifest()?
-            .root_container()
-            .cloned()
-            .ok_or_else(|| RepositoryError::ContainerNotFound {
-                container_id: container_id.to_string(),
-            })?,
         Some(path) => {
             serde_json::from_value(store.load_instance_json(path)?).map_err(|source| {
                 RepositoryError::ManifestParse {
@@ -1749,8 +1597,13 @@ mod tests {
         let root_id = "650e8400-e29b-41d4-a716-446655440000";
         let store = make_store();
         let mut manifest = store.load_manifest().unwrap();
-        manifest.set_root_container(Some(minimal_container(root_id, "")));
-        write_manifest(&store, &manifest).unwrap();
+        crate::container_service::set_root_container(
+            &store,
+            &mut manifest,
+            &minimal_container(root_id, ""),
+        )
+        .unwrap();
+        crate::writer::write_manifest(&store, &manifest).unwrap();
 
         let err = create_container(&store, minimal_container(root_id, "Root")).unwrap_err();
         assert!(
@@ -2018,7 +1871,7 @@ mod tests {
         let store = embed_only_store(embed_id, "Root");
         let err = container_delete_plan(&store, &[embed_id.to_string()]).unwrap_err();
         assert!(
-            matches!(err, RepositoryError::ContainerIsRepositoryRoot { .. }),
+            matches!(err, RepositoryError::ContainerRootDelete { .. }),
             "{err:?}"
         );
     }
@@ -2051,9 +1904,9 @@ mod tests {
         assert!(
             matches!(
                 err,
-                RepositoryError::ContainerIsRepositoryRoot { ref container_id } if container_id == embed_id
+                RepositoryError::ContainerRootDelete { ref container_id } if container_id == embed_id
             ),
-            "expected ContainerIsRepositoryRoot, got {err:?}"
+            "expected ContainerRootDelete, got {err:?}"
         );
         // The refusal must not have deleted anything.
         assert_eq!(
@@ -2077,17 +1930,18 @@ mod tests {
         )
         .unwrap();
         let mut manifest = store.load_manifest().unwrap();
-        manifest.set_root_container(Some(created.clone()));
+        crate::container_service::set_root_container(&store, &mut manifest, &created.clone())
+            .unwrap();
         store.save_manifest(&manifest).unwrap();
 
         let err = delete_container(&store, &created.container_id).unwrap_err();
         assert!(
             matches!(
                 err,
-                RepositoryError::ContainerIsRepositoryRoot { ref container_id }
+                RepositoryError::ContainerRootDelete { ref container_id }
                     if container_id == &created.container_id
             ),
-            "expected ContainerIsRepositoryRoot, got {err:?}"
+            "expected ContainerRootDelete, got {err:?}"
         );
         // Still resolvable via the unchecked (repair) seam — the refusal did
         // not delete the file-backed container.
@@ -3052,7 +2906,7 @@ mod tests {
         let mut root = minimal_container(id, "Root");
         root.member_instance_ids = Some(srs_core::types::container::entries([UNRESOLVABLE]));
         let mut manifest = store.load_manifest().unwrap();
-        manifest.set_root_container(Some(root));
+        crate::container_service::set_root_container(&store, &mut manifest, &root).unwrap();
         store.save_manifest(&manifest).unwrap();
         assert!(store.catalog().is_err(), "repository should be bricked");
 
@@ -3061,13 +2915,14 @@ mod tests {
         store
             .catalog()
             .expect("repository loads again after repair");
-        assert!(store
-            .load_manifest()
-            .unwrap()
-            .root_container()
-            .unwrap()
-            .member_instance_ids
-            .is_none());
+        assert!(crate::container_service::resolve_root_container(
+            &store,
+            &store.load_manifest().unwrap()
+        )
+        .unwrap()
+        .unwrap()
+        .member_instance_ids
+        .is_none());
     }
 
     #[test]
@@ -3093,7 +2948,12 @@ mod tests {
         // Embed-only root ([R1]): a containers/*.json file sharing the embed's
         // id is a fatal SRS038-R12-DUPLICATE-ID under the catalog.
         let mut manifest = store.load_manifest().unwrap();
-        manifest.set_root_container(Some(minimal_container(container_id, "Root")));
+        crate::container_service::set_root_container(
+            &store,
+            &mut manifest,
+            &minimal_container(container_id, "Root"),
+        )
+        .unwrap();
         store.save_manifest(&manifest).unwrap();
 
         let patch = ContainerPatch {
@@ -3110,9 +2970,8 @@ mod tests {
 
         let manifest = store.load_manifest().unwrap();
         assert_eq!(
-            manifest
-                .root_container()
-                .cloned()
+            crate::container_service::resolve_root_container(&store, &manifest)
+                .unwrap()
                 .unwrap()
                 .identity_instance_id,
             Some("11111111-1111-4111-8111-111111111111".to_string())
@@ -3129,7 +2988,12 @@ mod tests {
 
         // Set manifest.container to root_id with no identity pointer
         let mut manifest = store.load_manifest().unwrap();
-        manifest.set_root_container(Some(minimal_container(root_id, "Root")));
+        crate::container_service::set_root_container(
+            &store,
+            &mut manifest,
+            &minimal_container(root_id, "Root"),
+        )
+        .unwrap();
         store.save_manifest(&manifest).unwrap();
 
         // Patch OTHER container's identity_instance_id — manifest should not change
@@ -3141,9 +3005,8 @@ mod tests {
 
         let manifest = store.load_manifest().unwrap();
         assert_eq!(
-            manifest
-                .root_container()
-                .cloned()
+            crate::container_service::resolve_root_container(&store, &manifest)
+                .unwrap()
                 .unwrap()
                 .identity_instance_id,
             None
@@ -3177,7 +3040,7 @@ mod tests {
         );
 
         // The rejected patch must not have been written.
-        let (container, _) = load_container_with_embed_fallback(&store, container_id).unwrap();
+        let container = store.load_container(container_id).unwrap();
         assert_eq!(container.identity_instance_id, None);
     }
 
@@ -3440,7 +3303,12 @@ mod tests {
         // Embed-only root ([R1]): a containers/*.json file sharing the embed's
         // id is a fatal SRS038-R12-DUPLICATE-ID under the catalog.
         let mut manifest = store.load_manifest().unwrap();
-        manifest.set_root_container(Some(minimal_container(container_id, "Root")));
+        crate::container_service::set_root_container(
+            &store,
+            &mut manifest,
+            &minimal_container(container_id, "Root"),
+        )
+        .unwrap();
         store.save_manifest(&manifest).unwrap();
 
         let patch = ContainerPatch {
@@ -3470,9 +3338,8 @@ mod tests {
         );
         let manifest = store.load_manifest().unwrap();
         assert_eq!(
-            manifest
-                .root_container()
-                .cloned()
+            crate::container_service::resolve_root_container(&store, &manifest)
+                .unwrap()
                 .unwrap()
                 .identity_instance_id,
             Some("11111111-1111-4111-8111-111111111111".to_string())
@@ -3505,7 +3372,12 @@ mod tests {
         let store = MemoryStore::default();
         seed_instance(&store, "11111111-1111-4111-8111-111111111111");
         let mut manifest = store.load_manifest().unwrap();
-        manifest.set_root_container(Some(minimal_container(embed_id, title)));
+        crate::container_service::set_root_container(
+            &store,
+            &mut manifest,
+            &minimal_container(embed_id, title),
+        )
+        .unwrap();
         store.save_manifest(&manifest).unwrap();
         store
     }
@@ -3590,7 +3462,11 @@ mod tests {
         let manifest_json = format!(
             r#"{{"srsVersion":"2.0-draft","repositoryId":"test","dataModelRevision":2,"container":{{"containerId":"{embed_id}","title":"Root"}}}}"#
         );
-        std::fs::write(temp.path().join("manifest.json"), &manifest_json).unwrap();
+        crate::rfc052_root_container_migration_service::write_fixture_manifest(
+            temp.path(),
+            &serde_json::from_str(&manifest_json).unwrap(),
+        )
+        .unwrap();
         let store = crate::FileStore::new(temp.path());
         let c = get_container(&store, embed_id).unwrap();
         assert_eq!(c.container_id, embed_id);
@@ -3606,7 +3482,9 @@ mod tests {
         let member = "11111111-1111-4111-8111-111111111111";
         add_member(&store, embed_id, member, None, None).unwrap();
         let manifest = store.load_manifest().unwrap();
-        let embed = manifest.root_container().cloned().unwrap();
+        let embed = crate::container_service::resolve_root_container(&store, &manifest)
+            .unwrap()
+            .unwrap();
         assert!(embed
             .member_instance_ids
             .as_ref()
@@ -3621,7 +3499,9 @@ mod tests {
         add_member(&store, embed_id, member, None, None).unwrap();
         remove_member(&store, embed_id, member).unwrap();
         let manifest = store.load_manifest().unwrap();
-        let embed = manifest.root_container().cloned().unwrap();
+        let embed = crate::container_service::resolve_root_container(&store, &manifest)
+            .unwrap()
+            .unwrap();
         assert!(embed
             .member_instance_ids
             .as_ref()
@@ -3657,12 +3537,12 @@ mod tests {
             None,
         )
         .unwrap();
-        let embed = store
-            .load_manifest()
-            .unwrap()
-            .root_container()
-            .cloned()
-            .unwrap();
+        let embed = crate::container_service::resolve_root_container(
+            &store,
+            &store.load_manifest().unwrap(),
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(
             embed.member_ids(),
             vec![
@@ -3684,7 +3564,10 @@ mod tests {
         assert_eq!(updated.title, "Updated Root");
         let manifest = store.load_manifest().unwrap();
         assert_eq!(
-            manifest.root_container().cloned().unwrap().title,
+            crate::container_service::resolve_root_container(&store, &manifest)
+                .unwrap()
+                .unwrap()
+                .title,
             "Updated Root"
         );
     }
@@ -3703,7 +3586,12 @@ mod tests {
         // id is a fatal SRS038-R12-DUPLICATE-ID under the catalog.
         let store = MemoryStore::default();
         let mut manifest = store.load_manifest().unwrap();
-        manifest.set_root_container(Some(minimal_container(embed_id, "Root")));
+        crate::container_service::set_root_container(
+            &store,
+            &mut manifest,
+            &minimal_container(embed_id, "Root"),
+        )
+        .unwrap();
         store.save_manifest(&manifest).unwrap();
         let patch = ContainerPatch {
             title: Some("New Title".to_string()),
@@ -3712,7 +3600,9 @@ mod tests {
         };
         update_container(&store, embed_id, patch).unwrap();
         let manifest = store.load_manifest().unwrap();
-        let embed = manifest.root_container().cloned().unwrap();
+        let embed = crate::container_service::resolve_root_container(&store, &manifest)
+            .unwrap()
+            .unwrap();
         assert_eq!(embed.title, "New Title");
         assert_eq!(embed.description.as_deref(), Some("A description"));
     }

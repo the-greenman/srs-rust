@@ -775,8 +775,7 @@ fn instance_id_referenced(store: &dyn RepositoryStore, cat: &RepositoryCatalog, 
         }
     }
     for entry in &cat.containers {
-        let Ok((container, _)) = container_service::load_container_for_repair(store, &entry.id)
-        else {
+        let Ok(container) = store.load_container_unchecked(&entry.id) else {
             continue;
         };
         if container.has_member(id) || container.identity_instance_id.as_deref() == Some(id) {

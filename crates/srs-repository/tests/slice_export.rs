@@ -223,8 +223,9 @@ fn container_slice_carries_the_closure_and_validates() {
     // `sub`, whose entries are all included.
     assert!(!f.contains_key("containers/sub.json"));
     assert!(!f.contains_key("containers/empty.json"));
-    // The boundary is inline in the manifest, not a file.
-    assert!(!f.contains_key("containers/decisions-55555555.json"));
+    // RFC-052: the boundary is the slice's root container, carried as its file and named
+    // by the manifest's `rootContainerId`.
+    assert!(f.contains_key("containers/decisions-55555555.json"));
     // Step 5: cited sidecar and its content only.
     assert!(f.contains_key("source-documents/cited.md.meta.json"));
     assert!(f.contains_key("source-documents/cited.md"));
@@ -238,7 +239,8 @@ fn manifest_is_rewritten_per_rfc026() {
     let e = export(rich(), DECISIONS).unwrap();
     let m = get(&files(&e), "manifest.json");
     assert_eq!(m["repositoryId"], SLICE_ID);
-    assert_eq!(m["container"]["containerId"], DECISIONS);
+    assert_eq!(m["rootContainerId"], DECISIONS);
+    assert!(m.get("container").is_none(), "RFC-052: no embedded root");
     assert_eq!(m["namespace"], "com.example.treefix", "source keys kept");
     assert!(m["declaredExtensions"]
         .as_array()
@@ -288,9 +290,9 @@ fn nested_outline_is_kept_as_is() {
         c["memberInstanceIds"] = json!([{"instanceId": D1}, {"instanceId": D2, "depth": 1}]);
     });
     let e = export(t, DECISIONS).unwrap();
-    let m = get(&files(&e), "manifest.json");
+    let m = get(&files(&e), "containers/decisions-55555555.json");
     assert_eq!(
-        m["container"]["memberInstanceIds"],
+        m["memberInstanceIds"],
         json!([{"instanceId": D1}, {"instanceId": D2, "depth": 1}])
     );
     assert_eq!(errors(&e), Vec::<String>::new());
@@ -430,7 +432,7 @@ fn declared_descendants_are_carried_with_their_entries() {
     );
     assert!(f.contains_key("containers/sub.json"));
     assert_eq!(
-        get(&f, "manifest.json")["container"]["childContainerIds"],
+        get(&f, "containers/decisions-55555555.json")["childContainerIds"],
         json!([EMPTY])
     );
     assert_eq!(errors(&e), Vec::<String>::new());

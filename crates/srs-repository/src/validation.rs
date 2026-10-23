@@ -211,8 +211,8 @@ fn data_model_revision_diagnostics(manifest_value: &Value) -> Vec<ValidationDiag
     }]
 }
 
-/// Best-effort load of a Container from a `cat.containers` catalog entry — the root
-/// embed via `manifest.container`, or a file-backed container at its locator path.
+/// Best-effort load of a Container from a `cat.containers` catalog entry at its locator
+/// path (the root included, RFC-052).
 /// Silent-skip (`None`) on any load/parse failure: both callers (the I-145 and
 /// I-63/I-64 diagnostic loops below) are advisory scans over every container, not a
 /// place that should abort `repo validate` over one malformed entry — the catalog's
@@ -223,10 +223,6 @@ fn load_container_for_diagnostics(
     centry: &crate::catalog::CatalogEntry,
 ) -> Option<srs_core::types::container::Container> {
     match centry.locator.as_deref() {
-        Some(crate::catalog::ROOT_CONTAINER_LOCATOR) => store
-            .load_manifest()
-            .ok()
-            .and_then(|m| m.root_container().cloned()),
         Some(path) => store
             .load_instance_json(path)
             .ok()
@@ -373,23 +369,22 @@ pub fn validate_repository(
         DiagnosticSeverity::Warning
     };
     // --- RFC-013 root container invariants (I-79, I-80, I-81, I-82) ---
-    // When manifest.container is absent the schema validator above already fires a
+    // When manifest.rootContainerId is absent the schema validator above already fires a
     // "missing required field" error; I-79 below is the invariant-level companion.
-    match manifest.root_container() {
+    match manifest.root_container_id() {
         None => {
             diagnostics.push(ValidationDiagnostic {
                 severity: DiagnosticSeverity::Error,
                 relative_path: "manifest.json".to_string(),
                 schema_id: None,
                 message:
-                    "RFC-013 I-79: manifest.container is absent; every SRS repository must declare a root container"
+                    "RFC-013 I-79: manifest.rootContainerId is absent; every SRS repository must declare a root container (RFC-052 [R1])"
                         .to_string(),
             });
         }
-        Some(root) => {
-            // Same resolution as the navigation service: prefer the materialised
-            // container, fall back to the manifest.container embed (embed-only roots
-            // are valid — the embed is the canonical repository-identity source).
+        Some(root_id) => {
+            // Same resolution as the navigation service: the container
+            // `rootContainerId` names, from the container set (RFC-052).
             let full_container_opt: Option<srs_core::types::container::Container> =
                 match crate::container_service::resolve_root_container(store, &manifest) {
                     Ok(c) => c,
@@ -400,7 +395,7 @@ pub fn validate_repository(
                             schema_id: None,
                             message: format!(
                                 "root container '{}' could not be loaded: {}",
-                                root.container_id, e
+                                root_id, e
                             ),
                         });
                         None
@@ -415,7 +410,7 @@ pub fn validate_repository(
                         severity: DiagnosticSeverity::Error,
                         relative_path: "manifest.json".to_string(),
                         schema_id: None,
-                        message: format!("root container '{}': {}", root.container_id, e),
+                        message: format!("root container '{}': {}", root_id, e),
                     });
                 }
 
@@ -444,9 +439,7 @@ pub fn validate_repository(
                     let file_backed_container_ids: Vec<&str> = cat
                         .containers
                         .iter()
-                        .filter(|e| {
-                            e.locator.as_deref() != Some(crate::catalog::ROOT_CONTAINER_LOCATOR)
-                        })
+                        .filter(|e| e.id != root_id)
                         .map(|e| e.id.as_str())
                         .collect();
                     if !file_backed_container_ids.is_empty() {
@@ -461,7 +454,8 @@ pub fn validate_repository(
                                     section_container_roots.extend(c.anchor_instance_id);
                                 }
                             }
-                            let identity_id = root.identity_instance_id.as_deref().unwrap_or("");
+                            let identity_id =
+                                full_container.identity_instance_id.as_deref().unwrap_or("");
                             for member_id in &union_members {
                                 if member_id == identity_id {
                                     continue;
@@ -489,7 +483,10 @@ pub fn validate_repository(
             // - Tier-2 wrong-type: Warning (migration-period grace; migration tooling tracks #426)
             // - Other tiers: Warning (unexpected, should not occur in valid SRS repos)
             // Runs independently of full_container availability — only needs the catalog.
-            if let Some(ref identity_id) = root.identity_instance_id {
+            if let Some(identity_id) = full_container_opt
+                .as_ref()
+                .and_then(|c| c.identity_instance_id.clone())
+            {
                 if let Some(cat_entry) = cat.instances.iter().find(|e| e.id == *identity_id) {
                     if cat_entry.tier == Some(0) {
                         diagnostics.push(ValidationDiagnostic {
@@ -2386,12 +2383,13 @@ fn slice_block_diagnostics(manifest: &Value, slice: &Value) -> Vec<ValidationDia
         ));
     }
     let spec_id = s(slice, "/spec/id");
-    let root_id = s(manifest, "/container/containerId");
+    // RFC-052 [R2]: the slice's root is the container `rootContainerId` names.
+    let root_id = s(manifest, "/rootContainerId");
     if spec_id != root_id {
         out.push(at(
             DiagnosticSeverity::Error,
             format!(
-                "RFC-026 [R12]: slice.spec.id '{}' must equal manifest.container.containerId '{}'",
+                "RFC-026 [R12]: slice.spec.id '{}' must equal manifest.rootContainerId '{}'",
                 spec_id.unwrap_or_default(),
                 root_id.unwrap_or_default()
             ),
@@ -2611,6 +2609,17 @@ mod tests {
     }
 
     fn write_json(dir: &Path, rel: &str, value: &Value) {
+        // RFC-052: a manifest fixture written with the embedded root lands in the
+        // revision-10 form (root in the container set, named by rootContainerId).
+        if rel == "manifest.json" {
+            let mut manifest = value.clone();
+            if let Some((path, root)) =
+                crate::rfc052_root_container_migration_service::rewrite_embedded_root(&mut manifest)
+            {
+                write_json(dir, &path, &root);
+                return write_json(dir, rel, &manifest);
+            }
+        }
         // RFC-038: the catalog schema-validates every definition candidate under
         // a package root — a definition fixture without its `$schema` (or a Field
         // without description/aiGuidance) is a fatal SRS038-R8-SHAPE-NO-MATCH.
@@ -6583,14 +6592,21 @@ mod tests {
         );
     }
 
-    fn manifest_store(manifest_json: serde_json::Value) -> MemoryStore {
+    /// A MemoryStore whose manifest is `manifest_json`. An inline `container` (the
+    /// pre-RFC-052 fixture shape) is moved to the container set and named by
+    /// `rootContainerId`, as the `rfc052-root-container` migration does.
+    /// A MemoryStore whose manifest is `manifest_json`, with an embedded root (the
+    /// pre-RFC-052 fixture shape) rewritten as the `rfc052-root-container` migration does.
+    fn manifest_store(mut manifest_json: serde_json::Value) -> MemoryStore {
+        let root = crate::rfc052_root_container_migration_service::rewrite_embedded_root(
+            &mut manifest_json,
+        );
         let raw = serde_json::to_string(&manifest_json).unwrap();
         let store = MemoryStore::empty().with_data("manifest.json", serde_json::Value::String(raw));
-        if let Ok(typed) =
-            serde_json::from_value::<crate::manifest::Manifest>(manifest_json.clone())
-        {
+        if let Some((_, c)) = root {
+            let c: srs_core::types::container::Container = serde_json::from_value(c).unwrap();
             let mut m = store.load_manifest().unwrap();
-            m.set_root_container(typed.root_container().cloned());
+            crate::container_service::set_root_container(&store, &mut m, &c).unwrap();
             store.save_manifest(&m).unwrap();
         }
         store
@@ -7949,11 +7965,17 @@ mod tests {
         write_json(temp.path(), "manifest.json", &manifest_val);
         let file_store = crate::store::FileStore::new(temp.path());
 
-        // FileStore via from_srsj: snapshot doesn't preserve manifest.container so we use from_srsj.
+        // FileStore via from_srsj: the same manifest, root in the container set (RFC-052).
+        let mut srsj_manifest = manifest_val.clone();
+        let (root_path, root) =
+            crate::rfc052_root_container_migration_service::rewrite_embedded_root(
+                &mut srsj_manifest,
+            )
+            .unwrap();
         let srsj = json!({
             "srsj": "2",
-            "manifest": manifest_val,
-            "data": {}
+            "manifest": srsj_manifest,
+            "data": { root_path: root }
         });
         let json_store = crate::srsj::open_srsj(&srsj.to_string()).unwrap();
 
@@ -10052,6 +10074,12 @@ mod tests {
             "sourceDocumentsPath": "source-documents",
             "createdAt": "2026-01-01T00:00:00Z"
         });
+        let mut manifest_json = manifest_json;
+        let (root_path, root) =
+            crate::rfc052_root_container_migration_service::rewrite_embedded_root(
+                &mut manifest_json,
+            )
+            .unwrap();
         let manifest_str = serde_json::to_string(&manifest_json).unwrap();
         let manifest: Manifest = serde_json::from_value(manifest_json).unwrap();
 
@@ -10083,7 +10111,8 @@ mod tests {
 
         let store = MemoryStore::new(manifest, package)
             .with_data("manifest.json", serde_json::Value::String(manifest_str))
-            .with_data("records/policy.json", policy_record_json);
+            .with_data("records/policy.json", policy_record_json)
+            .with_data(&root_path, root);
 
         // Binary content files and text sidecar files
         for (i, (rel_path, bytes, mime_type)) in content_files.iter().enumerate() {

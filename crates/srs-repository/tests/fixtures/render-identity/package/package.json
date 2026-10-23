@@ -7,7 +7,7 @@
   "description": "Local fixture for [N+37] identity heading fallback and [view-required] diagnostics.",
   "status": "active",
   "version": "1.0.0",
-  "dataModelRevision": 2,
+  "dataModelRevision": 10,
   "createdAt": "2026-01-01T00:00:00Z",
   "fields": [
     "fields/heading.json",

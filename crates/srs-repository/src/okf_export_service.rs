@@ -766,7 +766,7 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let manifest = Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
@@ -914,7 +914,7 @@ mod tests {
         };
 
         let manifest = Manifest {
-            container: None,
+            root_container_id: None,
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,

@@ -121,9 +121,9 @@ fn read_bundle_refuses_readme_until_1164() {
 
 #[test]
 fn read_bundle_refuses_newer_revision() {
-    let (code, msg) = refused(&bundle(10));
+    let (code, msg) = refused(&bundle(11));
     assert_eq!(code, "bundle-revision-too-new");
-    assert!(msg.contains("10") && msg.contains('9'), "{msg}");
+    assert!(msg.contains("11") && msg.contains("10"), "{msg}");
 }
 
 #[test]

@@ -572,16 +572,17 @@ mod tests {
         );
 
         // Write manifest.json.
-        write_json(
-            "manifest.json",
-            json!({"$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+        crate::rfc052_root_container_migration_service::write_fixture_manifest(
+            repo_root,
+            &json!({"$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
                 "srsVersion": "2.0",
                 "dataModelRevision": 2,
                 "repositoryId": "00000000-0000-4000-8000-000000000099",
                 "title": "Roundtrip Test",
                 "container": {"containerId": "00000000-0000-4000-8000-000000000099", "title": "Roundtrip Test"},
                 "createdAt": "2026-01-01T00:00:00Z"}),
-        );
+        )
+        .unwrap();
 
         let store = FileStore::new(repo_root);
         let result = read_attachment_policy(&store).expect("should not error");

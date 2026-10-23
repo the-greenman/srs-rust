@@ -2,7 +2,7 @@ use crate::core_purpose;
 use crate::error::RepositoryError;
 use crate::record_store::{delete_record, write_new_record};
 use crate::store::{RecordTier, RepositoryStore};
-use crate::writer::{new_instance_id, write_manifest};
+use crate::writer::new_instance_id;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -106,13 +106,12 @@ pub fn create_repository(
     Ok(result)
 }
 
-/// Writes the root purpose record and sets it as the inline root container's identity.
+/// Writes the root purpose record and sets it as the root container's identity.
 ///
-/// Two-write operation: `save_manifest` (step 1) then `save_container` (step 2).
-/// If step 2 fails: the record is removed via `delete_record`, then `manifest.container` is
-/// cleared so the repo is left in a clean pre-scaffold state. Both cleanup steps are
-/// best-effort (errors are swallowed). Not crash-safe — a process kill between writes
-/// bypasses this handler. See ADR-024.
+/// Writes the root container's file (RFC-052) and then, when the manifest names no root
+/// yet, `manifest.rootContainerId`. If either write fails the record is removed via
+/// `delete_record` (best-effort, errors swallowed). Not crash-safe — a process kill between
+/// writes bypasses this handler. See ADR-024.
 fn scaffold_purpose_record(
     store: &dyn RepositoryStore,
     repository_id: &str,
@@ -133,32 +132,14 @@ fn scaffold_purpose_record(
     record.created_by = created_by;
     write_new_record(store, &record, store.record_tier_dir(RecordTier::Tier2))?;
 
-    // Membership comes from the tree ([R1]); only `manifest.container` is a
-    // sanctioned manifest write here — an explicit container-membership
-    // operation ([R22]'s exception), not an instance-index write.
+    // Membership comes from the tree ([R1]); the root container is an
+    // ordinary member of the container set (RFC-052), written at its file and
+    // then named by `manifest.rootContainerId` when the manifest names none.
     let mut manifest = store.load_manifest()?;
-    if manifest.root_container().is_none() {
-        manifest.set_root_container(Some(Container {
-            container_id: repository_id.to_string(),
-            title: container_title.to_string(),
-            namespace: None,
-            name: None,
-            description: None,
-            container_type: None,
-            identity_instance_id: None,
-            anchor_instance_id: None,
-            member_instance_ids: None,
-            child_container_ids: None,
-            tags: None,
-            created_at: None,
-            updated_at: None,
-            meta: None,
-            extra: std::collections::BTreeMap::new(),
-        }));
-    }
-    let container = manifest
-        .root_container_mut()
-        .expect("root container always set above");
+    let mut container = match crate::container_service::resolve_root_container(store, &manifest)? {
+        Some(c) => c,
+        None => default_repository_container(repository_id, container_title),
+    };
     container.identity_instance_id = Some(instance_id.clone());
     container
         .member_instance_ids
@@ -167,19 +148,18 @@ fn scaffold_purpose_record(
             instance_id.clone(),
         ));
 
-    store.save_manifest(&manifest)?;
-    let container = manifest
-        .root_container()
-        .expect("root container always set above");
-    if let Err(e) = store.save_container(container) {
+    let written = crate::store::save_root_container(store, &container).and_then(|()| {
+        if manifest.root_container_id() == Some(container.container_id.as_str()) {
+            return Ok(());
+        }
+        manifest.set_root_container_id(Some(container.container_id.clone()));
+        store.save_manifest(&manifest)
+    });
+    if let Err(e) = written {
         // Best-effort rollback of the record this same call just wrote —
         // the srs-rust#1025 inbound-relations gate is for a caller's
         // intentional delete, not our own half-finished scaffold.
         let _ = delete_record(store, &instance_id, true);
-        if let Ok(mut m) = store.load_manifest() {
-            m.set_root_container(None);
-            let _ = write_manifest(store, &m);
-        }
         return Err(e);
     }
 
@@ -508,8 +488,13 @@ mod tests {
         let m = store.load_manifest().unwrap();
         assert_eq!(m.extra["srsVersion"], "2.0-draft");
         assert_eq!(m.extra["title"], "com.t.blank");
-        assert_eq!(m.extra["dataModelRevision"], 9);
-        let c = m.root_container().cloned().unwrap();
+        assert_eq!(
+            m.extra["dataModelRevision"],
+            crate::field_type_migration_service::CURRENT_DATA_MODEL_REVISION
+        );
+        let c = crate::container_service::resolve_root_container(&store, &m)
+            .unwrap()
+            .unwrap();
         assert_eq!(c.identity_instance_id, result.identity_instance_id);
         assert!(
             c.anchor_instance_id.is_none(),
@@ -981,11 +966,11 @@ mod tests {
         let id = result.identity_instance_id.unwrap();
 
         let manifest = store.load_manifest().unwrap();
-        let container_id = manifest
-            .root_container()
-            .and_then(|c| c.identity_instance_id.as_deref());
+        let container_id = crate::container_service::resolve_root_container(&store, &manifest)
+            .unwrap()
+            .and_then(|c| c.identity_instance_id);
         assert_eq!(
-            container_id,
+            container_id.as_deref(),
             Some(id.as_str()),
             "container.identityInstanceId must match the purpose record"
         );
@@ -998,9 +983,9 @@ mod tests {
         let id = result.identity_instance_id.unwrap();
 
         let manifest = store.load_manifest().unwrap();
-        let members = manifest
-            .root_container()
-            .and_then(|c| c.member_instance_ids.as_ref())
+        let members = crate::container_service::resolve_root_container(&store, &manifest)
+            .unwrap()
+            .and_then(|c| c.member_instance_ids)
             .expect("member_instance_ids must be set");
         assert!(
             members.iter().any(|e| e.instance_id == id),
@@ -1131,7 +1116,9 @@ mod tests {
         assert!(result.identity_instance_id.is_some());
 
         let manifest = store.load_manifest().unwrap();
-        let container = manifest.root_container().expect("container must be set");
+        let container = crate::container_service::resolve_root_container(&store, &manifest)
+            .unwrap()
+            .expect("container must be set");
         assert_eq!(
             container.title, "com.semanticops.test",
             "container title must fall back to namespace when no title given"
@@ -1198,11 +1185,11 @@ mod tests {
         assert_eq!(record.instance_id, id);
         assert_eq!(record.type_id, core_purpose::PURPOSE_TYPE_ID);
 
-        let container_id = manifest
-            .root_container()
-            .and_then(|c| c.identity_instance_id.as_deref());
+        let container_id = crate::container_service::resolve_root_container(&store, &manifest)
+            .unwrap()
+            .and_then(|c| c.identity_instance_id);
         assert_eq!(
-            container_id,
+            container_id.as_deref(),
             Some(id.as_str()),
             "container.identityInstanceId must survive file roundtrip"
         );
