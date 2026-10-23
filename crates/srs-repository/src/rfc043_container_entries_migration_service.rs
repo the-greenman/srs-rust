@@ -796,7 +796,7 @@ fn write_manifest_raw(
 /// registry entry, applied to the bundle's text before any store is built. Bundle forms stay out
 /// of the registry (ADR-032's scope rule, the `migrate_rfc014` precedent). Idempotent.
 pub fn migrate_srsj_str(content: &str) -> Result<(String, Rfc043Result), RepositoryError> {
-    let store = crate::srsj::open_srsj(content)?.with_rfc038_exemption();
+    let store = crate::srsj::open_srsj_for_migration(content)?;
     let result = migrate_rfc043_container_entries(&store)?;
     Ok((crate::srsj::to_srsj_string(&store)?, result))
 }

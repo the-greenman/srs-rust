@@ -96,11 +96,11 @@ fn raw_manifest(store: &dyn RepositoryStore) -> Result<Value, RepositoryError> {
     })
 }
 
-/// `Needed` while the stamp is below 10 or the manifest still embeds the root.
+/// `Needed` while the stamp is below 10. A revision-10 corpus is `alreadyApplied` even when
+/// it carries a stray inline `container` ([R7]): that is the load gate's fatal
+/// `manifest-root-container-inline` ([R1]), never a reason to re-point the root.
 pub fn migration_needed(store: &dyn RepositoryStore) -> bool {
-    raw_manifest(store).is_ok_and(|m| {
-        revision(&m) < RFC052_ROOT_CONTAINER_REVISION || m.get("container").is_some()
-    })
+    raw_manifest(store).is_ok_and(|m| revision(&m) < RFC052_ROOT_CONTAINER_REVISION)
 }
 
 /// The planned rewrite of one manifest: the new manifest, and the root container file to
@@ -142,17 +142,31 @@ fn plan(manifest_raw: &Value, containers: &[(String, Value)]) -> Result<Plan, Re
                     )
                 })?
                 .to_string();
+            // Never re-point a root the manifest already names (a stray embed beside it).
+            if let Some(named) = obj.get("rootContainerId").and_then(Value::as_str) {
+                return Err(refuse(
+                    "manifest-root-container-inline",
+                    format!(
+                        "manifest.json names its root container ({named}) and also embeds a \
+                         container ({id}); remove the stray inline `container` (RFC-052 [R1])"
+                    ),
+                ));
+            }
             let path = crate::store::root_container_path(&id);
-            if containers.iter().any(|(p, _)| *p == path) {
+            // An earlier run that stopped after writing the root left this exact file: resume.
+            let resumed = containers
+                .iter()
+                .any(|(p, c)| *p == path && *c == container);
+            if !resumed && containers.iter().any(|(p, _)| *p == path) {
                 return Err(refuse(
                     "migration-root-path-exists",
                     format!("{path} already exists"),
                 ));
             }
-            if let Some((p, _)) = containers
-                .iter()
-                .find(|(_, c)| c.get("containerId").and_then(Value::as_str) == Some(&id))
-            {
+            if let Some((p, _)) = containers.iter().find(|(p, c)| {
+                c.get("containerId").and_then(Value::as_str) == Some(&id)
+                    && !(resumed && *p == path)
+            }) {
                 return Err(refuse(
                     "migration-root-duplicate",
                     format!("{p} already declares the root container's id {id} (RFC-052 [R5])"),
@@ -194,6 +208,12 @@ fn plan(manifest_raw: &Value, containers: &[(String, Value)]) -> Result<Plan, Re
 /// it by `rootContainerId`; a revision-9 stamp becomes 10. For code that builds a pre-RFC-052
 /// manifest in memory (test fixtures, tooling); a repository on disk goes through the
 /// registry entry. Returns `None` when there is no embedded root with a `containerId`.
+///
+/// Below revision 9 the stamp is kept: the result ("revision N < 9 + `rootContainerId`") is
+/// the shape a legacy snapshot import already writes, which the shape-based load gate reads
+/// like revision 10 and the registry migration only re-stamps. Fixtures that use it test the
+/// loader's other paths, not the revision gate; the refusal tests build their manifests
+/// directly. Restamping them to 10 would claim migrations their content never went through.
 pub fn rewrite_embedded_root(manifest: &mut Value) -> Option<(String, Value)> {
     let obj = manifest.as_object_mut()?;
     let id = obj
@@ -432,7 +452,9 @@ pub fn migrate_rfc052_root_container(
         to_revision: RFC052_ROOT_CONTAINER_REVISION,
         ..Default::default()
     };
-    if from_revision >= RFC052_ROOT_CONTAINER_REVISION && manifest_raw.get("container").is_none() {
+    // [R7]: alreadyApplied on a revision-10 corpus, whatever else it carries. A stray inline
+    // `container` there stays for the load gate to report (manifest-root-container-inline).
+    if from_revision >= RFC052_ROOT_CONTAINER_REVISION {
         result.already_applied = true;
         result.root_container_id = manifest_raw
             .get("rootContainerId")
@@ -447,6 +469,7 @@ pub fn migrate_rfc052_root_container(
 
     // ---- Gate, on in-memory trees (decided before the first write).
     let before_files = crate::archive::tree_entries(store)?;
+    let before_files_copy = before_files.clone();
     let mut after_files = before_files.clone();
     result.packages_stamped = apply_to_tree(&mut after_files, &plan)?;
     gate(
@@ -457,20 +480,41 @@ pub fn migrate_rfc052_root_container(
         &mut result,
     )?;
 
-    // ---- Apply: the root file first, then the manifest that names it.
+    // ---- Apply: the root file, the package stamps, and the manifest that names the root
+    // last. No store rolls writes back, so a failed write undoes the earlier ones here: the
+    // corpus is left as it was (a root file a stopped earlier run left is removed too).
+    let mut writes: Vec<String> = Vec::new();
     if let Some((path, _)) = &plan.root {
-        store.ensure_instance_dir("containers")?;
-        write_bytes(store, path, &after_files[path])?;
+        writes.push(path.clone());
     }
     for root in package_roots(&plan.manifest) {
         let path = format!("{root}/package.json");
-        if let Some(bytes) = after_files.get(&path) {
-            if before_has_stamp(store, &path) {
-                write_bytes(store, &path, bytes)?;
-            }
+        if after_files.contains_key(&path) && before_has_stamp(store, &path) {
+            writes.push(path);
         }
     }
-    write_manifest_raw(store, &plan.manifest, &after_files["manifest.json"])?;
+    let mut done: Vec<&str> = Vec::new();
+    let applied = (|| -> Result<(), RepositoryError> {
+        if plan.root.is_some() {
+            store.ensure_instance_dir("containers")?;
+        }
+        for path in &writes {
+            write_bytes(store, path, &after_files[path])?;
+            done.push(path);
+        }
+        write_manifest_raw(store, &plan.manifest, &after_files["manifest.json"])
+    })();
+    if let Err(e) = applied {
+        let root_path = plan.root.as_ref().map(|(p, _)| p.as_str());
+        for path in done.into_iter().rev() {
+            let _ = if Some(path) == root_path {
+                store.delete_instance_file(path)
+            } else {
+                write_bytes(store, path, &before_files_copy[path])
+            };
+        }
+        return Err(e);
+    }
     Ok(result)
 }
 
@@ -516,17 +560,13 @@ fn write_manifest_raw(
     store.save_manifest(&typed)
 }
 
-/// `true` when `manifest` (a raw `.srsj`/`.srs` tree manifest) is at revision 9 and still
-/// embeds its root: the one shape the pre-load transformer rewrites.
-fn tree_needs_transform(manifest: &Value) -> bool {
-    revision(manifest) == RFC046_ACTOR_PROVENANCE_REVISION && manifest.get("container").is_some()
-}
-
-/// Pre-load transformer for a `.srsj` / `.srs` tree (RFC-052 Change C): a revision-9 tree
-/// that embeds its root is rewritten in memory to the registry entry's outcome, with the same
-/// refusals, before any store is built — so a published seed (immutable, never rewritten on
-/// disk) opens in a revision-10 build. Any other tree is left as it is. Returns whether the
-/// tree was rewritten.
+/// Pre-load transformer for a `.srsj` / `.srs` tree (RFC-052 Change C): a tree below
+/// revision 10 that embeds its root is brought to revision 10 in memory, through the same
+/// registry entries a repository on disk takes (every revision step it still needs, then
+/// `rfc052-root-container`, with their refusals and gates), before any store is built — so a
+/// published seed (immutable, never rewritten on disk; the governance seeds are revision 7)
+/// opens in a revision-10 build. Any other tree is left as it is. Returns whether the tree was
+/// rewritten.
 pub fn transform_tree(files: &mut BTreeMap<String, Vec<u8>>) -> Result<bool, RepositoryError> {
     let Some(manifest) = files
         .get("manifest.json")
@@ -534,16 +574,13 @@ pub fn transform_tree(files: &mut BTreeMap<String, Vec<u8>>) -> Result<bool, Rep
     else {
         return Ok(false);
     };
-    if !tree_needs_transform(&manifest) {
+    if revision(&manifest) >= RFC052_ROOT_CONTAINER_REVISION || manifest.get("container").is_none()
+    {
         return Ok(false);
     }
-    let containers: Vec<(String, Value)> = files
-        .iter()
-        .filter(|(p, _)| p.starts_with("containers/") && p.ends_with(".json"))
-        .filter_map(|(p, b)| Some((p.clone(), serde_json::from_slice(b).ok()?)))
-        .collect();
-    let plan = plan(&manifest, &containers)?;
-    apply_to_tree(files, &plan)?;
+    let store = crate::tree_session::open_tree(std::mem::take(files))?.with_rfc038_exemption();
+    crate::migration_registry_service::apply_revision_ladder(&store)?;
+    *files = crate::tree_session::export_tree(&store)?;
     Ok(true)
 }
 
@@ -741,6 +778,98 @@ mod tests {
             m.status,
             crate::migration_registry_service::MigrationStatus::Needed
         );
+    }
+
+    fn snapshot(dir: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+        fn walk(root: &Path, dir: &Path, out: &mut std::collections::BTreeMap<String, Vec<u8>>) {
+            for e in std::fs::read_dir(dir).unwrap() {
+                let p = e.unwrap().path();
+                if p.is_dir() {
+                    walk(root, &p, out);
+                } else {
+                    let rel = p.strip_prefix(root).unwrap().to_string_lossy().to_string();
+                    out.insert(rel, std::fs::read(&p).unwrap());
+                }
+            }
+        }
+        let mut out = std::collections::BTreeMap::new();
+        walk(dir, dir, &mut out);
+        out
+    }
+
+    /// Review B2: a failed manifest write undoes the earlier writes (the corpus is left as it
+    /// was), and the re-run succeeds.
+    #[test]
+    fn a_failed_manifest_write_leaves_the_corpus_untouched_and_the_rerun_succeeds() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        rev9_repo(tmp.path());
+        let manifest = tmp.path().join("manifest.json");
+        let before = snapshot(tmp.path());
+        std::fs::set_permissions(&manifest, std::fs::Permissions::from_mode(0o444)).unwrap();
+        let store = FileStore::new(tmp.path()).with_rfc038_exemption();
+        assert!(migrate_rfc052_root_container(&store).is_err());
+        std::fs::set_permissions(&manifest, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(
+            snapshot(tmp.path()),
+            before,
+            "all-or-nothing: nothing left behind"
+        );
+
+        let r = migrate_rfc052_root_container(&store).unwrap();
+        assert!(!r.already_applied);
+        assert_eq!(read(tmp.path(), "manifest.json")["rootContainerId"], ROOT);
+    }
+
+    /// Review B2: a run that stopped after writing the root file (a crash) resumes.
+    #[test]
+    fn a_root_file_left_by_a_stopped_run_is_resumed() {
+        let tmp = tempfile::tempdir().unwrap();
+        rev9_repo(tmp.path());
+        let embedded = read(tmp.path(), "manifest.json")["container"].clone();
+        w(tmp.path(), &format!("containers/{ROOT}.json"), &embedded);
+        let store = FileStore::new(tmp.path()).with_rfc038_exemption();
+        migrate_rfc052_root_container(&store).unwrap();
+        assert_eq!(read(tmp.path(), "manifest.json")["rootContainerId"], ROOT);
+        assert!(FileStore::new(tmp.path()).catalog().is_ok());
+    }
+
+    /// Review B3: a revision-10 corpus with a stray inline container is alreadyApplied and is
+    /// not touched; the load gate reports it (manifest-root-container-inline).
+    #[test]
+    fn a_stray_embed_on_a_revision_10_corpus_is_never_migrated() {
+        let tmp = tempfile::tempdir().unwrap();
+        rev9_repo(tmp.path());
+        let store = FileStore::new(tmp.path()).with_rfc038_exemption();
+        migrate_rfc052_root_container(&store).unwrap();
+        let mut m = read(tmp.path(), "manifest.json");
+        m["container"] =
+            json!({"containerId": "abababab-0000-4000-8000-000000000001", "title": "stray"});
+        w(tmp.path(), "manifest.json", &m);
+        let before = snapshot(tmp.path());
+        assert!(!migration_needed(&store));
+        let r = migrate_rfc052_root_container(&store).unwrap();
+        assert!(r.already_applied);
+        assert_eq!(r.root_container_id.as_deref(), Some(ROOT));
+        assert_eq!(snapshot(tmp.path()), before, "never re-points the root");
+        let err = FileStore::new(tmp.path()).load_manifest().unwrap_err();
+        assert_eq!(err.code(), "manifest-root-container-inline");
+    }
+
+    /// Review B3: below revision 10, a manifest that names its root and also embeds one is
+    /// refused rather than re-pointed.
+    #[test]
+    fn a_named_root_beside_an_embed_is_refused_below_revision_10() {
+        let tmp = tempfile::tempdir().unwrap();
+        rev9_repo(tmp.path());
+        let mut m = read(tmp.path(), "manifest.json");
+        m["rootContainerId"] = json!(PART);
+        w(tmp.path(), "manifest.json", &m);
+        let before = snapshot(tmp.path());
+        let store = FileStore::new(tmp.path()).with_rfc038_exemption();
+        let err = migrate_rfc052_root_container(&store).unwrap_err();
+        assert_eq!(err.code(), "manifest-root-container-inline", "{err}");
+        assert_eq!(snapshot(tmp.path()), before);
     }
 
     /// [R1]: a `rootContainerId` naming no container in the container set is fatal to

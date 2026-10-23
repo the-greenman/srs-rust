@@ -434,6 +434,7 @@ pub fn set_manifest_root_container(
         (None, Some(p)) if p.container_id != input.container_id => Some(p.container_id.clone()),
         _ => None,
     };
+    let original_target = target.clone();
     let mut container = target.or(previous).unwrap_or_else(|| {
         crate::repository_lifecycle::default_repository_container(&input.container_id, "")
     });
@@ -451,22 +452,21 @@ pub fn set_manifest_root_container(
     }
     let member_instance_ids: Vec<String> = members.iter().map(|m| m.instance_id.clone()).collect();
 
-    store.begin_batch();
-    let written = (|| -> Result<(), RepositoryError> {
-        crate::store::save_root_container(store, &container)?;
-        manifest.set_root_container_id(Some(container.container_id.clone()));
-        write_manifest(store, &manifest)?;
-        if let Some(old) = &renamed_from {
-            store.delete_container(old)?;
-        }
-        Ok(())
-    })();
-    match written {
-        Ok(()) => store.commit_batch()?,
-        Err(e) => {
-            let _ = store.abort_batch();
-            return Err(e);
-        }
+    // No store rolls writes back, so a failed manifest write undoes the root write here: the
+    // pointer and the container set never disagree. The previous root's file goes last; if
+    // that fails it is left as an ordinary container and the repository still loads.
+    crate::store::save_root_container(store, &container)?;
+    manifest.set_root_container_id(Some(container.container_id.clone()));
+    if let Err(e) = write_manifest(store, &manifest) {
+        let _ = match &original_target {
+            Some(original) => crate::store::save_root_container(store, original),
+            None => store
+                .delete_instance_file(&crate::store::root_container_path(&container.container_id)),
+        };
+        return Err(e);
+    }
+    if let Some(old) = &renamed_from {
+        store.delete_container(old)?;
     }
 
     Ok(SetManifestRootContainerResult {

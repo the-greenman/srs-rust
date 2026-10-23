@@ -15,7 +15,7 @@
 use srs_repository::migration_registry_service::{
     apply_migration, list_migrations, MigrationStatus,
 };
-use srs_repository::srsj::open_srsj;
+use srs_repository::srsj::open_srsj_for_migration;
 use srs_repository::store::RepositoryStore;
 use srs_repository::validation::validate_repository;
 
@@ -27,7 +27,8 @@ use srs_repository::validation::validate_repository;
 /// fixture (used there to test `rfc038-storage` in isolation) — same shape,
 /// driven here through the whole registry instead of one entry.
 fn rev2_fixture() -> srs_repository::store::FileStore {
-    open_srsj(
+    // The migration tooling surface: the document as it is, no pre-load transformer.
+    open_srsj_for_migration(
         &serde_json::json!({
             "srsj": "2",
             "manifest": {
@@ -64,7 +65,6 @@ fn rev2_fixture() -> srs_repository::store::FileStore {
         .to_string(),
     )
     .unwrap()
-    .with_rfc038_exemption()
 }
 
 #[test]

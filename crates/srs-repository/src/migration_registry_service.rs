@@ -741,6 +741,31 @@ pub fn list_migrations(
         .collect()
 }
 
+/// Apply, in registry order, every revision-keyed entry the store still needs, reading each
+/// status when the pass reaches it (an earlier step makes a later one applicable). The
+/// in-memory pre-load transformer's path to the current revision (RFC-052 Change C).
+pub(crate) fn apply_revision_ladder(
+    store: &dyn RepositoryStore,
+) -> Result<Vec<&'static str>, RepositoryError> {
+    let mut applied = Vec::new();
+    for m in MIGRATIONS.iter().filter(|m| m.revision_step.is_some()) {
+        let needed = match (m.status_fn)(store) {
+            Ok(s) => s == MigrationStatus::Needed,
+            Err(
+                RepositoryError::CatalogLoad { .. }
+                | RepositoryError::ManifestParse { .. }
+                | RepositoryError::ContainerMigrationNeeded { .. },
+            ) => true,
+            Err(e) => return Err(e),
+        };
+        if needed {
+            (m.apply_fn)(store)?;
+            applied.push(m.id);
+        }
+    }
+    Ok(applied)
+}
+
 pub fn apply_migration(
     store: &dyn RepositoryStore,
     id: &str,
