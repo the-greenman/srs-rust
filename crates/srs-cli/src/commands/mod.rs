@@ -236,7 +236,8 @@ pub struct Cli {
     /// configuration only — a request payload never carries it. An invalid value refuses
     /// every creating command (`actor-invalid`); a corpus below dataModelRevision 9 refuses
     /// an actor session (`revision-too-old`) until `repo apply-migration --id
-    /// rfc046-actor-provenance`.
+    /// rfc046-actor-provenance`. A `.srsj` migrated in memory on open refuses every
+    /// write first (`migration-required-before-write`) until its migrations are applied.
     #[arg(long, global = true)]
     pub actor: Option<String>,
 

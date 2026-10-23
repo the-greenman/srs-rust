@@ -195,6 +195,8 @@ impl McpSession {
     /// Host-supplied only — never from tool arguments. The JSON is not validated here:
     /// an invalid actor refuses every creating tool call with `actor-invalid` (R12),
     /// and an actor on a corpus below dataModelRevision 9 with `revision-too-old` (R11).
+    /// A document migrated in memory on load refuses every write first, with
+    /// `migration-required-before-write` (see `SrsRepository::migration_notice`).
     pub fn set_actor(&mut self, json: &str) -> Result<(), JsValue> {
         let actor: serde_json::Value =
             serde_json::from_str(json).map_err(|e| js_invalid_input(e.to_string()))?;
@@ -346,21 +348,6 @@ impl SrsRepository {
         Ok(SrsRepository { store })
     }
 
-    /// Validate the repository. Returns a `RepositoryValidationReport` as a JS value with two
-    /// top-level keys:
-    ///
-    /// - `diagnostics`: array of `{ severity, path, schemaId, message }` objects; `severity` is
-    ///   `"error"`, `"warning"` or `"info"`. Entries with `severity: "warning"` (and `"info"`,
-    ///   counted in neither summary total) are non-blocking advisories; they do not affect `summary.errors`
-    ///   and the repository still passes validation when they are present. RFC-017 I-107
-    ///   attachment size-limit violations (emitted when a `com.semanticops.base/repo_settings`
-    ///   record specifies `max_per_file_bytes`) are one example of a warning source.
-    ///   Advice-only diagnostics (RFC-013 I-82) also carry `advisory: true`; the severity is unchanged.
-    /// - `summary`: `{ checked, errors, warnings, advisories }`. `summary.warnings` counts warning-severity
-    ///   diagnostics; `summary.advisories` counts the advice-only subset of them. A repository passes validation when `summary.errors === 0`, even if
-    ///   `summary.warnings > 0`.
-    ///
-    /// Callers should filter `diagnostics` by `severity` to distinguish errors from warnings.
     /// What the loader migrated in memory when this document was opened (srs-rust#1444):
     /// `{ sourceRevision, migrations: string[] }`, or `null` when it opened as stored.
     /// While it is non-null every write through this handle (and its MCP sessions) is
@@ -377,6 +364,21 @@ impl SrsRepository {
         to_js(&self.store.accept_migration())
     }
 
+    /// Validate the repository. Returns a `RepositoryValidationReport` as a JS value with two
+    /// top-level keys:
+    ///
+    /// - `diagnostics`: array of `{ severity, path, schemaId, message }` objects; `severity` is
+    ///   `"error"`, `"warning"` or `"info"`. Entries with `severity: "warning"` (and `"info"`,
+    ///   counted in neither summary total) are non-blocking advisories; they do not affect `summary.errors`
+    ///   and the repository still passes validation when they are present. RFC-017 I-107
+    ///   attachment size-limit violations (emitted when a `com.semanticops.base/repo_settings`
+    ///   record specifies `max_per_file_bytes`) are one example of a warning source.
+    ///   Advice-only diagnostics (RFC-013 I-82) also carry `advisory: true`; the severity is unchanged.
+    /// - `summary`: `{ checked, errors, warnings, advisories }`. `summary.warnings` counts warning-severity
+    ///   diagnostics; `summary.advisories` counts the advice-only subset of them. A repository passes validation when `summary.errors === 0`, even if
+    ///   `summary.warnings > 0`.
+    ///
+    /// Callers should filter `diagnostics` by `severity` to distinguish errors from warnings.
     pub fn validate(&self) -> Result<JsValue, JsValue> {
         let report = validation::validate_repository(&self.store).map_err(|e| js_err(&e))?;
         to_js(&report)
