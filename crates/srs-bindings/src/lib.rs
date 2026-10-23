@@ -361,6 +361,22 @@ impl SrsRepository {
     ///   `summary.warnings > 0`.
     ///
     /// Callers should filter `diagnostics` by `severity` to distinguish errors from warnings.
+    /// What the loader migrated in memory when this document was opened (srs-rust#1444):
+    /// `{ sourceRevision, migrations: string[] }`, or `null` when it opened as stored.
+    /// While it is non-null every write through this handle (and its MCP sessions) is
+    /// refused with code `migration-required-before-write`, so the document is never
+    /// saved at the new revision unasked. Ask the user, then call [`Self::accept_migration`].
+    pub fn migration_notice(&self) -> Result<JsValue, JsValue> {
+        to_js(&self.store.migration_notice())
+    }
+
+    /// The explicit act that lets a document migrated in memory be written (and so saved
+    /// at the current revision): clears the notice for this handle and its MCP sessions.
+    /// Returns the notice it cleared, or `null`.
+    pub fn accept_migration(&self) -> Result<JsValue, JsValue> {
+        to_js(&self.store.accept_migration())
+    }
+
     pub fn validate(&self) -> Result<JsValue, JsValue> {
         let report = validation::validate_repository(&self.store).map_err(|e| js_err(&e))?;
         to_js(&report)

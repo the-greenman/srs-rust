@@ -285,6 +285,24 @@ pub fn validate_repository(
     // stated motivation for the stamp.
     diagnostics.extend(data_model_revision_diagnostics(&manifest_value));
 
+    // srs-rust#1444: a document the pre-load transformer migrated says so, once.
+    if let Some(n) = store.migration_notice() {
+        diagnostics.push(ValidationDiagnostic {
+            severity: DiagnosticSeverity::Info,
+            relative_path: "manifest.json".to_string(),
+            schema_id: None,
+            message: format!(
+                "migrated-in-memory: this document is stored at dataModelRevision {} and was \
+                 migrated in memory to revision {} by {}; the stored file is unchanged, and \
+                 writes are refused until the migration is applied explicitly (`srs repo \
+                 apply-migration`)",
+                n.source_revision,
+                crate::field_type_migration_service::CURRENT_DATA_MODEL_REVISION,
+                n.migrations.join(", "),
+            ),
+        });
+    }
+
     // RFC-039 [R15]: a revision >= 2 manifest must not declare the retired
     // extensions — a declaration implies constructs [R7] rejects.
     {
