@@ -1175,6 +1175,13 @@ pub enum CompositionCommand {
         /// Container ID
         container_id: String,
     },
+    /// List Compositions that show a container or an instance (type-bound or fixed
+    /// container-subset sections), without rendering
+    #[command(name = "shown-in")]
+    ShownIn {
+        /// Container ID or instance ID
+        target_id: String,
+    },
 }
 
 #[derive(Subcommand)]

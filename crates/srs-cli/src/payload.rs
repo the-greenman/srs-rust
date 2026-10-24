@@ -1591,6 +1591,19 @@ pub struct CompositionsForContainerPayload {
     pub compositions: Vec<CompositionSummary>,
 }
 
+/// Payload for `composition shown-in <id>`: the Compositions that show a container or an
+/// instance, resolved without rendering (type-bound `rootTypeRefs` and fixed-container
+/// `container-subset` sections).
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CompositionsShownInPayload {
+    pub target_id: String,
+    /// `container` or `instance`.
+    pub target_kind: String,
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub compositions: Vec<CompositionSummary>,
+}
+
 // ── Theme payloads ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]

@@ -53,7 +53,9 @@ use srs_repository::store::RepositoryStore as _;
 use srs_repository::tag_service;
 use srs_repository::type_schema_service::{self, TypeSchemaInput};
 use srs_repository::validation;
-use srs_repository::view_service::{self, CompositionListFilter, GetViewResult};
+use srs_repository::view_service::{
+    self, CompositionListFilter, GetCompositionResult, GetViewResult,
+};
 use srs_repository::ErrorReport;
 use srs_repository::FileStore;
 use wasm_bindgen::prelude::*;
@@ -1660,6 +1662,28 @@ impl SrsRepository {
         let views = view_service::compositions_for_container(&self.store, container_id)
             .map_err(|e| js_err(&e))?;
         to_js(&views)
+    }
+
+    /// Read one Composition, with its `sections`, by id (same service as
+    /// `srs composition get`). Returns the full `Composition` object, or `null` when no
+    /// Composition has that id.
+    pub fn get_composition(&self, id: &str) -> Result<JsValue, JsValue> {
+        match view_service::get_composition_by_id(&self.store, id).map_err(|e| js_err(&e))? {
+            GetCompositionResult::Found(composition) => to_js(&*composition),
+            GetCompositionResult::NotFound => Ok(JsValue::NULL),
+        }
+    }
+
+    /// The Compositions that show a container or an instance, resolved without rendering
+    /// (same service as `srs composition shown-in`). `target_id` is a container id or an
+    /// instance id; a Composition shows a container through its `rootTypeRefs` or through a
+    /// `container-subset` section that names the container, and an instance through every
+    /// container that lists it. Returns `{ targetId, targetKind: "container" | "instance",
+    /// compositions: CompositionSummary[] }`.
+    pub fn compositions_showing(&self, target_id: &str) -> Result<JsValue, JsValue> {
+        let shown =
+            view_service::compositions_showing(&self.store, target_id).map_err(|e| js_err(&e))?;
+        to_js(&shown)
     }
 
     /// Resolve a structured container view for an editor member list (issue #254, #256):
