@@ -2474,7 +2474,10 @@ mod tests {
     #[test]
     fn effective_membership_ignores_contains_relations() {
         let store = MemoryStore::default();
-        for id in ["root-note", "child-note"] {
+        for id in [
+            "00000000-0000-4000-8000-0000000a0006",
+            "00000000-0000-4000-8000-0000000a0007",
+        ] {
             store
                 .save_instance_json(
                     &format!("records/notes/{id}.json"),
@@ -2489,28 +2492,35 @@ mod tests {
                 "relations": [{
                     "relationId": "aaaaaaaa-0000-4000-8000-000000000001",
                     "relationType": "contains",
-                    "sourceInstanceId": "root-note",
-                    "targetInstanceId": "child-note",
+                    "sourceInstanceId": "00000000-0000-4000-8000-0000000a0006",
+                    "targetInstanceId": "00000000-0000-4000-8000-0000000a0007",
                     "createdAt": "2026-01-01T00:00:00Z"
                 }]
             }),
         );
         let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Doc");
-        c.anchor_instance_id = Some("root-note".to_string());
+        c.anchor_instance_id = Some("00000000-0000-4000-8000-0000000a0006".to_string());
         c.member_instance_ids = Some(srs_core::types::container::entries(vec![
-            "root-note".to_string()
+            "00000000-0000-4000-8000-0000000a0006".to_string(),
         ]));
         let created = create_container(&store, c).unwrap();
 
         assert_eq!(
             list_members(&store, &created.container_id).unwrap(),
-            vec!["root-note".to_string()],
+            vec!["00000000-0000-4000-8000-0000000a0006".to_string()],
             "a contains Relation must never add a member (RFC-034 [R4])"
         );
-        assert!(!is_member(&store, &created.container_id, "child-note").unwrap());
-        assert!(containers_for_instance(&store, "child-note")
-            .unwrap()
-            .is_empty());
+        assert!(!is_member(
+            &store,
+            &created.container_id,
+            "00000000-0000-4000-8000-0000000a0007"
+        )
+        .unwrap());
+        assert!(
+            containers_for_instance(&store, "00000000-0000-4000-8000-0000000a0007")
+                .unwrap()
+                .is_empty()
+        );
     }
 
     /// RFC-034 [R8]: `containerScope: "explicit"` (`list_direct_members`) stays
@@ -2622,7 +2632,10 @@ mod tests {
     #[test]
     fn effective_membership_via_declared_children_roundtrips_via_filestore() {
         let store = MemoryStore::default();
-        for id in ["root-note", "child-note"] {
+        for id in [
+            "00000000-0000-4000-8000-0000000a0006",
+            "00000000-0000-4000-8000-0000000a0007",
+        ] {
             store
                 .save_instance_json(
                     &format!("records/notes/{id}.json"),
@@ -2631,16 +2644,16 @@ mod tests {
                 .unwrap();
         }
         let mut child = minimal_container("550e8400-e29b-41d4-a716-446655440001", "Child");
-        child.anchor_instance_id = Some("child-note".to_string());
+        child.anchor_instance_id = Some("00000000-0000-4000-8000-0000000a0007".to_string());
         child.member_instance_ids = Some(srs_core::types::container::entries(vec![
-            "child-note".to_string()
+            "00000000-0000-4000-8000-0000000a0007".to_string(),
         ]));
         create_container(&store, child).unwrap();
 
         let mut root = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Root");
-        root.anchor_instance_id = Some("root-note".to_string());
+        root.anchor_instance_id = Some("00000000-0000-4000-8000-0000000a0006".to_string());
         root.member_instance_ids = Some(srs_core::types::container::entries(vec![
-            "root-note".to_string()
+            "00000000-0000-4000-8000-0000000a0006".to_string(),
         ]));
         root.child_container_ids = Some(vec!["550e8400-e29b-41d4-a716-446655440001".to_string()]);
         let created = create_container(&store, root).unwrap();
@@ -2651,7 +2664,10 @@ mod tests {
 
         assert_eq!(
             list_members(&file_store, &created.container_id).unwrap(),
-            vec!["root-note".to_string(), "child-note".to_string()]
+            vec![
+                "00000000-0000-4000-8000-0000000a0006".to_string(),
+                "00000000-0000-4000-8000-0000000a0007".to_string()
+            ]
         );
     }
 
@@ -3488,12 +3504,15 @@ mod tests {
         let err = resolve_root_container(&store, &manifest).unwrap_err();
         match err {
             RepositoryError::CatalogLoad { diagnostics, .. } => {
+                // RFC-051: at revision 11 the root is a directory named by its id, so a second
+                // file declaring that id can only be a flat file, refused as
+                // `container-migration-needed` — still fatal, still propagated.
                 assert!(
                     diagnostics
                         .iter()
-                        .any(|d| d.code == crate::catalog::codes::DUPLICATE_ID),
-                    "expected a {} diagnostic, got: {diagnostics:?}",
-                    crate::catalog::codes::DUPLICATE_ID
+                        .any(|d| d.code == crate::catalog::codes::DUPLICATE_ID
+                            || d.code == crate::container_store::codes::MIGRATION_NEEDED),
+                    "expected a fatal duplicate diagnostic, got: {diagnostics:?}"
                 );
             }
             other => panic!("expected RepositoryError::CatalogLoad, got: {other:?}"),

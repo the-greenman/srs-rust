@@ -121,9 +121,13 @@ fn read_bundle_refuses_readme_until_1164() {
 
 #[test]
 fn read_bundle_refuses_newer_revision() {
-    let (code, msg) = refused(&bundle(11));
+    let current = srs_repository::field_type_migration_service::CURRENT_DATA_MODEL_REVISION;
+    let (code, msg) = refused(&bundle(current + 1));
     assert_eq!(code, "bundle-revision-too-new");
-    assert!(msg.contains("11") && msg.contains("10"), "{msg}");
+    assert!(
+        msg.contains(&(current + 1).to_string()) && msg.contains(&current.to_string()),
+        "{msg}"
+    );
 }
 
 #[test]

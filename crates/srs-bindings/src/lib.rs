@@ -3524,7 +3524,7 @@ mod tests {
             &store,
             &InitializeRepositoryInput {
                 repository: RepositoryMetadata {
-                    repository_id: "parity".into(),
+                    repository_id: "00000000-0000-4000-8000-0000000a7e11".into(),
                     namespace: "com.example.parity".into(),
                     srs_version: "2.0".into(),
                     title: Some("Parity".into()),

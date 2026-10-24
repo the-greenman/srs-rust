@@ -81,7 +81,7 @@ This file is written for humans and AI agents that need to understand the repo q
 
 - A container is a logical content-instance boundary, distinct from package definition boundaries.
 - Container services address containers through stable `containerId` values and instance IDs only.
-- File paths (e.g. `containers/<slug>-<prefix>.json`) and the container path index are FileStore implementation details; they must not appear in service API signatures.
+- File paths (e.g. a container's directory `containers/<containerId>/` with its head and one entry file per member, RFC-051) are storage details owned by `container_store`; they must not appear in service API signatures.
 - `ContainerIndexEntry.path` is an adapter-private field used by FileStore to locate container files; service code must not construct or interpret container paths directly.
 - MemoryStore must store containers by `containerId` key, not by filesystem path strings.
 - Container CRUD and membership operations must be callable through `&dyn RepositoryStore` without `std::fs`.

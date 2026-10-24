@@ -102,14 +102,14 @@ fn validate_stored_root(path: &str, root: &Value) -> Result<(), RepositoryError>
         .map_err(|source| RepositoryError::ContainerValidation { source })
 }
 
-fn revision(manifest: &Value) -> u64 {
+pub(crate) fn revision(manifest: &Value) -> u64 {
     manifest
         .get(DATA_MODEL_REVISION_KEY)
         .and_then(Value::as_u64)
         .unwrap_or(0)
 }
 
-fn raw_manifest(store: &dyn RepositoryStore) -> Result<Value, RepositoryError> {
+pub(crate) fn raw_manifest(store: &dyn RepositoryStore) -> Result<Value, RepositoryError> {
     let text = store.load_manifest_raw_text()?;
     serde_json::from_str(&text).map_err(|source| RepositoryError::ManifestParse {
         path: std::path::PathBuf::from("manifest.json"),
@@ -272,9 +272,23 @@ pub fn rewrite_embedded_root(manifest: &mut Value) -> Option<(String, Value)> {
     let container = obj.shift_remove("container")?;
     obj.insert("rootContainerId".to_string(), json!(id));
     if revision(manifest) == RFC046_ACTOR_PROVENANCE_REVISION {
-        manifest[DATA_MODEL_REVISION_KEY] = json!(RFC052_ROOT_CONTAINER_REVISION);
+        // The current form: the root container's own move (rev 10) and, written through
+        // [`root_fixture_files`], its directory (RFC-051, rev 11).
+        manifest[DATA_MODEL_REVISION_KEY] =
+            json!(crate::field_type_migration_service::CURRENT_DATA_MODEL_REVISION);
     }
     Some((crate::store::root_container_path(&id), container))
+}
+
+/// The files [`rewrite_embedded_root`]'s root is stored as under `manifest`'s revision (a
+/// directory at revision 11, RFC-051). For test fixtures.
+#[doc(hidden)]
+pub fn root_fixture_files(manifest: &Value, root: &(String, Value)) -> Vec<(String, Value)> {
+    crate::rfc051_container_entries_migration_service::fixture_container_files(
+        &root.0,
+        &root.1,
+        revision(manifest),
+    )
 }
 
 /// Write `manifest` as `<root>/manifest.json`, an embedded root first rewritten by
@@ -283,10 +297,12 @@ pub fn rewrite_embedded_root(manifest: &mut Value) -> Option<(String, Value)> {
 #[doc(hidden)]
 pub fn write_fixture_manifest(root: &std::path::Path, manifest: &Value) -> std::io::Result<()> {
     let mut manifest = manifest.clone();
-    if let Some((path, container)) = rewrite_embedded_root(&mut manifest) {
-        let file = root.join(path);
-        std::fs::create_dir_all(file.parent().expect("containers/<id>.json has a parent"))?;
-        std::fs::write(file, serde_json::to_string_pretty(&container)?)?;
+    if let Some(embedded) = rewrite_embedded_root(&mut manifest) {
+        for (path, value) in root_fixture_files(&manifest, &embedded) {
+            let file = root.join(path);
+            std::fs::create_dir_all(file.parent().expect("a container file has a parent"))?;
+            std::fs::write(file, serde_json::to_string_pretty(&value)?)?;
+        }
     }
     std::fs::write(
         root.join("manifest.json"),
@@ -371,18 +387,27 @@ pub fn rewrite_srsj_fixture(doc: &mut Value) {
     let Some(manifest) = doc.get_mut("manifest") else {
         return;
     };
-    if let Some((path, container)) = rewrite_embedded_root(manifest) {
+    if let Some(embedded) = rewrite_embedded_root(manifest) {
+        let files = root_fixture_files(manifest, &embedded);
         if let Some(data) = doc.get_mut("data").and_then(Value::as_object_mut) {
-            data.insert(path, container);
+            data.extend(files);
         }
     }
 }
 
 fn container_files(store: &dyn RepositoryStore) -> Vec<(String, Value)> {
+    // A container is a flat file or, at revision 11, a head (RFC-051): an entry file names
+    // its container too, but declares none.
     let mut files: Vec<String> = store
         .list_files_recursive("containers")
         .into_iter()
         .filter(|p| p.ends_with(".json"))
+        .filter(|p| {
+            matches!(
+                crate::container_store::place(p),
+                Some(crate::container_store::Place::Flat | crate::container_store::Place::Head(_))
+            )
+        })
         .collect();
     files.sort();
     files
@@ -391,7 +416,7 @@ fn container_files(store: &dyn RepositoryStore) -> Vec<(String, Value)> {
         .collect()
 }
 
-fn package_roots(manifest: &Value) -> Vec<String> {
+pub(crate) fn package_roots(manifest: &Value) -> Vec<String> {
     let mut roots = vec!["package".to_string()];
     for r in manifest
         .get("packageRefs")
@@ -408,7 +433,7 @@ fn package_roots(manifest: &Value) -> Vec<String> {
     roots
 }
 
-fn pretty(value: &Value) -> Result<String, RepositoryError> {
+pub(crate) fn pretty(value: &Value) -> Result<String, RepositoryError> {
     serde_json::to_string_pretty(value).map_err(|source| RepositoryError::Serialize {
         path: std::path::PathBuf::from("manifest.json"),
         source,
@@ -449,7 +474,10 @@ fn apply_to_tree(
 
 /// 2-space pretty JSON with a trailing newline exactly when the original had one — so the
 /// migration's diff is the change, not the framing.
-fn framed(original: Option<&Vec<u8>>, value: &Value) -> Result<Vec<u8>, RepositoryError> {
+pub(crate) fn framed(
+    original: Option<&Vec<u8>>,
+    value: &Value,
+) -> Result<Vec<u8>, RepositoryError> {
     let mut text = pretty(value)?;
     if original.is_some_and(|b| b.ends_with(b"\n")) {
         text.push('\n');
@@ -642,7 +670,7 @@ fn before_has_stamp(store: &dyn RepositoryStore, path: &str) -> bool {
         .is_ok_and(|v| v.get(DATA_MODEL_REVISION_KEY).is_some())
 }
 
-fn write_bytes(
+pub(crate) fn write_bytes(
     store: &dyn RepositoryStore,
     path: &str,
     bytes: &[u8],
@@ -659,7 +687,7 @@ fn write_bytes(
 }
 
 /// A file tree takes the raw write; `MemoryStore`, whose manifest is typed, takes the typed one.
-fn write_manifest_raw(
+pub(crate) fn write_manifest_raw(
     store: &dyn RepositoryStore,
     manifest: &Value,
     bytes: &[u8],
@@ -696,7 +724,7 @@ pub fn transform_tree(
         return Ok(None);
     };
     let source_revision = revision(&manifest);
-    if source_revision >= RFC052_ROOT_CONTAINER_REVISION {
+    if source_revision >= crate::field_type_migration_service::CURRENT_DATA_MODEL_REVISION {
         return Ok(None);
     }
     let store = crate::tree_session::open_tree(std::mem::take(files))?.with_rfc038_exemption();
@@ -810,7 +838,10 @@ mod tests {
             10
         );
 
-        // The strict reader loads it, and navigation reads the moved root.
+        // Once RFC-051's step has also run, the strict reader loads it, and navigation reads
+        // the moved root.
+        crate::rfc051_container_entries_migration_service::migrate_rfc051_container_entries(&store)
+            .unwrap();
         let strict = FileStore::new(tmp.path());
         let nav = crate::repository_navigation_service::repository_navigation(&strict).unwrap();
         assert_eq!(nav.root_container_id, ROOT);
@@ -924,7 +955,10 @@ mod tests {
             root_before,
             "the stored root is untouched"
         );
-        assert!(FileStore::new(tmp.path()).catalog().is_ok());
+        assert!(FileStore::new(tmp.path())
+            .with_rfc038_exemption()
+            .catalog()
+            .is_ok());
         assert!(
             migrate_rfc052_root_container(&store)
                 .unwrap()
@@ -987,9 +1021,10 @@ mod tests {
                 );
             }
             let applied = ladder_fixture(tmp.path()).unwrap();
+            assert!(applied.contains(&MIGRATION_ID), "rev {rev}: {applied:?}");
             assert_eq!(
                 applied.last(),
-                Some(&MIGRATION_ID),
+                Some(&crate::rfc051_container_entries_migration_service::MIGRATION_ID),
                 "rev {rev}: {applied:?}"
             );
             let store = FileStore::new(tmp.path());
@@ -1148,7 +1183,10 @@ mod tests {
         let store = FileStore::new(tmp.path()).with_rfc038_exemption();
         migrate_rfc052_root_container(&store).unwrap();
         assert_eq!(read(tmp.path(), "manifest.json")["rootContainerId"], ROOT);
-        assert!(FileStore::new(tmp.path()).catalog().is_ok());
+        assert!(FileStore::new(tmp.path())
+            .with_rfc038_exemption()
+            .catalog()
+            .is_ok());
     }
 
     /// Review B3: a revision-10 corpus with a stray inline container is alreadyApplied and is
@@ -1169,6 +1207,13 @@ mod tests {
         assert!(r.already_applied);
         assert_eq!(r.root_container_id.as_deref(), Some(ROOT));
         assert_eq!(snapshot(tmp.path()), before, "never re-points the root");
+        // A revision-11 build refuses the revision-10 corpus by its declared revision first
+        // (RFC-051 [R13]); the inline embed is refused once the stamp is current.
+        let err = FileStore::new(tmp.path()).load_manifest().unwrap_err();
+        assert_eq!(err.code(), "container-migration-needed");
+        m[DATA_MODEL_REVISION_KEY] =
+            json!(crate::field_type_migration_service::CURRENT_DATA_MODEL_REVISION);
+        w(tmp.path(), "manifest.json", &m);
         let err = FileStore::new(tmp.path()).load_manifest().unwrap_err();
         assert_eq!(err.code(), "manifest-root-container-inline");
     }
@@ -1199,6 +1244,7 @@ mod tests {
         migrate_rfc052_root_container(&store).unwrap();
         std::fs::remove_file(tmp.path().join(format!("containers/{ROOT}.json"))).unwrap();
         let err = FileStore::new(tmp.path())
+            .with_rfc038_exemption()
             .catalog()
             .unwrap_err()
             .to_string();
@@ -1213,11 +1259,20 @@ mod tests {
         let mut tree = crate::archive::tree_entries(&store).unwrap();
         let notice = transform_tree(&mut tree).unwrap().expect("rewritten");
         assert_eq!(notice.source_revision, 9);
-        assert_eq!(notice.migrations, [MIGRATION_ID]);
+        assert_eq!(
+            notice.migrations,
+            [
+                MIGRATION_ID,
+                crate::rfc051_container_entries_migration_service::MIGRATION_ID
+            ]
+        );
         assert!(transform_tree(&mut tree).unwrap().is_none(), "idempotent");
         migrate_rfc052_root_container(&store).unwrap();
+        crate::rfc051_container_entries_migration_service::migrate_rfc051_container_entries(&store)
+            .unwrap();
         let migrated = crate::archive::tree_entries(&FileStore::new(tmp.path())).unwrap();
-        for key in ["manifest.json", &format!("containers/{ROOT}.json")] {
+        let head = crate::container_store::head_path(ROOT);
+        for key in ["manifest.json", head.as_str()] {
             let a: Value = serde_json::from_slice(&tree[key]).unwrap();
             let b: Value = serde_json::from_slice(&migrated[key]).unwrap();
             assert_eq!(a, b, "{key}");

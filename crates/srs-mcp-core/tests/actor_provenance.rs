@@ -30,7 +30,7 @@ fn setup_uninit() -> (
         &store,
         &InitializeRepositoryInput {
             repository: RepositoryMetadata {
-                repository_id: "actor-mcp".into(),
+                repository_id: "00000000-0000-4000-8000-00000051ed09".into(),
                 namespace: "com.example.actor".into(),
                 srs_version: "2.0".into(),
                 title: None,

@@ -261,8 +261,8 @@ fn file_store_rejects_a_cascade_that_would_remove_a_pointer_entry() {
 
 /// The ordering claim, made testable: the cascade runs *before* the instance is
 /// removed, so an interruption can never produce the unloadable repository #834
-/// is about. `FailPoint::SaveInstanceJsonAt` fires on the root container's write
-/// (its file in the container set, RFC-052) — the first thing the cascade does here.
+/// is about. The fault fires on the root container's write — RFC-051: the removal of the
+/// record's entry file from the root's directory — the first thing the cascade does here.
 ///
 /// Cascade-first (this code): the delete aborts with the record still on disk and
 /// the repository loads. Cascade-last (the regression this guards): the record is
@@ -279,15 +279,9 @@ fn a_failed_membership_write_never_leaves_the_repository_unloadable() {
         .root_container_id()
         .unwrap()
         .to_string();
-    let root_path = store
-        .catalog()
-        .unwrap()
-        .containers
-        .iter()
-        .find(|e| e.id == root_id)
-        .and_then(|e| e.locator.clone())
-        .unwrap();
-    store.arm_fail_at(FailPoint::SaveInstanceJsonAt(root_path));
+    store.arm_fail_at(FailPoint::DeleteInstanceFileAt(
+        srs_repository::container_store::entry_path(&root_id, RECORD_ID),
+    ));
     let err = record_store::delete_record(&store, RECORD_ID, true)
         .expect_err("the injected manifest-write fault must surface, not be swallowed");
     assert!(

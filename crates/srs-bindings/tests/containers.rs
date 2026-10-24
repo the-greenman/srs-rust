@@ -22,7 +22,12 @@ use srs_repository::FileStore;
 
 fn gallery_store() -> FileStore {
     let srsj = include_str!("../../srs-repository/tests/fixtures/gallery.srsj");
-    srs_repository::srsj::open_srsj(srsj).expect("gallery srsj must load")
+    // A published document at an older revision: the fixture reaches the current one through
+    // the registry ladder (writes here would be refused on an in-memory migration).
+    let laddered =
+        srs_repository::rfc052_root_container_migration_service::ladder_srsj_fixture(srsj)
+            .expect("gallery srsj climbs the ladder");
+    srs_repository::srsj::open_srsj(&laddered).expect("gallery srsj must load")
 }
 
 /// No filter lists every container.

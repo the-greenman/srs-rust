@@ -120,7 +120,9 @@ pub(crate) mod rfc052 {
         raw: &serde_json::Value,
         declared: u64,
     ) -> Result<(), RepositoryError> {
-        if declared < RFC052_ROOT_CONTAINER_REVISION {
+        // RFC-051 [R13]: likewise a revision-10 corpus at revision 11 — every pending entry,
+        // in order, is named.
+        if declared < crate::field_type_migration_service::CURRENT_DATA_MODEL_REVISION {
             return Err(RepositoryError::ContainerMigrationNeeded {
                 declared,
                 pending: crate::migration_registry_service::pending_revision_steps(declared),
@@ -279,9 +281,9 @@ mod rfc038_tests {
     }
 
     #[test]
-    fn rfc052_r1_refuses_an_inline_or_missing_root_at_revision_10() {
+    fn rfc052_r1_refuses_an_inline_or_missing_root_at_revision_11() {
         let inline = serde_json::json!({
-            "dataModelRevision": 10,
+            "dataModelRevision": 11,
             "rootContainerId": "c",
             "container": {"containerId": "c", "title": "Root"},
         });
@@ -289,13 +291,27 @@ mod rfc038_tests {
             check_manifest(&inline).unwrap_err().code(),
             "manifest-root-container-inline"
         );
-        let missing = serde_json::json!({ "dataModelRevision": 10 });
+        let missing = serde_json::json!({ "dataModelRevision": 11 });
         assert_eq!(
             check_manifest(&missing).unwrap_err().code(),
             "manifest-root-container-missing"
         );
-        let ok = serde_json::json!({ "dataModelRevision": 10, "rootContainerId": "c" });
+        let ok = serde_json::json!({ "dataModelRevision": 11, "rootContainerId": "c" });
         assert!(check_manifest(&ok).is_ok());
+    }
+
+    /// RFC-051 [R13]: a revision-10 corpus is reported by its declared revision, naming
+    /// `rfc051-container-entries`, whatever it carries.
+    #[test]
+    fn rfc051_r13_refuses_a_revision_10_corpus_naming_the_migration() {
+        let rev10 = serde_json::json!({ "dataModelRevision": 10, "rootContainerId": "c" });
+        match check_manifest(&rev10).unwrap_err() {
+            RepositoryError::ContainerMigrationNeeded { declared, pending } => {
+                assert_eq!(declared, 10);
+                assert_eq!(pending, vec!["rfc051-container-entries"]);
+            }
+            other => panic!("expected container-migration-needed, got {other:?}"),
+        }
     }
 
     /// [R7], owner ruling 1 on srs#953: detection reads the declared revision, never the
@@ -308,7 +324,10 @@ mod rfc038_tests {
         match check_manifest(&named).unwrap_err() {
             RepositoryError::ContainerMigrationNeeded { declared, pending } => {
                 assert_eq!(declared, 9);
-                assert_eq!(pending, vec!["rfc052-root-container"]);
+                assert_eq!(
+                    pending,
+                    vec!["rfc052-root-container", "rfc051-container-entries"]
+                );
             }
             other => panic!("expected container-migration-needed, got {other:?}"),
         }
@@ -327,6 +346,7 @@ mod rfc038_tests {
                         "rfc043-container-entries",
                         "rfc046-actor-provenance",
                         "rfc052-root-container",
+                        "rfc051-container-entries",
                     ]
                 );
             }

@@ -1,7 +1,7 @@
 {
   "sourceDocumentsPath": "attachments",
   "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
-  "dataModelRevision": 10,
+  "dataModelRevision": 11,
   "namespace": "com.example.test",
   "rootContainerId": "0f1c7e00-0000-4000-8000-000000000000"
 }

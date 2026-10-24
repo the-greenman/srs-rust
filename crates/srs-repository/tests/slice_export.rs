@@ -64,6 +64,56 @@ fn edit(tree: &mut Tree, path: &str, f: impl FnOnce(&mut Value)) {
     put(tree, path, v);
 }
 
+/// RFC-051: the head path of a stored container.
+fn head(id: &str) -> String {
+    srs_repository::container_store::head_path(id)
+}
+
+/// The logical container `id` in a tree: its head with the outline its entries decode to.
+fn container(tree: &Tree, id: &str) -> Value {
+    let mut c = get(tree, &head(id));
+    let dir = format!("containers/{id}/entries/");
+    let stored: Vec<srs_core::container_decode::StoredEntry> = tree
+        .iter()
+        .filter(|(p, _)| p.starts_with(&dir))
+        .map(|(_, b)| {
+            let e: Value = serde_json::from_slice(b).unwrap();
+            srs_core::container_decode::StoredEntry {
+                instance_id: e["instanceId"].as_str().unwrap().into(),
+                parent: e["parent"].as_str().map(Into::into),
+                key: e["key"].as_str().unwrap().into(),
+            }
+        })
+        .collect();
+    let entries = srs_core::container_decode::decode(&stored, None).entries;
+    if !entries.is_empty() {
+        c["memberInstanceIds"] = json!(entries);
+    }
+    c
+}
+
+/// Store a logical container in a tree as the directory a revision-11 corpus holds.
+fn set_container(tree: &mut Tree, c: Value) {
+    let id = c["containerId"].as_str().unwrap().to_string();
+    let dir = format!("containers/{id}/");
+    tree.retain(|p, _| !p.starts_with(&dir));
+    for (path, v) in
+        srs_repository::rfc051_container_entries_migration_service::fixture_container_files(
+            &format!("containers/{id}.json"),
+            &c,
+            srs_repository::field_type_migration_service::CURRENT_DATA_MODEL_REVISION,
+        )
+    {
+        put(tree, &path, v);
+    }
+}
+
+fn edit_container(tree: &mut Tree, id: &str, f: impl FnOnce(&mut Value)) {
+    let mut c = container(tree, id);
+    f(&mut c);
+    set_container(tree, c);
+}
+
 fn relation(id: &str, ty: &str, s: &str, t: &str) -> Value {
     json!({"$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
            "relationId": id, "relationType": ty, "sourceInstanceId": s,
@@ -150,21 +200,19 @@ fn rich() -> Tree {
                "contentType": "text/markdown", "createdAt": "2026-01-01T00:00:00Z"}),
     );
     t.insert("source-documents/other.md".into(), b"# other".to_vec());
-    edit(&mut t, "containers/decisions-55555555.json", |c| {
+    edit_container(&mut t, DECISIONS, |c| {
         c["$schema"] = json!("https://srs.semanticops.com/schema/2.0/container.json");
     });
     edit(&mut t, "records/tier-2/decision-0ce8cbdd.json", |r| {
         r["sourceRefs"] = json!([{"sourceType": "repository-document", "sourceId": DOC}]);
     });
-    put(
+    set_container(
         &mut t,
-        "containers/empty.json",
         json!({"containerId": "55555555-5555-4555-8555-555555555552", "title": "Empty",
                "memberInstanceIds": []}),
     );
-    put(
+    set_container(
         &mut t,
-        "containers/sub.json",
         json!({"containerId": "55555555-5555-4555-8555-555555555553", "title": "Sub",
                "memberInstanceIds": [{"instanceId": D1}]}),
     );
@@ -221,11 +269,11 @@ fn container_slice_carries_the_closure_and_validates() {
     assert!(!f.contains_key(&format!("relations/{CUT}.json")));
     // RFC-034 [R9] / I-151: undeclared containers are never carried, even
     // `sub`, whose entries are all included.
-    assert!(!f.contains_key("containers/sub.json"));
-    assert!(!f.contains_key("containers/empty.json"));
+    assert!(!f.contains_key(&head(SUB)));
+    assert!(!f.contains_key(&head(EMPTY)));
     // RFC-052: the boundary is the slice's root container, carried as its file and named
     // by the manifest's `rootContainerId`.
-    assert!(f.contains_key("containers/decisions-55555555.json"));
+    assert!(f.contains_key(&head(DECISIONS)));
     // Step 5: cited sidecar and its content only.
     assert!(f.contains_key("source-documents/cited.md.meta.json"));
     assert!(f.contains_key("source-documents/cited.md"));
@@ -286,11 +334,11 @@ fn root_slice_omits_relations_with_both_endpoints_outside() {
 #[test]
 fn nested_outline_is_kept_as_is() {
     let mut t = rich();
-    edit(&mut t, "containers/decisions-55555555.json", |c| {
+    edit_container(&mut t, DECISIONS, |c| {
         c["memberInstanceIds"] = json!([{"instanceId": D1}, {"instanceId": D2, "depth": 1}]);
     });
     let e = export(t, DECISIONS).unwrap();
-    let m = get(&files(&e), "containers/decisions-55555555.json");
+    let m = container(&files(&e), DECISIONS);
     assert_eq!(
         m["memberInstanceIds"],
         json!([{"instanceId": D1}, {"instanceId": D2, "depth": 1}])
@@ -301,7 +349,7 @@ fn nested_outline_is_kept_as_is() {
 #[test]
 fn identity_entry_with_descendants_is_refused() {
     let mut t = rich();
-    edit(&mut t, "containers/decisions-55555555.json", |c| {
+    edit_container(&mut t, DECISIONS, |c| {
         c["identityInstanceId"] = json!(D1);
         c["memberInstanceIds"] = json!([{"instanceId": D1}, {"instanceId": D2, "depth": 1}]);
     });
@@ -360,7 +408,7 @@ fn validator_checks_the_slice_block() {
 fn dangling_boundary_entry_refuses_the_export() {
     let ghost = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
     let mut t = rich();
-    edit(&mut t, "containers/decisions-55555555.json", |c| {
+    edit_container(&mut t, DECISIONS, |c| {
         c["memberInstanceIds"] = json!([{"instanceId": ghost}, {"instanceId": D1}]);
     });
     assert!(matches!(
@@ -387,13 +435,13 @@ fn source_documents_cited_by_carried_relations_are_carried() {
 #[test]
 fn undeclared_container_is_not_carried_even_when_its_entries_are_included() {
     let mut t = rich();
-    edit(&mut t, "containers/decisions-55555555.json", |c| {
+    edit_container(&mut t, DECISIONS, |c| {
         c["memberInstanceIds"] =
             json!([{"instanceId": PURPOSE}, {"instanceId": D1}, {"instanceId": D2}]);
     });
     let e = export(t, DECISIONS).unwrap();
     assert_eq!(e.summary.container_count, 1);
-    assert!(!files(&e).contains_key(&format!("containers/{ROOT}.json")));
+    assert!(!files(&e).contains_key(&head(ROOT)));
     assert_eq!(errors(&e), Vec::<String>::new());
 }
 
@@ -404,13 +452,13 @@ fn undeclared_container_is_not_carried_even_when_its_entries_are_included() {
 #[test]
 fn declared_descendants_are_carried_with_their_entries() {
     let mut t = rich();
-    edit(&mut t, "containers/decisions-55555555.json", |c| {
+    edit_container(&mut t, DECISIONS, |c| {
         c["childContainerIds"] = json!([EMPTY]);
     });
-    edit(&mut t, "containers/empty.json", |c| {
+    edit_container(&mut t, EMPTY, |c| {
         c["childContainerIds"] = json!([SUB]);
     });
-    edit(&mut t, "containers/sub.json", |c| {
+    edit_container(&mut t, SUB, |c| {
         c["memberInstanceIds"] = json!([{"instanceId": PURPOSE}]);
     });
     let e = export(t, DECISIONS).unwrap();
@@ -426,13 +474,10 @@ fn declared_descendants_are_carried_with_their_entries() {
     );
     let f = files(&e);
     assert!(f.contains_key("records/tier-2/purpose-b3b90185.json"));
+    assert_eq!(container(&f, EMPTY)["childContainerIds"], json!([SUB]));
+    assert!(f.contains_key(&head(SUB)));
     assert_eq!(
-        get(&f, "containers/empty.json")["childContainerIds"],
-        json!([SUB])
-    );
-    assert!(f.contains_key("containers/sub.json"));
-    assert_eq!(
-        get(&f, "containers/decisions-55555555.json")["childContainerIds"],
+        container(&f, DECISIONS)["childContainerIds"],
         json!([EMPTY])
     );
     assert_eq!(errors(&e), Vec::<String>::new());
@@ -451,16 +496,16 @@ fn refusal(r: Result<SliceExport, RepositoryError>) -> &'static str {
 #[test]
 fn broken_child_graph_refuses_the_export() {
     let mut t = rich();
-    edit(&mut t, "containers/decisions-55555555.json", |c| {
+    edit_container(&mut t, DECISIONS, |c| {
         c["childContainerIds"] = json!(["55555555-5555-4555-8555-55555555ffff"]);
     });
     assert_eq!(refusal(export(t, DECISIONS)), CODE_CHILD_CONTAINER_MISSING);
 
     let mut t = rich();
-    edit(&mut t, "containers/decisions-55555555.json", |c| {
+    edit_container(&mut t, DECISIONS, |c| {
         c["childContainerIds"] = json!([SUB]);
     });
-    edit(&mut t, "containers/sub.json", |c| {
+    edit_container(&mut t, SUB, |c| {
         c["childContainerIds"] = json!([DECISIONS]);
     });
     assert_eq!(refusal(export(t, DECISIONS)), CODE_CHILD_CONTAINER_CYCLE);
@@ -508,7 +553,7 @@ fn i82_is_info_inside_a_slice_and_warning_outside() {
     // A declared child makes the slice's container set non-empty (I-82 is suppressed
     // otherwise); neither it nor any container anchors the root's members.
     let mut t = rich();
-    edit(&mut t, "containers/decisions-55555555.json", |c| {
+    edit_container(&mut t, DECISIONS, |c| {
         c["childContainerIds"] = json!([SUB]);
     });
     let mut f = files(&export(t, DECISIONS).unwrap());

@@ -2546,7 +2546,7 @@ mod tests {
     fn make_upgrade_input() -> InitializeRepositoryInput {
         InitializeRepositoryInput {
             repository: RepositoryMetadata {
-                repository_id: "upgrade-test-repo".to_string(),
+                repository_id: "00000000-0000-4000-8000-00000051ed01".to_string(),
                 namespace: "com.example.upgrade".to_string(),
                 srs_version: "2.0-draft".to_string(),
                 title: None,

@@ -1454,9 +1454,9 @@ mod tests {
         const F_STATUS: &str = "field-status-0001";
         const VIEW: &str = "view-decision-0001";
         const DV: &str = "dv-decision-0001";
-        const ROOT: &str = "record-root-0001";
-        const MEM: &str = "record-member-0001";
-        const NOTE: &str = "record-note-0001";
+        const ROOT: &str = "00000000-0000-4000-8000-0000000a0001";
+        const MEM: &str = "00000000-0000-4000-8000-0000000a0002";
+        const NOTE: &str = "00000000-0000-4000-8000-0000000a0003";
 
         let fields = vec![field(F_TITLE, "title"), field(F_STATUS, "status")];
         let view = View {
@@ -1658,8 +1658,8 @@ mod tests {
         const F_TITLE: &str = "field-title-0001";
         const VIEW: &str = "view-decision-0001";
         const DV: &str = "dv-decision-0001";
-        const ROOT: &str = "record-root-0001";
-        const MEM: &str = "record-member-0001";
+        const ROOT: &str = "00000000-0000-4000-8000-0000000a0001";
+        const MEM: &str = "00000000-0000-4000-8000-0000000a0002";
 
         let fields = vec![field(F_TITLE, "title")];
         let view = View {
@@ -1778,8 +1778,8 @@ mod tests {
         const F_TITLE: &str = "field-title-0001";
         const VIEW: &str = "view-decision-0001";
         const DV: &str = "dv-decision-0001";
-        const ROOT: &str = "record-root-0001";
-        const SUPERSEDED: &str = "record-superseded-0001";
+        const ROOT: &str = "00000000-0000-4000-8000-0000000a0001";
+        const SUPERSEDED: &str = "00000000-0000-4000-8000-0000000a0008";
 
         let fields = vec![field(F_TITLE, "title")];
         let view = View {
@@ -2296,7 +2296,7 @@ mod tests {
         const DV: &str = "dv-decision-0001";
         const TYPE_A: &str = "type-decision-aaa1";
         const TYPE_B: &str = "type-decision-bbb1";
-        const ROOT: &str = "record-root-0001";
+        const ROOT: &str = "00000000-0000-4000-8000-0000000a0001";
 
         let fields = vec![field(F_TITLE, "title"), field(F_STATUS, "status")];
         let view = View {

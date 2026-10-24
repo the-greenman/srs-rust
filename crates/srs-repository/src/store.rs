@@ -3205,6 +3205,9 @@ pub mod memory {
         SaveInstanceJsonAt(String),
     }
 
+    /// The `repositoryId` of [`MemoryStore::empty`].
+    pub const MEMORY_STORE_REPOSITORY_ID: &str = "00000000-0000-4000-8000-00000000e570";
+
     /// In-memory implementation of [`RepositoryStore`] for unit tests.
     ///
     /// No filesystem access. All `ensure_*` methods are no-ops.
@@ -3222,7 +3225,13 @@ pub mod memory {
     }
 
     impl MemoryStore {
-        pub fn new(manifest: Manifest, package: Package) -> Self {
+        pub fn new(mut manifest: Manifest, package: Package) -> Self {
+            // A canonical repositoryId: a copy to a file tree names its root container's
+            // directory by it (RFC-051 [R2]).
+            manifest
+                .extra
+                .entry("repositoryId".to_string())
+                .or_insert_with(|| serde_json::Value::from(MEMORY_STORE_REPOSITORY_ID));
             let pkg_json = Self::package_to_json(&package);
             let primary_boundary = crate::package_types::PackageBoundary {
                 selector: None,
@@ -3268,6 +3277,12 @@ pub mod memory {
                 serde_json::Value::from(
                     crate::field_type_migration_service::CURRENT_DATA_MODEL_REVISION,
                 ),
+            );
+            // A canonical repositoryId: a copy to a file tree names its root container's
+            // directory by it (RFC-051 [R2]).
+            extra.insert(
+                "repositoryId".to_string(),
+                serde_json::Value::from(MEMORY_STORE_REPOSITORY_ID),
             );
             let manifest = Manifest {
                 root_container_id: None,
@@ -3419,6 +3434,23 @@ pub mod memory {
 
         /// Pre-populate with a JSON value at the given relative path.
         pub fn with_data(self, path: &str, value: serde_json::Value) -> Self {
+            // RFC-051: a flat container fixture is stored as the directory a revision-11
+            // corpus holds (keyed as the migration keys it).
+            if crate::container_store::place(path) == Some(crate::container_store::Place::Flat) {
+                let revision = self
+                    .manifest
+                    .borrow()
+                    .extra
+                    .get(crate::field_type_migration_service::DATA_MODEL_REVISION_KEY)
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let files =
+                    crate::rfc051_container_entries_migration_service::fixture_container_files(
+                        path, &value, revision,
+                    );
+                self.data.borrow_mut().extend(files);
+                return self;
+            }
             self.data.borrow_mut().insert(path.to_string(), value);
             self
         }
@@ -4653,7 +4685,7 @@ mod tests {
         let manifest = serde_json::json!({
             "dataModelRevision": 2,
             "srsVersion": "2.0-draft",
-            "repositoryId": "test-repo-id",
+            "repositoryId": "00000000-0000-4000-8000-00000051ed00",
             "namespace": "com.test"
         });
         std::fs::write(
@@ -4760,7 +4792,7 @@ mod tests {
         );
 
         write(serde_json::json!({
-            "dataModelRevision": 10,
+            "dataModelRevision": crate::field_type_migration_service::CURRENT_DATA_MODEL_REVISION,
             "rootContainerId": "aaaaaaaa-0000-4000-8000-000000000001"
         }));
         let manifest = store.load_manifest().unwrap();
@@ -4879,7 +4911,12 @@ mod tests {
             crate::container_service::resolve_root_container(&store, &loaded).unwrap(),
             crate::container_service::resolve_root_container(&store, &manifest).unwrap()
         );
-        assert_eq!(loaded.extra, manifest.extra);
+        // MemoryStore::new supplies a canonical repositoryId when the manifest has none.
+        let mut expected = manifest.extra.clone();
+        expected
+            .entry("repositoryId".to_string())
+            .or_insert_with(|| serde_json::json!(super::memory::MEMORY_STORE_REPOSITORY_ID));
+        assert_eq!(loaded.extra, expected);
     }
 
     #[test]
@@ -5140,13 +5177,16 @@ mod tests {
         // write directly — the locator is adapter-private ([R23]); logical-id addressing
         // via load_container is the only contract callers may rely on.
         let store = MemoryStore::default();
-        let container = minimal_container_for_store("c-111", "Sprint 1");
+        let container =
+            minimal_container_for_store("00000000-0000-4000-8000-000000000c11", "Sprint 1");
 
         store.save_container(&container).unwrap();
 
         // Load back via logical ID
-        let loaded = store.load_container("c-111").unwrap();
-        assert_eq!(loaded.container_id, "c-111");
+        let loaded = store
+            .load_container("00000000-0000-4000-8000-000000000c11")
+            .unwrap();
+        assert_eq!(loaded.container_id, "00000000-0000-4000-8000-000000000c11");
         assert_eq!(loaded.title, "Sprint 1");
 
         // The catalog resolves the same logical id back to whatever locator was chosen —
@@ -5155,7 +5195,7 @@ mod tests {
         let entry = cat
             .containers
             .iter()
-            .find(|e| e.id == "c-111")
+            .find(|e| e.id == "00000000-0000-4000-8000-000000000c11")
             .expect("container discoverable via the catalog");
         store
             .load_instance_json(entry.locator.as_deref().unwrap())
@@ -5168,35 +5208,50 @@ mod tests {
         for i in 1..=3u32 {
             store
                 .save_container(&minimal_container_for_store(
-                    &format!("cid-{i}"),
+                    &format!("00000000-0000-4000-8000-00000000c1d{i}"),
                     &format!("Container {i}"),
                 ))
                 .unwrap();
         }
         let summaries = store.list_container_summaries().unwrap();
         assert_eq!(summaries.len(), 3);
-        assert!(summaries.iter().any(|(id, _)| id == "cid-1"));
-        assert!(summaries.iter().any(|(id, _)| id == "cid-2"));
-        assert!(summaries.iter().any(|(id, _)| id == "cid-3"));
+        assert!(summaries
+            .iter()
+            .any(|(id, _)| id == "00000000-0000-4000-8000-00000000c1d1"));
+        assert!(summaries
+            .iter()
+            .any(|(id, _)| id == "00000000-0000-4000-8000-00000000c1d2"));
+        assert!(summaries
+            .iter()
+            .any(|(id, _)| id == "00000000-0000-4000-8000-00000000c1d3"));
     }
 
     #[test]
     fn memory_store_delete_container_removes_entry() {
         let store = MemoryStore::default();
         store
-            .save_container(&minimal_container_for_store("del-me", "Delete Me"))
+            .save_container(&minimal_container_for_store(
+                "00000000-0000-4000-8000-0000000000de",
+                "Delete Me",
+            ))
             .unwrap();
 
-        store.delete_container("del-me").unwrap();
+        store
+            .delete_container("00000000-0000-4000-8000-0000000000de")
+            .unwrap();
 
-        let err = store.load_container("del-me").unwrap_err();
+        let err = store
+            .load_container("00000000-0000-4000-8000-0000000000de")
+            .unwrap_err();
         assert!(
             matches!(err, RepositoryError::ContainerNotFound { .. }),
             "should get ContainerNotFound after delete"
         );
         let summaries = store.list_container_summaries().unwrap();
         assert!(
-            !summaries.iter().any(|(id, _)| id == "del-me"),
+            !summaries
+                .iter()
+                .any(|(id, _)| id == "00000000-0000-4000-8000-0000000000de"),
             "summary index should not contain deleted container"
         );
     }
@@ -6340,7 +6395,7 @@ mod tests {
         let manifest = serde_json::json!({
             "dataModelRevision": 2,
             "srsVersion": "2.0-draft",
-            "repositoryId": "test-repo-id",
+            "repositoryId": "00000000-0000-4000-8000-00000051ed00",
             "namespace": "com.test"
         });
         let mut files = std::collections::BTreeMap::new();

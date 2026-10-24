@@ -963,7 +963,7 @@ mod tests {
         // manifest.json
         let manifest = serde_json::json!({
             "srsVersion": "2.0-draft",
-            "repositoryId": "test-repo-id",
+            "repositoryId": "00000000-0000-4000-8000-00000051ed00",
             "namespace": "com.test",
             "dataModelRevision": 2
         });

@@ -20,10 +20,10 @@ fn write(root: &Path, rel: &str, content: &str) {
 const REPO_ID: &str = "5e5e5e5e-0000-4000-8000-000000000001";
 const TYPE_ID: &str = "5e5e5e5e-0000-4000-8000-0000000000t1";
 const FIELD_ID: &str = "5e5e5e5e-0000-4000-8000-0000000000f1";
-const RECORD_ID: &str = "5e5e5e5e-0000-4000-8000-00000000rec1";
-const NOTE_ID: &str = "5e5e5e5e-0000-4000-8000-000000note1";
+const RECORD_ID: &str = "5e5e5e5e-0000-4000-8000-0000000ec001";
+const NOTE_ID: &str = "5e5e5e5e-0000-4000-8000-00000000e001";
 const RELATION_ID: &str = "5e5e5e5e-0000-4000-8000-0000000rel01";
-const CONTAINER_ID: &str = "5e5e5e5e-0000-4000-8000-00000000ctr1";
+const CONTAINER_ID: &str = "5e5e5e5e-0000-4000-8000-00000000c7a1";
 const DOCUMENT_ID: &str = "5e5e5e5e-0000-4000-8000-00000000doc1";
 
 /// A repository populated across all six authoritative sets, including the
