@@ -57,6 +57,28 @@ fn write_base_repo(root: &Path) {
         .unwrap(),
     )
     .unwrap();
+    // The registry ladder reads a package; then the revision-2 base is brought to revision 10
+    // through it (RFC-052 [R7]).
+    std::fs::create_dir_all(root.join("package")).unwrap();
+    std::fs::write(
+        root.join("package/package.json"),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+            "id": "00000000-0000-4000-8000-0000000ba5e1",
+            "namespace": "com.test.merge",
+            "name": "merge",
+            "version": "1.0.0",
+            "title": "merge",
+            "description": "",
+            "status": "active",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "fields": [],
+            "types": []
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    srs_repository::rfc052_root_container_migration_service::ladder_fixture(root).unwrap();
 }
 
 fn note_json(id: &str, title: &str) -> String {

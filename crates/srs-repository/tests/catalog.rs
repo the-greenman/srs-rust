@@ -28,6 +28,42 @@ fn write(root: &Path, rel: &str, content: &str) {
 
 const MINIMAL_MANIFEST: &str = r#"{"dataModelRevision": 2}"#;
 
+/// The minimal fixture brought to revision 10 through the registry ladder (RFC-052 [R7]):
+/// its manifest and the empty root container the fixture helper authors, as `(path, bytes)`.
+fn minimal_tree() -> Vec<(String, Vec<u8>)> {
+    laddered(MINIMAL_MANIFEST)
+}
+
+/// [`minimal_tree`] for any pre-10 fixture manifest.
+fn laddered(manifest: &str) -> Vec<(String, Vec<u8>)> {
+    let tmp = tempfile::tempdir().unwrap();
+    write(tmp.path(), "manifest.json", manifest);
+    // The ladder reads a package; the tests author their own, so it is not returned.
+    write(tmp.path(), "package/package.json", &srs_package_json());
+    srs_repository::rfc052_root_container_migration_service::ladder_fixture(tmp.path()).unwrap();
+    let root = format!(
+        "containers/{}.json",
+        srs_repository::rfc052_root_container_migration_service::FIXTURE_ROOT_ID
+    );
+    ["manifest.json".to_string(), root]
+        .into_iter()
+        .map(|p| {
+            let bytes = std::fs::read(tmp.path().join(&p)).unwrap();
+            (p, bytes)
+        })
+        .collect()
+}
+
+fn write_minimal(root: &Path) {
+    write_laddered(root, MINIMAL_MANIFEST);
+}
+
+fn write_laddered(root: &Path, manifest: &str) {
+    for (rel, bytes) in laddered(manifest) {
+        write(root, &rel, std::str::from_utf8(&bytes).unwrap());
+    }
+}
+
 fn note_json(id: &str) -> String {
     format!(r#"{{"instanceId": "{id}", "sections": [{{"name": "body", "content": "x"}}]}}"#)
 }
@@ -192,7 +228,7 @@ fn catalog_denies_a_manifest_still_carrying_an_index() {
 fn duplicate_instance_id_names_every_locator() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    write(root, "manifest.json", MINIMAL_MANIFEST);
+    write_minimal(root);
     let id = "00000000-0000-4000-8000-000000000042";
     write(root, "records/a.json", &note_json(id));
     write(root, "records/b.json", &record_json(id));
@@ -216,7 +252,7 @@ fn duplicate_definition_id_across_distinct_files_names_every_locator() {
     // same definition id (and version) — not silently coalesced.
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    write(root, "manifest.json", MINIMAL_MANIFEST);
+    write_minimal(root);
     let field = |name: &str| {
         format!(
             r#"{{"$schema": "https://srs.semanticops.com/schema/2.0/field.json", "id": "0f0f0f0f-0000-4000-8000-000000000001", "namespace": "com.test", "name": "{name}", "version": 1, "description": "d", "aiGuidance": {{"purpose": "p"}}, "fieldType": {{"datatype": "string"}}, "createdAt": "2026-01-01T00:00:00Z"}}"#
@@ -252,7 +288,7 @@ fn duplicate_definition_id_across_distinct_files_names_every_locator() {
 fn malformed_candidate_fatal_inside_reserved_location_untouched_outside() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    write(root, "manifest.json", MINIMAL_MANIFEST);
+    write_minimal(root);
     write(
         root,
         "records/good.json",
@@ -295,7 +331,7 @@ fn malformed_candidate_fatal_inside_reserved_location_untouched_outside() {
 fn revisions_sidecar_shape_no_longer_classifies() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    write(root, "manifest.json", MINIMAL_MANIFEST);
+    write_minimal(root);
     write(
         root,
         "records/a.json",
@@ -334,7 +370,7 @@ fn revisions_sidecar_shape_no_longer_classifies() {
 fn declared_revisions_schema_is_unresolvable() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    write(root, "manifest.json", MINIMAL_MANIFEST);
+    write_minimal(root);
     write(
         root,
         "records/a.revisions.json",
@@ -355,7 +391,7 @@ fn declared_revisions_schema_is_unresolvable() {
 fn declared_protocol_definition_classifies_by_shape() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    write(root, "manifest.json", MINIMAL_MANIFEST);
+    write_minimal(root);
     let pkg: serde_json::Value = serde_json::from_str(&srs_package_json()).unwrap();
     let mut pkg = pkg.as_object().unwrap().clone();
     pkg.insert(
@@ -410,7 +446,7 @@ fn declared_protocol_definition_classifies_by_shape() {
 fn tier1_typed_record_shape_no_longer_classifies() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    write(root, "manifest.json", MINIMAL_MANIFEST);
+    write_minimal(root);
     write(
         root,
         "records/typed-records/leftover.json",
@@ -446,7 +482,7 @@ fn tier1_typed_record_shape_no_longer_classifies() {
 fn declared_typed_record_schema_is_unresolvable() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    write(root, "manifest.json", MINIMAL_MANIFEST);
+    write_minimal(root);
     write(
         root,
         "records/leftover.json",
@@ -473,7 +509,7 @@ fn declared_typed_record_schema_is_unresolvable() {
 fn declared_vocabulary_with_schema_pointer_validates() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    write(root, "manifest.json", MINIMAL_MANIFEST);
+    write_minimal(root);
     let pkg: serde_json::Value = serde_json::from_str(&srs_package_json()).unwrap();
     let mut pkg = pkg.as_object().unwrap().clone();
     pkg.insert(
@@ -538,7 +574,7 @@ fn declared_vocabulary_with_schema_pointer_validates() {
 fn declared_lifecycle_with_schema_pointer_validates() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    write(root, "manifest.json", MINIMAL_MANIFEST);
+    write_minimal(root);
     let pkg: serde_json::Value = serde_json::from_str(&srs_package_json()).unwrap();
     let mut pkg = pkg.as_object().unwrap().clone();
     pkg.insert(
@@ -580,7 +616,7 @@ fn declared_lifecycle_with_schema_pointer_validates() {
 fn near_miss_package_manifest_diagnosed_and_does_not_anchor() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    write(root, "manifest.json", MINIMAL_MANIFEST);
+    write_minimal(root);
     // Declares the SRS schema but misses required properties ([R4]).
     write(
         root,
@@ -603,7 +639,7 @@ fn near_miss_package_manifest_diagnosed_and_does_not_anchor() {
 fn npm_package_json_is_ignored_not_an_error() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    write(root, "manifest.json", MINIMAL_MANIFEST);
+    write_minimal(root);
     write(
         root,
         "web/package.json",
@@ -626,7 +662,7 @@ fn npm_package_json_is_ignored_not_an_error() {
 fn nested_records_under_package_root_is_no_longer_anchored() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    write(root, "manifest.json", MINIMAL_MANIFEST);
+    write_minimal(root);
     write(root, "pkg/package.json", &srs_package_json());
     write(
         root,
@@ -646,7 +682,7 @@ fn nested_records_under_package_root_is_no_longer_anchored() {
 fn dangling_field_assignment_diagnosed_per_target_set() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    write(root, "manifest.json", MINIMAL_MANIFEST);
+    write_minimal(root);
     write(
         root,
         "package/package.json",
@@ -697,7 +733,7 @@ fn dangling_field_assignment_diagnosed_per_target_set() {
 fn field_assignment_against_implicit_core_field_resolves_at_catalog_load() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    write(root, "manifest.json", MINIMAL_MANIFEST);
+    write_minimal(root);
     write(
         root,
         "package/package.json",
@@ -739,7 +775,7 @@ fn field_assignment_against_implicit_core_field_resolves_at_catalog_load() {
 fn sidecar_without_document_id_is_an_error() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    write(root, "manifest.json", MINIMAL_MANIFEST);
+    write_minimal(root);
     write(
         root,
         "source-documents/x.md.meta.json",
@@ -755,7 +791,7 @@ fn sidecar_without_document_id_is_an_error() {
 fn sidecar_wrong_schema_is_inadmissible_unknown_is_unresolvable() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    write(root, "manifest.json", MINIMAL_MANIFEST);
+    write_minimal(root);
     // Registered but wrong entity for this location → [R7] inadmissible.
     write(
         root,
@@ -810,7 +846,7 @@ fn malformed_sidecar_fixture_is_fatal() {
 fn opaque_source_payloads_are_never_classified() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    write(root, "manifest.json", MINIMAL_MANIFEST);
+    write_minimal(root);
     // Unclaimed payloads, including broken JSON, under sourceDocumentsPath:
     // opaque, preserved, no diagnostics ([R9]).
     write(root, "source-documents/raw.md", "# not parsed");
@@ -828,9 +864,8 @@ fn opaque_source_payloads_are_never_classified() {
 fn extension_set_enumerates_with_kind_id_identity() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    write(
+    write_laddered(
         root,
-        "manifest.json",
         r#"{
           "dataModelRevision": 2,
           "repositoryId": "0e0e0e0e-0000-4000-8000-000000000001",
@@ -860,9 +895,8 @@ fn extension_locations_require_the_owning_extension_declared() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
     // Path named, file present — but no owning extension declared ([R5]).
-    write(
+    write_laddered(
         root,
-        "manifest.json",
         r#"{
           "dataModelRevision": 2,
           "repositoryId": "0e0e0e0e-0000-4000-8000-000000000001",
@@ -879,33 +913,37 @@ fn extension_locations_require_the_owning_extension_declared() {
 // [R14] platform independence + store equivalence, [R16] validity token
 // ---------------------------------------------------------------------------
 
-fn two_note_tree() -> Vec<(&'static str, String)> {
+fn two_note_tree() -> Vec<(String, String)> {
     // File order (a.json, b.json) deliberately reverses id order so any
     // implementation leaking directory iteration order fails the assertion.
-    vec![
-        ("manifest.json", MINIMAL_MANIFEST.to_string()),
+    let mut tree: Vec<(String, String)> = minimal_tree()
+        .into_iter()
+        .map(|(p, b)| (p, String::from_utf8(b).unwrap()))
+        .collect();
+    tree.extend([
         (
-            "records/a.json",
+            "records/a.json".to_string(),
             note_json("ffffffff-0000-4000-8000-000000000002"),
         ),
         (
-            "records/b.json",
+            "records/b.json".to_string(),
             note_json("00000000-0000-4000-8000-000000000001"),
         ),
-    ]
+    ]);
+    tree
 }
 
 #[test]
 fn r14_ordering_is_identical_across_disk_and_memory_backends() {
     let tmp = tempfile::tempdir().unwrap();
     for (rel, content) in two_note_tree() {
-        write(tmp.path(), rel, &content);
+        write(tmp.path(), &rel, &content);
     }
     let disk = FileStore::new(tmp.path());
 
     let mem_vfs = MemVfs::new();
     for (rel, content) in two_note_tree() {
-        srs_repository::vfs::Vfs::write(&mem_vfs, rel, content.as_bytes()).unwrap();
+        srs_repository::vfs::Vfs::write(&mem_vfs, &rel, content.as_bytes()).unwrap();
     }
     let mem = FileStore::from_vfs(Rc::new(mem_vfs));
 
@@ -931,7 +969,7 @@ fn r14_ordering_is_identical_across_disk_and_memory_backends() {
 fn validity_token_tracks_the_enumerated_id_set() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    write(root, "manifest.json", MINIMAL_MANIFEST);
+    write_minimal(root);
     write(
         root,
         "records/a.json",
@@ -1019,7 +1057,7 @@ fn parallel_and_sequential_builds_are_identical() {
 
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    write(root, "manifest.json", MINIMAL_MANIFEST);
+    write_minimal(root);
     for i in 0..40 {
         write(
             root,
@@ -1119,11 +1157,9 @@ fn assert_catalog_matches_fresh(store: &FileStore, vfs: &Rc<MemVfs>, step: usize
 fn patched_catalog_equals_fresh_build_over_random_writes() {
     for seed in 1..=8u64 {
         let mut rng = Xor(0x9e37_79b9_7f4a_7c15 ^ seed.wrapping_mul(0x1000_0000_01b3));
-        let mut files = BTreeMap::new();
-        files.insert(
-            "manifest.json".to_string(),
-            MINIMAL_MANIFEST.as_bytes().to_vec(),
-        );
+        let minimal = minimal_tree();
+        let manifest = minimal[0].1.clone();
+        let files: BTreeMap<String, Vec<u8>> = minimal.into_iter().collect();
         let vfs = Rc::new(MemVfs::from_map(files));
         let store = FileStore::from_vfs(vfs.clone());
         // Warm the state so every following write exercises the patch path.
@@ -1176,10 +1212,7 @@ fn patched_catalog_equals_fresh_build_over_random_writes() {
                     Some(b"app content".to_vec()),
                 ),
                 // Fallback paths: manifest and a package manifest force a full rebuild.
-                9 => (
-                    "manifest.json".to_string(),
-                    Some(MINIMAL_MANIFEST.as_bytes().to_vec()),
-                ),
+                9 => ("manifest.json".to_string(), Some(manifest.clone())),
                 10 => (
                     format!("p{}/package.json", rng.next() % 2),
                     Some(br#"{"name":"npm-thing"}"#.to_vec()),

@@ -607,6 +607,9 @@ impl CatalogState {
         // The manifest remains required ([R2]); it is read for configuration only.
         let manifest = match store.load_manifest() {
             Ok(m) => m,
+            // RFC-052 [R7]: an older corpus refuses every operation with its own stable code,
+            // not folded into a catalog diagnostic.
+            Err(e @ RepositoryError::ContainerMigrationNeeded { .. }) => return Err(e),
             Err(e) => {
                 b.error(
                     codes::MANIFEST_INVALID,

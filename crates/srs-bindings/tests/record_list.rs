@@ -91,7 +91,7 @@ fn fixture_srsj() -> String {
 /// (title when present, else the type_name fallback), with the full `Record` nested.
 #[test]
 fn list_record_summaries_carries_core_display_label() {
-    let store = srs_repository::srsj::open_srsj(&fixture_srsj()).expect("fixture srsj must load");
+    let store = ladder_open(&fixture_srsj()).expect("fixture srsj must load");
     let summaries =
         list_record_summaries(&store, RecordListFilter::default()).expect("list must succeed");
 
@@ -117,4 +117,14 @@ fn list_record_summaries_carries_core_display_label() {
     assert!(first["instanceId"].is_string());
     assert!(first["displayLabel"].is_string());
     assert!(first["record"]["typeName"].is_string());
+}
+
+/// Fixtures authored below revision 10 are brought to it through the registry ladder
+/// (RFC-052 [R7]) before they are opened.
+fn ladder_open(
+    srsj: &str,
+) -> Result<srs_repository::FileStore, srs_repository::error::RepositoryError> {
+    srs_repository::srsj::open_srsj(
+        &srs_repository::rfc052_root_container_migration_service::ladder_srsj_fixture(srsj)?,
+    )
 }

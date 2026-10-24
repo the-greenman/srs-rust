@@ -649,7 +649,6 @@ mod tests {
     fn create_vocabulary_in_file_sub_package_registers_and_lists() {
         // Cross-store coverage for the same behavior verified on MemoryStore above.
         use crate::package_service::{create_package, CreatePackageInput};
-        use crate::store::FileStore;
 
         let temp = tempfile::TempDir::new().unwrap();
         std::fs::create_dir_all(temp.path().join(".srs")).unwrap();
@@ -672,7 +671,7 @@ mod tests {
             .to_string(),
         )
         .unwrap();
-        let store = FileStore::new(temp.path());
+        let store = crate::validation::fixture_ladder::store(temp.path());
         create_package(
             &store,
             CreatePackageInput {

@@ -745,6 +745,17 @@ mod tests {
         .unwrap()
     }
 
+    /// A corpus stamped below revision 10 is refused by the load gate (RFC-052 [R7]); the
+    /// export's own stamping of an older revision is reached only through the migrator
+    /// exemption, as the migration tooling reads it.
+    fn older_corpus(store: FileStore) -> FileStore {
+        assert_eq!(
+            store.load_manifest().unwrap_err().code(),
+            "container-migration-needed"
+        );
+        store.with_rfc038_exemption()
+    }
+
     fn parsed(e: &PackageBundleExport) -> Value {
         serde_json::from_str(&e.text).unwrap()
     }
@@ -1688,6 +1699,7 @@ mod tests {
         let (_t, store) = with_fixture();
         assert!(export(&store, Some(FIXTURE)).summary.notes.is_empty());
         crate::field_type_migration_service::stamp_data_model_revision(&store, 6).unwrap();
+        let store = older_corpus(store);
         let e = export(&store, Some(FIXTURE));
         assert_eq!(parsed(&e)["dataModelRevision"], 6);
         assert_eq!(e.summary.notes.len(), 1);
@@ -1746,6 +1758,7 @@ mod tests {
     fn export_stamps_repository_data_model_revision() {
         let (_t, store) = with_fixture();
         crate::field_type_migration_service::stamp_data_model_revision(&store, 8).unwrap();
+        let store = older_corpus(store);
         let e = export(&store, Some(FIXTURE));
         assert_eq!(parsed(&e)["dataModelRevision"], 8);
         assert_eq!(e.summary.data_model_revision, 8);

@@ -31,6 +31,7 @@ fn filestore_with_repo(tmp: &std::path::Path) -> FileStore {
         .to_string(),
     )
     .unwrap();
+    srs_repository::rfc052_root_container_migration_service::ladder_fixture(tmp).unwrap();
     FileStore::new(tmp)
 }
 
@@ -90,10 +91,10 @@ fn get_attachment_bytes_unknown_document_id() {
             "namespace": "com.test",
             "dataModelRevision": 2
         },
-        "data": {}
+        "data": {"package/package.json": package_json()}
     })
     .to_string();
-    let store = srs_repository::srsj::open_srsj(&srsj).expect("load store");
+    let store = ladder_open(&srsj).expect("load store");
 
     let err = get_attachment_bytes(
         &store,
@@ -123,6 +124,7 @@ fn get_attachment_bytes_srsj_tombstone() {
             "sourceDocumentsPath": "source-documents"
         },
         "data": {
+            "package/package.json": package_json(),
             // RFC-038 [R15]: the sidecar file IS the tombstone marker — the
             // retired sourceDocumentIndex no longer registers documents.
             "source-documents/tombstone.pdf.meta.json": {
@@ -134,7 +136,7 @@ fn get_attachment_bytes_srsj_tombstone() {
         }
     })
     .to_string();
-    let store = srs_repository::srsj::open_srsj(&srsj).expect("load store");
+    let store = ladder_open(&srsj).expect("load store");
 
     let err = get_attachment_bytes(
         &store,
@@ -148,4 +150,24 @@ fn get_attachment_bytes_srsj_tombstone() {
         err.is_not_found(),
         "tombstone must be not-found error, got: {err:?}"
     );
+}
+
+/// Fixtures authored below revision 10 are brought to it through the registry ladder
+/// (RFC-052 [R7]) before they are opened.
+fn ladder_open(
+    srsj: &str,
+) -> Result<srs_repository::FileStore, srs_repository::error::RepositoryError> {
+    srs_repository::srsj::open_srsj(
+        &srs_repository::rfc052_root_container_migration_service::ladder_srsj_fixture(srsj)?,
+    )
+}
+
+/// The package a revision-10 corpus carries (the ladder reads it).
+fn package_json() -> serde_json::Value {
+    serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+        "id": "fixture-pkg", "namespace": "com.test", "name": "primary",
+        "version": "1.0.0", "title": "primary", "description": "", "status": "active",
+        "createdAt": "2026-01-01T00:00:00Z", "fields": [], "types": []
+    })
 }

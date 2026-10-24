@@ -90,7 +90,7 @@ fn fixture_store() -> FileStore {
         }
     })
     .to_string();
-    srs_repository::srsj::open_srsj(&srsj).expect("fixture srsj must load")
+    ladder_open(&srsj).expect("fixture srsj must load")
 }
 
 /// Empty query returns all Tier-2 records.
@@ -201,4 +201,14 @@ fn similar_excludes_the_source() {
     )
     .expect("similar must succeed");
     assert!(result.hits.iter().all(|h| h.instance_id != REC_AUTHORITY));
+}
+
+/// Fixtures authored below revision 10 are brought to it through the registry ladder
+/// (RFC-052 [R7]) before they are opened.
+fn ladder_open(
+    srsj: &str,
+) -> Result<srs_repository::FileStore, srs_repository::error::RepositoryError> {
+    srs_repository::srsj::open_srsj(
+        &srs_repository::rfc052_root_container_migration_service::ladder_srsj_fixture(srsj)?,
+    )
 }

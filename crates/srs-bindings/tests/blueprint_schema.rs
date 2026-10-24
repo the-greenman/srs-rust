@@ -99,8 +99,7 @@ fn blueprint_srsj() -> String {
 
 #[test]
 fn blueprint_schema_returns_root_and_child_definitions() {
-    let store =
-        srs_repository::srsj::open_srsj(&blueprint_srsj()).expect("blueprint srsj must load");
+    let store = ladder_open(&blueprint_srsj()).expect("blueprint srsj must load");
     let result = blueprint_schema_service::blueprint_schema(
         &store,
         BlueprintSchemaInput {
@@ -146,8 +145,7 @@ fn blueprint_schema_returns_root_and_child_definitions() {
 
 #[test]
 fn blueprint_schema_unknown_id_errors() {
-    let store =
-        srs_repository::srsj::open_srsj(&blueprint_srsj()).expect("blueprint srsj must load");
+    let store = ladder_open(&blueprint_srsj()).expect("blueprint srsj must load");
     assert!(
         blueprint_schema_service::blueprint_schema(
             &store,
@@ -158,4 +156,14 @@ fn blueprint_schema_unknown_id_errors() {
         .is_err(),
         "unknown blueprint id should error"
     );
+}
+
+/// Fixtures authored below revision 10 are brought to it through the registry ladder
+/// (RFC-052 [R7]) before they are opened.
+fn ladder_open(
+    srsj: &str,
+) -> Result<srs_repository::FileStore, srs_repository::error::RepositoryError> {
+    srs_repository::srsj::open_srsj(
+        &srs_repository::rfc052_root_container_migration_service::ladder_srsj_fixture(srsj)?,
+    )
 }

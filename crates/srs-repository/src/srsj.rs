@@ -381,6 +381,14 @@ impl SrsjSession {
 mod tests {
     use super::*;
 
+    /// The codec under test, on fixtures brought to the current revision through the registry
+    /// ladder first (RFC-052 [R7]); shadows `super::open_srsj` in these tests.
+    fn open_srsj(content: &str) -> Result<FileStore, RepositoryError> {
+        super::open_srsj(
+            &crate::rfc052_root_container_migration_service::ladder_srsj_fixture(content)?,
+        )
+    }
+
     fn minimal_srsj(version: &str) -> String {
         serde_json::json!({
             "srsj": version,
@@ -528,12 +536,8 @@ mod tests {
             serde_json::json!("https://srs.semanticops.com/schema/2.0/manifest.json");
         doc["manifest"]["title"] = serde_json::json!("Test Repo");
         doc["manifest"]["createdAt"] = serde_json::json!("2026-01-01T00:00:00Z");
-        doc["manifest"]["rootContainerId"] =
-            serde_json::json!("00000000-0000-4000-8000-00000000cccc");
-        doc["data"]["containers/00000000-0000-4000-8000-00000000cccc.json"] = serde_json::json!({
-            "containerId": "00000000-0000-4000-8000-00000000cccc",
-            "title": "Test Repo",
-        });
+        // `rootContainerId` comes from the ladder (the fixture's authored root, moved by
+        // `rfc052-root-container`).
         let store = open_srsj(&doc.to_string()).unwrap();
         let doc_text = to_srsj_string(&store).unwrap();
         let doc: serde_json::Value = serde_json::from_str(&doc_text).unwrap();

@@ -7138,7 +7138,7 @@ mod tests {
         });
         write_json(temp.path(), "manifest.json", &manifest);
 
-        let store = crate::store::FileStore::new(temp.path());
+        let store = super::fixture_ladder::store_with_root_as_authored(temp.path());
         let report = validate_repository(&store).unwrap();
         // RFC-038 [R25]: the catalog's own [R13] dangling-reference check now catches
         // this before validate_repository's separate I-80 pass ever runs (resolving
@@ -7176,7 +7176,7 @@ mod tests {
         });
         write_json(temp.path(), "manifest.json", &manifest);
 
-        let store = crate::store::FileStore::new(temp.path());
+        let store = super::fixture_ladder::store_with_root_as_authored(temp.path());
         let report = validate_repository(&store).unwrap();
         // RFC-038 [R25]: see the memberInstanceId case above for why either
         // diagnostic proves the point.
@@ -7231,7 +7231,7 @@ mod tests {
             }),
         );
 
-        let store = crate::store::FileStore::new(temp.path());
+        let store = super::fixture_ladder::store_with_root_as_authored(temp.path());
         let report = validate_repository(&store).unwrap();
         let errors: Vec<_> = report
             .diagnostics
@@ -7295,7 +7295,7 @@ mod tests {
             }),
         );
 
-        let store = crate::store::FileStore::new(temp.path());
+        let store = super::fixture_ladder::store(temp.path());
         let report = validate_repository(&store).unwrap();
         let errors: Vec<_> = report
             .diagnostics
@@ -7344,7 +7344,7 @@ mod tests {
             }),
         );
 
-        let store = crate::store::FileStore::new(temp.path());
+        let store = super::fixture_ladder::store(temp.path());
         let report = validate_repository(&store).unwrap();
         let i81_errors: Vec<_> = report
             .diagnostics
@@ -7397,7 +7397,7 @@ mod tests {
             }),
         );
 
-        let store = crate::store::FileStore::new(temp.path());
+        let store = super::fixture_ladder::store(temp.path());
         let report = validate_repository(&store).unwrap();
         let i81_errors: Vec<_> = report
             .diagnostics
@@ -7808,7 +7808,7 @@ mod tests {
         });
         let temp = TempDir::new().unwrap();
         write_json(temp.path(), "manifest.json", &manifest);
-        let store = crate::store::FileStore::new(temp.path());
+        let store = super::fixture_ladder::store_with_root_as_authored(temp.path());
         let report = validate_repository(&store).unwrap();
         let i81_errors: Vec<_> = report
             .diagnostics
@@ -7860,7 +7860,7 @@ mod tests {
                 "fieldValues": {}
             }),
         );
-        let store = crate::store::FileStore::new(temp.path());
+        let store = super::fixture_ladder::store(temp.path());
         let report = validate_repository(&store).unwrap();
         let rfc_diags: Vec<_> = report
             .diagnostics
@@ -7940,7 +7940,7 @@ mod tests {
             }),
         );
 
-        let store = crate::store::FileStore::new(temp.path());
+        let store = super::fixture_ladder::store(temp.path());
         let report = validate_repository(&store).unwrap();
         let rfc013_diags: Vec<_> = report
             .diagnostics
@@ -7981,21 +7981,11 @@ mod tests {
         // FileStore: write files to disk
         let temp = TempDir::new().unwrap();
         write_json(temp.path(), "manifest.json", &manifest_val);
-        let file_store = crate::store::FileStore::new(temp.path());
+        let file_store = super::fixture_ladder::store_with_root_as_authored(temp.path());
 
-        // FileStore via from_srsj: the same manifest, root in the container set (RFC-052).
-        let mut srsj_manifest = manifest_val.clone();
-        let (root_path, root) =
-            crate::rfc052_root_container_migration_service::rewrite_embedded_root(
-                &mut srsj_manifest,
-            )
-            .unwrap();
-        let srsj = json!({
-            "srsj": "2",
-            "manifest": srsj_manifest,
-            "data": { root_path: root }
-        });
-        let json_store = crate::srsj::open_srsj(&srsj.to_string()).unwrap();
+        // FileStore via from_srsj: the same revision-10 tree, carried as a `.srsj` document.
+        let json_store =
+            crate::srsj::open_srsj(&crate::srsj::to_srsj_string(&file_store).unwrap()).unwrap();
 
         let file_report = validate_repository(&file_store).unwrap();
         let json_report = validate_repository(&json_store).unwrap();
@@ -8429,7 +8419,7 @@ mod tests {
             &valid_note(identity_id),
         );
 
-        let store = crate::store::FileStore::new(temp.path());
+        let store = super::fixture_ladder::store(temp.path());
         let report = validate_repository(&store).unwrap();
 
         let rfc018_diags: Vec<_> = report
@@ -8488,7 +8478,7 @@ mod tests {
             &minimal_record_json(identity_id, type_id, None),
         );
 
-        let store = crate::store::FileStore::new(temp.path());
+        let store = super::fixture_ladder::store(temp.path());
         let report = validate_repository(&store).unwrap();
 
         let rfc018_diags: Vec<_> = report
@@ -8556,7 +8546,7 @@ mod tests {
         });
         write_json(temp.path(), "records/identity.json", &purpose_record);
 
-        let store = crate::store::FileStore::new(temp.path());
+        let store = super::fixture_ladder::store(temp.path());
         let report = validate_repository(&store).unwrap();
 
         let rfc018_diags: Vec<_> = report
@@ -11343,5 +11333,77 @@ mod tests {
             "non-repository-document sourceType must not trigger R2/R12, got: {:?}",
             r2_r12
         );
+    }
+}
+
+/// Test fixtures authored below revision 10, brought to it through the registry ladder
+/// (RFC-052 [R7]: older test data is restamped through the migration ladder, never by hand).
+/// The ladder reads the root package, so a fixture without one is first given an empty one.
+#[cfg(test)]
+pub(crate) mod fixture_ladder {
+    use std::path::Path;
+
+    fn empty_package() -> serde_json::Value {
+        serde_json::json!({
+            "$schema": srs_schema::PACKAGE_MANIFEST_SCHEMA_ID, "id": "fixture-pkg",
+            "namespace": "com.test", "name": "fixture", "version": "1.0.0", "title": "fixture",
+            "description": "", "status": "active", "createdAt": "2026-01-01T00:00:00Z",
+            "fields": [], "types": []
+        })
+    }
+
+    /// Ladder the fixture tree at `root` in place.
+    pub(crate) fn ladder(root: &Path) {
+        let index = root.join("package/package.json");
+        if !index.exists() {
+            std::fs::create_dir_all(index.parent().unwrap()).unwrap();
+            std::fs::write(&index, empty_package().to_string()).unwrap();
+        }
+        crate::rfc052_root_container_migration_service::ladder_fixture(root).unwrap();
+    }
+
+    /// [`ladder`], then open the tree.
+    pub(crate) fn store(root: &Path) -> crate::store::FileStore {
+        ladder(root);
+        crate::store::FileStore::new(root)
+    }
+
+    /// [`store`] for a fixture whose subject is an invalid root container (the ladder refuses
+    /// to restamp a root that does not validate, owner ruling A2 on srs#963): the ladder runs
+    /// with a valid stand-in root under the same id, and the root as the test authored it is
+    /// written back into the revision-10 tree afterwards.
+    pub(crate) fn store_with_root_as_authored(root: &Path) -> crate::store::FileStore {
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("manifest.json")).unwrap()).unwrap();
+        let id = manifest["rootContainerId"].as_str().unwrap();
+        let path = root.join(crate::store::root_container_path(id));
+        let authored = std::fs::read(&path).unwrap();
+        std::fs::write(
+            &path,
+            serde_json::json!({"containerId": id, "title": "stand-in", "memberInstanceIds": []})
+                .to_string(),
+        )
+        .unwrap();
+        ladder(root);
+        std::fs::write(&path, authored).unwrap();
+        crate::store::FileStore::new(root)
+    }
+
+    /// Ladder an in-code `.srsj` fixture and return the revision-10 document.
+    pub(crate) fn srsj(text: &str) -> String {
+        let mut doc: serde_json::Value = serde_json::from_str(text).unwrap();
+        if let Some(data) = doc.get_mut("data").and_then(|d| d.as_object_mut()) {
+            data.entry("package/package.json")
+                .or_insert_with(empty_package);
+        }
+        crate::rfc052_root_container_migration_service::ladder_srsj_fixture(&doc.to_string())
+            .unwrap()
+    }
+
+    /// [`srsj`], then open the document.
+    pub(crate) fn open_srsj(
+        text: &str,
+    ) -> Result<crate::store::FileStore, crate::error::RepositoryError> {
+        crate::srsj::open_srsj(&srsj(text))
     }
 }

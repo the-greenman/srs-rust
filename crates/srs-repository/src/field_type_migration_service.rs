@@ -659,7 +659,7 @@ mod substrate_properties_to_meta_tests {
             "fixture must start with the legacy key"
         );
 
-        let store = FileStore::new(temp.path());
+        let store = FileStore::new(temp.path()).with_rfc038_exemption();
         assert_eq!(data_model_revision(&store).unwrap(), 4);
 
         let result = migrate_substrate_properties_to_meta(&store).unwrap();
@@ -691,7 +691,7 @@ mod substrate_properties_to_meta_tests {
     #[test]
     fn substrate_properties_to_meta_is_idempotent() {
         let temp = rev4_repo_with_legacy_properties_relation_type();
-        let store = FileStore::new(temp.path());
+        let store = FileStore::new(temp.path()).with_rfc038_exemption();
         migrate_substrate_properties_to_meta(&store).unwrap();
 
         // Re-running after the stamp is already at 5 is a no-op per the

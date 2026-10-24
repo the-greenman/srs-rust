@@ -105,7 +105,9 @@ fn supplied_invalid_and_too_old_are_refused_with_their_codes() {
     );
     assert!(refusal(&not_json) == "actor-invalid");
 
-    // Pre-9 corpus: actor session refused, unattributed session fine.
+    // Pre-9 corpus: an actor session is refused first (`revision-too-old`, RFC-046 [R11]);
+    // an unattributed session is now refused too, by the declared-revision load gate
+    // (RFC-052 [R7], owner ruling 1 on srs#953), which names the pending migrations.
     let manifest_path = repo.path().join("manifest.json");
     let mut m: Value = serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
     m["dataModelRevision"] = serde_json::json!(8);
@@ -117,9 +119,11 @@ fn supplied_invalid_and_too_old_are_refused_with_their_codes() {
         NOTE,
     );
     assert!(refusal(&old) == "revision-too-old");
+    let unattributed = srs(repo.path(), &["note", "create"], None, NOTE);
     assert_eq!(
-        srs(repo.path(), &["note", "create"], None, NOTE)["ok"],
-        true
+        refusal(&unattributed),
+        "container-migration-needed",
+        "{unattributed}"
     );
 }
 

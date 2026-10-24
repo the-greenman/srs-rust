@@ -11,7 +11,7 @@ fn srsj_empty() -> String {
             "namespace": "com.test",
             "dataModelRevision": 2
         },
-        "data": {}
+        "data": {"package/package.json": package_json()}
     })
     .to_string()
 }
@@ -27,6 +27,7 @@ fn srsj_with_indexed_entry() -> String {
             "sourceDocumentsPath": "source-documents"
         },
         "data": {
+            "package/package.json": package_json(),
             "source-documents/brief.pdf": "pdf-content-placeholder",
             "source-documents/brief.meta.json": {
                 "documentId": "doc-001",
@@ -50,6 +51,7 @@ fn srsj_with_unindexed_file() -> String {
             "dataModelRevision": 2
         },
         "data": {
+            "package/package.json": package_json(),
             "source-documents/orphan.pdf": "orphan-content-placeholder"
         }
     })
@@ -58,7 +60,7 @@ fn srsj_with_unindexed_file() -> String {
 
 #[test]
 fn binding_list_attachments_empty_repo() {
-    let store = srs_repository::srsj::open_srsj(&srsj_empty()).expect("load store");
+    let store = ladder_open(&srsj_empty()).expect("load store");
     let result =
         list_attachments(&store, ListAttachmentsFilter::default()).expect("list_attachments ok");
     assert!(
@@ -73,7 +75,7 @@ fn binding_list_attachments_empty_repo() {
 
 #[test]
 fn binding_list_attachments_with_indexed_entry() {
-    let store = srs_repository::srsj::open_srsj(&srsj_with_indexed_entry()).expect("load store");
+    let store = ladder_open(&srsj_with_indexed_entry()).expect("load store");
     let result =
         list_attachments(&store, ListAttachmentsFilter::default()).expect("list_attachments ok");
     // One content file (brief.pdf); .meta.json sidecar is filtered out by the service.
@@ -90,7 +92,7 @@ fn binding_list_attachments_with_indexed_entry() {
 
 #[test]
 fn binding_list_attachments_unindexed_file_appears_path_only() {
-    let store = srs_repository::srsj::open_srsj(&srsj_with_unindexed_file()).expect("load store");
+    let store = ladder_open(&srsj_with_unindexed_file()).expect("load store");
     let result =
         list_attachments(&store, ListAttachmentsFilter::default()).expect("list_attachments ok");
     assert_eq!(result.entries.len(), 1, "unindexed file must still appear");
@@ -114,7 +116,7 @@ fn binding_list_attachments_size_bytes_from_binary_content() {
     // invariant and cause list_files_recursive to return the path twice. Note: add_attachment
     // also guards at the manifest level (rejects duplicate content_path in sourceDocumentIndex),
     // but the store-level invariant must hold regardless.
-    let store = srs_repository::srsj::open_srsj(&srsj_empty()).expect("load store");
+    let store = ladder_open(&srsj_empty()).expect("load store");
     add_attachment(
         &store,
         AddAttachmentInput {
@@ -144,4 +146,24 @@ fn binding_list_attachments_size_bytes_from_binary_content() {
         Some(9),
         "sizeBytes must appear in JSON when present"
     );
+}
+
+/// Fixtures authored below revision 10 are brought to it through the registry ladder
+/// (RFC-052 [R7]) before they are opened.
+fn ladder_open(
+    srsj: &str,
+) -> Result<srs_repository::FileStore, srs_repository::error::RepositoryError> {
+    srs_repository::srsj::open_srsj(
+        &srs_repository::rfc052_root_container_migration_service::ladder_srsj_fixture(srsj)?,
+    )
+}
+
+/// The package a revision-10 corpus carries (the ladder reads it).
+fn package_json() -> serde_json::Value {
+    serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+        "id": "fixture-pkg", "namespace": "com.test", "name": "primary",
+        "version": "1.0.0", "title": "primary", "description": "", "status": "active",
+        "createdAt": "2026-01-01T00:00:00Z", "fields": [], "types": []
+    })
 }

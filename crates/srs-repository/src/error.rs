@@ -530,14 +530,14 @@ pub enum RepositoryError {
     #[error("manifest.json declares retired property '{property}' — removed by RFC-038 [R2]; run the rfc038-storage migration")]
     RetiredManifestProperty { property: String },
 
-    /// RFC-052 [R7]: a manifest below dataModelRevision 10 that still embeds the root
-    /// container. This build reads only the revision-10 form, so it refuses every operation
-    /// except the registry migration and names it. `legacy_rfc043_shape` marks a root still
-    /// in the revision-7 shape (RFC-043 [R16]), which needs `rfc043-container-entries` first.
-    #[error("manifest.json declares dataModelRevision {declared} and embeds the root container; this build reads dataModelRevision 10, where the root container lives in the container set (RFC-052 [R7]) — run `srs repo migrations` and apply the needed migrations in order{}, ending with `srs repo apply-migration --id rfc052-root-container`", if *legacy_rfc043_shape { " (this root is still in the dataModelRevision 7 shape: `rfc043-container-entries` and `rfc046-actor-provenance` come first, RFC-043 [R16])" } else { "" })]
+    /// RFC-052 [R7]: a manifest that declares dataModelRevision 9 or lower. Detection reads
+    /// the declared revision only, never the manifest's shape (owner ruling 1 on srs#953).
+    /// This build refuses every operation except the registry migration; `pending` names
+    /// the revision-keyed registry entries the corpus still needs, in the order to apply them.
+    #[error("manifest.json declares dataModelRevision {declared}; this build reads dataModelRevision 10 (RFC-052 [R7]) — apply the pending registry migrations in order: {}", pending.iter().map(|id| format!("`srs repo apply-migration --id {id}`")).collect::<Vec<_>>().join(", then "))]
     ContainerMigrationNeeded {
         declared: u64,
-        legacy_rfc043_shape: bool,
+        pending: Vec<&'static str>,
     },
 
     /// RFC-052 [R1]: a revision-10 manifest that embeds the root container
@@ -1647,7 +1647,7 @@ mod tests {
             },
             R::ContainerMigrationNeeded {
                 declared: 9,
-                legacy_rfc043_shape: false,
+                pending: vec!["rfc052-root-container"],
             },
             R::ManifestRootContainer {
                 code: "manifest-root-x",

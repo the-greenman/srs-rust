@@ -18,6 +18,7 @@ fn create_temp_repo() -> TempDir {
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .expect("Failed to write manifest");
+    request_ladder(temp.path()).unwrap();
 
     temp
 }
@@ -231,6 +232,7 @@ fn create_navigation_repo() -> TempDir {
 }
 
 fn run_srs_in_dir(dir: &std::path::Path, args: &[&str]) -> Value {
+    ladder_pending(dir, args);
     let exe = env!("CARGO_BIN_EXE_srs");
     let output = Command::new(exe)
         .env_remove("SRS_ACTOR")
@@ -372,6 +374,7 @@ fn repo_navigation_resolves_section_members_of_every_remaining_tier() {
 }
 
 fn run_srs_stdin_in_dir(dir: &std::path::Path, args: &[&str], stdin: &str) -> Value {
+    ladder_pending(dir, args);
     let exe = env!("CARGO_BIN_EXE_srs");
     let mut child = Command::new(exe)
         .env_remove("SRS_ACTOR")
@@ -410,6 +413,7 @@ fn run_srs_stdin_in_dir(dir: &std::path::Path, args: &[&str], stdin: &str) -> Va
 }
 
 fn run_srs_any_status_in_dir(dir: &std::path::Path, args: &[&str]) -> (bool, Value) {
+    ladder_pending(dir, args);
     let exe = env!("CARGO_BIN_EXE_srs");
     let output = Command::new(exe)
         .env_remove("SRS_ACTOR")
@@ -427,6 +431,7 @@ fn run_srs_stdin_any_status_in_dir(
     args: &[&str],
     stdin: &str,
 ) -> (bool, Value) {
+    ladder_pending(dir, args);
     let exe = env!("CARGO_BIN_EXE_srs");
     let mut child = Command::new(exe)
         .env_remove("SRS_ACTOR")
@@ -527,6 +532,7 @@ fn run_srs(args: &[&str]) -> Value {
 /// Run srs from a directory that is NOT an SRS repo, passing explicit args (may exit non-zero)
 #[allow(dead_code)]
 fn run_srs_raw(dir: &std::path::Path, args: &[&str]) -> (bool, String) {
+    ladder_pending(dir, args);
     let exe = env!("CARGO_BIN_EXE_srs");
     let output = Command::new(exe)
         .env_remove("SRS_ACTOR")
@@ -1969,6 +1975,9 @@ fn repo_validate_invalid_note_returns_ok_false() {
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .unwrap();
+    // The invalid instance is the subject: it lands after the ladder (which restamps only a
+    // corpus that validates, owner ruling A2 on srs#963).
+    ladder_pending(temp.path(), &[]);
     write_json(&notes_dir.join("bad.json"), bad_note);
 
     let repo_str = temp.path().to_str().unwrap().to_string();
@@ -2032,6 +2041,9 @@ fn repo_validate_tier_schema_mismatch_returns_ok_false() {
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .unwrap();
+    // The invalid instance is the subject: it lands after the ladder (which restamps only a
+    // corpus that validates, owner ruling A2 on srs#963).
+    ladder_pending(temp.path(), &[]);
     write_json(&notes_dir.join("wrong.json"), wrong);
 
     let repo_str = temp.path().to_str().unwrap().to_string();
@@ -4489,12 +4501,27 @@ fn make_container_test_repo() -> TempDir {
     temp
 }
 
+/// The containers a `container list` payload names, without the fixture root the ladder gave
+/// a rootless fixture (a revision-10 repository always has a root, RFC-052 [R1]).
+fn non_root_containers(listed: &Value) -> Value {
+    let root = srs_repository::rfc052_root_container_migration_service::FIXTURE_ROOT_ID;
+    Value::Array(
+        listed["payload"]["containers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|c| c["containerId"] != root)
+            .cloned()
+            .collect(),
+    )
+}
+
 #[test]
 fn container_list_returns_empty_initially() {
     let temp = make_container_test_repo();
     let result = run_srs_in_dir(temp.path(), &["container", "list"]);
     assert_eq!(result["ok"], true);
-    assert_eq!(result["payload"]["containers"], serde_json::json!([]));
+    assert_eq!(non_root_containers(&result), serde_json::json!([]));
 }
 
 #[test]
@@ -4624,7 +4651,7 @@ fn container_update_list_reflects_new_title() {
     );
     let listed = run_srs_in_dir(temp.path(), &["container", "list"]);
     assert_eq!(listed["ok"], true);
-    assert_eq!(listed["payload"]["containers"][0]["title"], "New");
+    assert_eq!(non_root_containers(&listed)[0]["title"], "New");
 }
 
 #[test]
@@ -4775,7 +4802,7 @@ fn container_delete_removes_container() {
     );
     assert_eq!(deleted["ok"], true);
     let listed = run_srs_in_dir(temp.path(), &["container", "list"]);
-    assert_eq!(listed["payload"]["containers"], serde_json::json!([]));
+    assert_eq!(non_root_containers(&listed), serde_json::json!([]));
 }
 
 #[test]
@@ -4809,7 +4836,7 @@ fn container_delete_plan_then_apply() {
     assert_eq!(plan["payload"]["applied"], false);
     let listed = run_srs_in_dir(temp.path(), &["container", "list"]);
     assert_eq!(
-        listed["payload"]["containers"].as_array().unwrap().len(),
+        non_root_containers(&listed).as_array().unwrap().len(),
         1,
         "a plan writes nothing"
     );
@@ -4818,7 +4845,7 @@ fn container_delete_plan_then_apply() {
     assert_eq!(applied["ok"], true, "{applied}");
     assert_eq!(applied["payload"]["applied"], true);
     let listed = run_srs_in_dir(temp.path(), &["container", "list"]);
-    assert_eq!(listed["payload"]["containers"], serde_json::json!([]));
+    assert_eq!(non_root_containers(&listed), serde_json::json!([]));
 }
 
 #[test]
@@ -4995,7 +5022,7 @@ fn container_create_rejects_unresolvable_membership_id() {
         let listed = run_srs_in_dir(temp.path(), &["container", "list"]);
         assert_eq!(listed["ok"], true, "{key}: repository must still load");
         assert_eq!(
-            listed["payload"]["containers"],
+            non_root_containers(&listed),
             serde_json::json!([]),
             "{key}: no container may have been written"
         );
@@ -6011,26 +6038,20 @@ fn field_list_with_package_filter() {
         "fields": ["fields/f-primary.json"],
         "types": []
     });
-    std::fs::write(
-        temp.path().join("package/package.json"),
-        serde_json::to_string_pretty(&pkg_json).unwrap(),
-    )
-    .unwrap();
-    std::fs::write(
-        temp.path().join("package/fields/f-primary.json"),
-        serde_json::to_string_pretty(&serde_json::json!({
+    write_json(&temp.path().join("package/package.json"), pkg_json);
+    write_json(
+        &temp.path().join("package/fields/f-primary.json"),
+        serde_json::json!({
             "id": "00000000-0000-0000-0000-fld000000001",
             "namespace": "com.test",
             "name": "primary-field",
             "version": 1,
             "aiGuidance": {"purpose": "captures the primary-field value"},
-            "valueType": "string",
+            "fieldType": {"datatype": "string"},
             "description": "",
             "createdAt": "2026-01-01T00:00:00Z"
-        }))
-        .unwrap(),
-    )
-    .unwrap();
+        }),
+    );
 
     let result = run_srs_in_dir(temp.path(), &["field", "list"]);
     assert_eq!(result["ok"], true);
@@ -6054,23 +6075,18 @@ fn type_list_with_package_filter() {
         "fields": [],
         "types": ["types/t-primary.json"]
     });
-    std::fs::write(
-        temp.path().join("package/package.json"),
-        serde_json::to_string_pretty(&pkg_json).unwrap(),
-    )
-    .unwrap();
-    std::fs::write(
-        temp.path().join("package/types/t-primary.json"),
-        serde_json::to_string_pretty(&serde_json::json!({
+    write_json(&temp.path().join("package/package.json"), pkg_json);
+    write_json(
+        &temp.path().join("package/types/t-primary.json"),
+        serde_json::json!({
             "id": "00000000-0000-0000-0000-typ000000001",
             "namespace": "com.test",
             "name": "primary-type",
             "version": 1,
+            "description": "Primary type",
             "fields": []
-        }))
-        .unwrap(),
-    )
-    .unwrap();
+        }),
+    );
 
     let result = run_srs_in_dir(temp.path(), &["type", "list"]);
     assert_eq!(result["ok"], true);
@@ -8291,6 +8307,7 @@ fn container_resolve_view_happy_path() {
 #[test]
 fn repo_migrations_lists_the_registered_migrations() {
     let temp = create_temp_repo();
+    keep_revision(temp.path());
     let repo_str = temp.path().to_str().unwrap().to_string();
     let result = run_srs_in_dir(temp.path(), &["--repo", &repo_str, "repo", "migrations"]);
 
@@ -8459,6 +8476,7 @@ fn legacy_rev1_array_field_values_record_is_rejected_with_r9_diagnostic() {
         }),
     );
 
+    keep_revision(temp.path());
     let (_status, result) = run_srs_any_status_in_dir(temp.path(), &["repo", "validate"]);
     assert_eq!(result["ok"], false, "expected ok false: {result:?}");
     let diags = result["diagnostics"].as_array().unwrap();
@@ -8544,6 +8562,7 @@ fn repo_apply_migration_field_type_rewrites_a_legacy_field_end_to_end() {
         }
     }
     write_json(&manifest_path, manifest);
+    keep_revision(repo);
 
     // Before: RFC-038's catalog now reports the legacy field's schema breach
     // directly (the softer "needs migrating" compat warning is preempted for
@@ -8903,5 +8922,62 @@ fn find_similar_excludes_source_ranks_related_and_rejects_text() {
 /// written in) lands in the container set, named by `rootContainerId`.
 fn write_manifest_fixture(dir: &std::path::Path, content: impl AsRef<str>) -> std::io::Result<()> {
     let value: serde_json::Value = serde_json::from_str(content.as_ref()).expect("manifest JSON");
-    srs_repository::rfc052_root_container_migration_service::write_fixture_manifest(dir, &value)
+    srs_repository::rfc052_root_container_migration_service::write_fixture_manifest(dir, &value)?;
+    request_ladder(dir)
+}
+
+/// Marks a fixture written below revision 10: the first command run on it brings it to the
+/// current revision through the registry ladder (RFC-052 [R7]), after every fixture file is
+/// in place. Fixtures whose subject is old data never set it.
+const LADDER_PENDING: &str = ".ladder-pending";
+
+fn request_ladder(dir: &std::path::Path) -> std::io::Result<()> {
+    std::fs::write(dir.join(LADDER_PENDING), "")
+}
+
+/// For a test whose subject is the old data itself: keep the fixture at its own revision.
+fn keep_revision(dir: &std::path::Path) {
+    let _ = std::fs::remove_file(dir.join(LADDER_PENDING));
+}
+
+/// Apply a requested ladder to the repository a command is about to run on (`--repo` or cwd).
+fn ladder_pending(dir: &std::path::Path, args: &[&str]) {
+    let repo = args
+        .iter()
+        .position(|a| *a == "--repo")
+        .and_then(|i| args.get(i + 1))
+        .map(|r| dir.join(r))
+        .unwrap_or_else(|| dir.to_path_buf());
+    let marker = repo.join(LADDER_PENDING);
+    if marker.exists() {
+        std::fs::remove_file(&marker).unwrap();
+        // The ladder needs a primary package (revision-10 navigation reads it); a fixture
+        // without one gets a stand-in for the ladder only and stays packageless.
+        let index = repo.join("package/package.json");
+        let had_package_dir = repo.join("package").exists();
+        let stand_in = !index.exists();
+        if stand_in {
+            std::fs::create_dir_all(index.parent().unwrap()).unwrap();
+            std::fs::write(
+                &index,
+                serde_json::json!({
+                    "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                    "id": "fixture-pkg", "namespace": "com.test", "name": "fixture",
+                    "version": "1.0.0", "title": "fixture", "description": "",
+                    "status": "active", "createdAt": "2026-01-01T00:00:00Z",
+                    "fields": [], "types": []
+                })
+                .to_string(),
+            )
+            .unwrap();
+        }
+        srs_repository::rfc052_root_container_migration_service::ladder_fixture(&repo)
+            .expect("fixture ladder");
+        if stand_in {
+            std::fs::remove_file(&index).unwrap();
+            if !had_package_dir {
+                std::fs::remove_dir_all(repo.join("package")).unwrap();
+            }
+        }
+    }
 }

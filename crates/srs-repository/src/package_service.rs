@@ -2999,7 +2999,6 @@ mod tests {
     #[test]
     fn create_relation_type_in_file_sub_package_registers_and_lists() {
         // Cross-store coverage for the same behavior verified on MemoryStore above.
-        use crate::store::FileStore;
         use srs_core::types::relation_type_definition::{
             RelationTypeCategory, RelationTypeDefinition,
         };
@@ -3025,7 +3024,7 @@ mod tests {
             .to_string(),
         )
         .unwrap();
-        let store = FileStore::new(temp.path());
+        let store = crate::validation::fixture_ladder::store(temp.path());
         create_package(
             &store,
             CreatePackageInput {

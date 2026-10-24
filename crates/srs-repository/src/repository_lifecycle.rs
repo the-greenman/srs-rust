@@ -737,7 +737,11 @@ mod tests {
 
     #[test]
     fn init_new_repository_roundtrips_via_json_store() {
-        let store = crate::srsj::open_srsj(&seed_srsj()).unwrap();
+        let store = crate::srsj::open_srsj(
+            &crate::rfc052_root_container_migration_service::ladder_srsj_fixture(&seed_srsj())
+                .unwrap(),
+        )
+        .unwrap();
         let input = super::InitNewRepositoryInput {
             repository_id: Some("new-fixed-uuid".to_string()),
             namespace: "com.example.roundtrip".to_string(),
@@ -1197,7 +1201,13 @@ mod tests {
 
     #[test]
     fn init_new_repository_rfc014_roundtrips_via_json_store() {
-        let store = crate::srsj::open_srsj(&seed_rfc014_srsj()).unwrap();
+        let store = crate::srsj::open_srsj(
+            &crate::rfc052_root_container_migration_service::ladder_srsj_fixture(
+                &seed_rfc014_srsj(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
         let input = super::InitNewRepositoryInput {
             repository_id: Some("new-fixed-uuid-rfc014".to_string()),
             namespace: "com.example.roundtrip-rfc014".to_string(),

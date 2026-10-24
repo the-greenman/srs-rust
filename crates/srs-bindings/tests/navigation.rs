@@ -436,18 +436,19 @@ fn repository_navigation_root_is_member_of_its_own_sub_container() {
 }
 
 /// Missing manifest.container (pre-RFC-013 repo): sections empty, one diagnostic entry.
-/// Uses the gallery fixture, which has no manifest.container field.
+/// A rootless revision-2 document (the gallery fixture with its root pointer removed and its
+/// old stamp put back): the in-memory ladder reaches `rfc052-root-container`, which refuses a
+/// manifest with neither `container` nor `rootContainerId` (RFC-052 [R7], owner ruling A2 on
+/// srs#963) rather than writing a revision-10 corpus no command can open.
 #[test]
-fn repository_navigation_without_manifest_container_returns_diagnostic() {
-    let srsj = include_str!("../../srs-repository/tests/fixtures/gallery.srsj");
-    let store = open_srsj(srsj).expect("gallery fixture must load");
-    let nav = repository_navigation(&store).expect("navigation must return ok (not error)");
-
-    assert_eq!(nav.root_container_id, "");
-    // ADR-044 (srs-rust#838): absence is None and an omitted JSON key, never an
-    // empty-string node standing in for one.
-    assert!(nav.identity.is_none());
-    assert!(nav.sections.is_empty());
-    assert_eq!(nav.diagnostics.len(), 1);
-    assert!(nav.diagnostics[0].contains("manifest.rootContainerId is absent"));
+fn a_rootless_revision_2_document_is_refused_by_the_ladder() {
+    let mut doc: serde_json::Value = serde_json::from_str(include_str!(
+        "../../srs-repository/tests/fixtures/gallery.srsj"
+    ))
+    .unwrap();
+    let m = doc["manifest"].as_object_mut().unwrap();
+    m.remove("rootContainerId");
+    m.insert("dataModelRevision".into(), 2.into());
+    let err = open_srsj(&doc.to_string()).unwrap_err();
+    assert_eq!(err.code(), "migration-root-missing", "{err}");
 }

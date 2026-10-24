@@ -1,8 +1,9 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
-  "repositoryTitle": "Malformed Sidecar Test Fixture",
+  "dataModelRevision": 10,
   "declaredExtensions": [],
-  "dataModelRevision": 2,
   "namespace": "com.example.malformed-sidecar-test",
-  "repositoryId": "aaaaaaaa-1111-4000-8000-000000000001"
+  "repositoryId": "aaaaaaaa-1111-4000-8000-000000000001",
+  "repositoryTitle": "Malformed Sidecar Test Fixture",
+  "rootContainerId": "0f1c7e00-0000-4000-8000-000000000000"
 }
