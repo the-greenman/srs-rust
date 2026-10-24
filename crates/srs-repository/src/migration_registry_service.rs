@@ -91,6 +91,16 @@ pub(crate) fn revision_step_from(from: u64) -> Option<(&'static str, &'static Re
     })
 }
 
+/// The revision-keyed registry entries a corpus declaring `declared` still needs, in the
+/// order to apply them (RFC-052 [R7]: read from the declared revision alone).
+pub(crate) fn pending_revision_steps(declared: u64) -> Vec<&'static str> {
+    MIGRATIONS
+        .iter()
+        .filter(|m| m.revision_step.as_ref().is_some_and(|s| s.from >= declared))
+        .map(|m| m.id)
+        .collect()
+}
+
 static MIGRATIONS: &[MigrationDefinition] = &[
     // First by necessity, not preference (srs-rust#896): every other entry in
     // this ladder — and almost every ordinary repository-store operation —

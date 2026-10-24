@@ -800,18 +800,14 @@ pub enum RepoCommand {
     /// Render an llms.txt-style agent-readable index of the repository
     #[command(name = "agent-index")]
     AgentIndex,
-    /// Set the repository's root container (containerId + identityInstanceId).
-    /// Writes the root to containers/<containerId>.json when it has no file yet and points
-    /// manifest.rootContainerId at it (RFC-052), so the navigation service can find the root.
+    /// Point manifest.rootContainerId at an existing container (RFC-052 [R8]). Pointer-only:
+    /// no container changes, and the previous root stays an ordinary container. An id that
+    /// names no container is refused (`container-not-found`). Change a root's title,
+    /// identity or members with `container update`.
     #[command(name = "set-root-container")]
     SetRootContainer {
         #[arg(long = "container-id")]
         container_id: String,
-        #[arg(long = "identity-instance-id")]
-        identity_instance_id: String,
-        /// Root container title (defaults to the manifest title when omitted)
-        #[arg(long = "title")]
-        title: Option<String>,
     },
     /// Refused at dataModelRevision 10 (`manifest-root-container-missing`): a manifest
     /// must name its root container (RFC-052 [R1]). Point it at another container with

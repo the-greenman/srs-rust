@@ -227,12 +227,18 @@ pub fn scaffold_governance_repo(
     add_member(store, &root_container_id, &identity_id, None, None)?;
     add_member(store, &root_container_id, &dl_root_id, None, None)?;
 
+    crate::container_service::update_container(
+        store,
+        &root_container_id,
+        crate::container_service::ContainerPatch {
+            identity_instance_id: Some(Some(identity_id.clone())),
+            ..Default::default()
+        },
+    )?;
     set_manifest_root_container(
         store,
         SetManifestRootContainerInput {
             container_id: root_container_id.clone(),
-            identity_instance_id: identity_id.clone(),
-            title: None,
         },
     )?;
 

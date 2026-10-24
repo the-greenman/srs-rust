@@ -352,33 +352,29 @@ pub fn remove_package_ref(
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SetManifestRootContainerInput {
+    /// An existing container of the container set (RFC-052 [R8]).
     pub container_id: String,
-    pub identity_instance_id: String,
-    /// Root container title. When `None`, falls back to the manifest title, then the
-    /// existing embed's title, then the manifest namespace.
-    pub title: Option<String>,
 }
 
-/// Result of `set_manifest_root_container`
+/// Result of `set_manifest_root_container`: the root container now named, as it is stored.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SetManifestRootContainerResult {
     pub container_id: String,
-    pub identity_instance_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity_instance_id: Option<String>,
     pub title: String,
     pub member_instance_ids: Vec<String>,
 }
 
-/// Point `manifest.rootContainerId` at a root container (RFC-052) — the container the
-/// navigation service reads.
+/// Point `manifest.rootContainerId` at an existing container (RFC-052 Change D / [R8]).
 ///
-/// Writes the canonical RFC-013 shape (same as `repo create`):
-/// `{containerId, identityInstanceId, memberInstanceIds, title}` with a non-empty title and
-/// `identityInstanceId ∈ memberInstanceIds` (I-81), at `containers/<containerId>.json` when
-/// the container has no file yet. An existing container with that id is promoted (its
-/// members and other fields preserved, the identity merged in); the previous root then stays
-/// in the container set as an ordinary container. A new id carries the previous root's
-/// content across under the new id and removes the previous root's file (a rename).
+/// Pointer-only: the manifest is the one file written. No container changes — the promoted
+/// container and the previous root keep their own titles, identity records and entries, and
+/// the previous root stays an ordinary container, so swapping back restores the first state
+/// exactly. An id that names no container is refused with `container-not-found`, writing
+/// nothing (owner ruling A1, srs#963). Change a root's title, identity or members with
+/// `container update`, never through this.
 pub fn set_manifest_root_container(
     store: &dyn RepositoryStore,
     input: SetManifestRootContainerInput,
@@ -388,92 +384,19 @@ pub fn set_manifest_root_container(
             message: "container_id must not be empty".to_string(),
         });
     }
-    if input.identity_instance_id.is_empty() {
-        return Err(RepositoryError::InvalidInput {
-            message: "identity_instance_id must not be empty".to_string(),
-        });
-    }
-    if input.title.as_deref() == Some("") {
-        return Err(RepositoryError::InvalidInput {
-            message: "title must not be empty when provided".to_string(),
-        });
-    }
-
     let mut manifest = store.load_manifest()?;
-    let previous = crate::container_service::resolve_root_container(store, &manifest)?;
-
-    let manifest_str = |key: &str| -> Option<String> {
-        manifest
-            .extra
-            .get(key)
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string())
-    };
-    let existing_title = previous
-        .as_ref()
-        .map(|c| c.title.clone())
-        .filter(|t| !t.is_empty());
-    let title = input
-        .title
-        .clone()
-        .or_else(|| manifest_str("title"))
-        .or(existing_title)
-        .or_else(|| manifest_str("namespace"))
-        .ok_or_else(|| RepositoryError::InvalidInput {
-            message: "no title available: pass a title or set a manifest title".to_string(),
-        })?;
-
-    let target = match store.load_container(&input.container_id) {
-        Ok(c) => Some(c),
-        Err(RepositoryError::ContainerNotFound { .. }) => None,
-        Err(e) => return Err(e),
-    };
-    // A new id renames the previous root: its file goes once the pointer has moved.
-    let renamed_from = match (&target, &previous) {
-        (None, Some(p)) if p.container_id != input.container_id => Some(p.container_id.clone()),
-        _ => None,
-    };
-    let original_target = target.clone();
-    let mut container = target.or(previous).unwrap_or_else(|| {
-        crate::repository_lifecycle::default_repository_container(&input.container_id, "")
-    });
-    container.container_id = input.container_id.clone();
-    container.identity_instance_id = Some(input.identity_instance_id.clone());
-    container.title = title.clone();
-    let members = container.member_instance_ids.get_or_insert_with(Vec::new);
-    if !members
-        .iter()
-        .any(|m| m.instance_id == input.identity_instance_id)
-    {
-        members.push(srs_core::types::container::ContainerEntry::new(
-            input.identity_instance_id.clone(),
-        ));
+    let container = store.load_container(&input.container_id)?;
+    // One write, so the pointer and the container set can never disagree (N4 on
+    // srs-rust#1440 needed a rollback only while this also wrote the container).
+    if manifest.root_container_id() != Some(input.container_id.as_str()) {
+        manifest.set_root_container_id(Some(input.container_id));
+        write_manifest(store, &manifest)?;
     }
-    let member_instance_ids: Vec<String> = members.iter().map(|m| m.instance_id.clone()).collect();
-
-    // No store rolls writes back, so a failed manifest write undoes the root write here: the
-    // pointer and the container set never disagree. The previous root's file goes last; if
-    // that fails it is left as an ordinary container and the repository still loads.
-    crate::store::save_root_container(store, &container)?;
-    manifest.set_root_container_id(Some(container.container_id.clone()));
-    if let Err(e) = write_manifest(store, &manifest) {
-        let _ = match &original_target {
-            Some(original) => crate::store::save_root_container(store, original),
-            None => store
-                .delete_instance_file(&crate::store::root_container_path(&container.container_id)),
-        };
-        return Err(e);
-    }
-    if let Some(old) = &renamed_from {
-        store.delete_container(old)?;
-    }
-
     Ok(SetManifestRootContainerResult {
-        container_id: input.container_id,
-        identity_instance_id: input.identity_instance_id,
-        title,
-        member_instance_ids,
+        member_instance_ids: container.member_ids(),
+        container_id: container.container_id,
+        identity_instance_id: container.identity_instance_id,
+        title: container.title,
     })
 }
 
@@ -692,6 +615,7 @@ mod tests {
     use super::*;
     use crate::store::memory::MemoryStore;
     use serde_json::json;
+    use srs_core::types::container::Container;
     use tempfile::TempDir;
 
     fn make_store() -> MemoryStore {
@@ -925,328 +849,164 @@ mod tests {
         assert!(!manifest.extra.contains_key("declaredExtensions"));
     }
 
-    const VALID_CONTAINER_ID: &str = "550e8400-e29b-41d4-a716-446655440000";
-    const VALID_IDENTITY_ID: &str = "aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa";
+    const ROOT_A: &str = "550e8400-e29b-41d4-a716-446655440000";
+    const ROOT_B: &str = "550e8400-e29b-41d4-a716-4466554400bb";
+    const A1: &str = "aaaaaaaa-0000-4000-8000-0000000000a1";
+    const A2: &str = "aaaaaaaa-0000-4000-8000-0000000000a2";
+    const B1: &str = "aaaaaaaa-0000-4000-8000-0000000000b1";
+    const B2: &str = "aaaaaaaa-0000-4000-8000-0000000000b2";
 
-    fn store_with_manifest_title(title: &str) -> MemoryStore {
+    fn container(id: &str, title: &str, identity: &str, members: &[&str]) -> Container {
+        Container {
+            container_id: id.to_string(),
+            title: title.to_string(),
+            identity_instance_id: Some(identity.to_string()),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            anchor_instance_id: None,
+            member_instance_ids: Some(srs_core::types::container::entries(
+                members
+                    .iter()
+                    .map(|m| m.to_string())
+                    .collect::<Vec<String>>(),
+            )),
+            child_container_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::BTreeMap::new(),
+        }
+    }
+
+    /// Root A (identity A1, members A1 A2) and an ordinary container B (identity B1, B1 B2).
+    fn store_with_two_containers() -> MemoryStore {
         let store = MemoryStore::default();
+        for id in [A1, A2, B1, B2] {
+            store
+                .save_note(&srs_core::types::note::Note {
+                    created_by: None,
+                    instance_id: id.to_string(),
+                    title: Some("seed".to_string()),
+                    tags: None,
+                    sections: vec![],
+                    graduated_at: None,
+                    source_refs: None,
+                    created_at: None,
+                    updated_at: None,
+                    meta: None,
+                })
+                .unwrap();
+        }
         let mut manifest = store.load_manifest().unwrap();
-        manifest
-            .extra
-            .insert("title".to_string(), json!(title.to_string()));
+        let a = container(ROOT_A, "Root A", A1, &[A1, A2]);
+        crate::container_service::set_root_container(&store, &mut manifest, &a).unwrap();
         store.save_manifest(&manifest).unwrap();
+        store
+            .save_container(&container(ROOT_B, "Container B", B1, &[B1, B2]))
+            .unwrap();
         store
     }
 
-    fn seed_note(store: &MemoryStore, id: &str) {
-        store
-            .save_note(&srs_core::types::note::Note {
-                created_by: None,
-                instance_id: id.to_string(),
-                title: Some("seed".to_string()),
-                tags: None,
-                sections: vec![],
-                graduated_at: None,
-                source_refs: None,
-                created_at: None,
-                updated_at: None,
-                meta: None,
-            })
-            .unwrap();
+    fn snapshot(store: &MemoryStore) -> (serde_json::Value, serde_json::Value) {
+        let get = |id| serde_json::to_value(store.load_container(id).unwrap()).unwrap();
+        (get(ROOT_A), get(ROOT_B))
     }
 
     #[test]
-    fn set_manifest_root_container_writes_canonical_embed() {
-        let store = store_with_manifest_title("My Repo");
-        seed_note(&store, VALID_IDENTITY_ID);
-        let result = set_manifest_root_container(
-            &store,
-            SetManifestRootContainerInput {
-                container_id: VALID_CONTAINER_ID.to_string(),
-                identity_instance_id: VALID_IDENTITY_ID.to_string(),
-                title: None,
-            },
-        )
-        .unwrap();
-
-        assert_eq!(result.container_id, VALID_CONTAINER_ID);
-        assert_eq!(result.identity_instance_id, VALID_IDENTITY_ID);
-        assert_eq!(result.title, "My Repo");
-        assert_eq!(result.member_instance_ids, vec![VALID_IDENTITY_ID]);
-
-        let manifest = store.load_manifest().unwrap();
-        let container = crate::container_service::resolve_root_container(&store, &manifest)
-            .unwrap()
-            .unwrap();
-        assert_eq!(container.container_id, VALID_CONTAINER_ID);
-        assert_eq!(
-            container.identity_instance_id.as_deref(),
-            Some(VALID_IDENTITY_ID)
-        );
-        // Canonical shape: manifest title as fallback, identity in members (I-81).
-        assert_eq!(container.title, "My Repo");
-        assert_eq!(container.member_ids(), vec![VALID_IDENTITY_ID.to_string()]);
-    }
-
-    #[test]
-    fn set_manifest_root_container_explicit_title_wins() {
-        let store = store_with_manifest_title("Manifest Title");
-        seed_note(&store, VALID_IDENTITY_ID);
-        let result = set_manifest_root_container(
-            &store,
-            SetManifestRootContainerInput {
-                container_id: VALID_CONTAINER_ID.to_string(),
-                identity_instance_id: VALID_IDENTITY_ID.to_string(),
-                title: Some("Explicit Title".to_string()),
-            },
-        )
-        .unwrap();
-
-        assert_eq!(result.title, "Explicit Title");
-        let manifest = store.load_manifest().unwrap();
-        assert_eq!(
-            crate::container_service::resolve_root_container(&store, &manifest)
-                .unwrap()
-                .unwrap()
-                .title,
-            "Explicit Title"
-        );
-    }
-
-    #[test]
-    fn set_manifest_root_container_title_falls_back_to_namespace() {
-        // No manifest title, no existing embed — namespace is the last fallback.
-        let store = MemoryStore::default();
-        let mut manifest = store.load_manifest().unwrap();
-        manifest
-            .extra
-            .insert("namespace".to_string(), json!("com.example.ns"));
-        store.save_manifest(&manifest).unwrap();
+    fn set_root_container_is_pointer_only_and_a_swap_back_restores_everything() {
+        // RFC-052 [R8], owner ruling 2 on srs#953.
+        let store = store_with_two_containers();
+        let before = snapshot(&store);
 
         let result = set_manifest_root_container(
             &store,
             SetManifestRootContainerInput {
-                container_id: VALID_CONTAINER_ID.to_string(),
-                identity_instance_id: VALID_IDENTITY_ID.to_string(),
-                title: None,
+                container_id: ROOT_B.to_string(),
             },
         )
         .unwrap();
-        assert_eq!(result.title, "com.example.ns");
-    }
-
-    #[test]
-    fn set_manifest_root_container_no_title_source_returns_error() {
-        let store = MemoryStore::default();
-        let err = set_manifest_root_container(
-            &store,
-            SetManifestRootContainerInput {
-                container_id: VALID_CONTAINER_ID.to_string(),
-                identity_instance_id: VALID_IDENTITY_ID.to_string(),
-                title: None,
-            },
-        )
-        .unwrap_err();
-        assert!(
-            matches!(err, RepositoryError::InvalidInput { .. }),
-            "expected InvalidInput when no title source exists, got {err:?}"
-        );
-    }
-
-    #[test]
-    fn set_manifest_root_container_preserves_existing_members_and_merges_identity() {
-        let store = store_with_manifest_title("My Repo");
-        let other_member = "bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb";
-        seed_note(&store, other_member);
-        seed_note(&store, VALID_IDENTITY_ID);
-
-        // Seed a richer embed: existing members list that does not contain the identity.
-        let mut manifest = store.load_manifest().unwrap();
-        crate::container_service::set_root_container(
-            &store,
-            &mut manifest,
-            &srs_core::types::container::Container {
-                container_id: VALID_CONTAINER_ID.to_string(),
-                title: "Old Title".to_string(),
-                identity_instance_id: None,
-                namespace: None,
-                name: None,
-                description: Some("kept".to_string()),
-                container_type: None,
-                anchor_instance_id: Some(other_member.to_string()),
-                member_instance_ids: Some(srs_core::types::container::entries(vec![
-                    other_member.to_string()
-                ])),
-                child_container_ids: None,
-                tags: None,
-                created_at: None,
-                updated_at: None,
-                meta: None,
-                extra: std::collections::BTreeMap::new(),
-            },
-        )
-        .unwrap();
-        store.save_manifest(&manifest).unwrap();
-
-        let result = set_manifest_root_container(
-            &store,
-            SetManifestRootContainerInput {
-                container_id: VALID_CONTAINER_ID.to_string(),
-                identity_instance_id: VALID_IDENTITY_ID.to_string(),
-                title: None,
-            },
-        )
-        .unwrap();
-
-        // Identity merged into the existing members, not clobbered over them.
+        // The promoted container is reported as it is stored: nothing copied into it.
+        assert_eq!(result.title, "Container B");
+        assert_eq!(result.identity_instance_id.as_deref(), Some(B1));
+        assert_eq!(result.member_instance_ids, vec![B1, B2]);
         assert_eq!(
-            result.member_instance_ids,
-            vec![other_member.to_string(), VALID_IDENTITY_ID.to_string()]
+            store.load_manifest().unwrap().root_container_id(),
+            Some(ROOT_B)
         );
-        let manifest = store.load_manifest().unwrap();
-        let container = crate::container_service::resolve_root_container(&store, &manifest)
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            container.member_ids(),
-            vec![other_member.to_string(), VALID_IDENTITY_ID.to_string()]
-        );
-        // Other embed fields preserved.
-        assert_eq!(container.description.as_deref(), Some("kept"));
-        // Manifest title wins over the stale embed title.
-        assert_eq!(container.title, "My Repo");
-    }
+        assert_eq!(snapshot(&store), before, "a swap changed a container");
 
-    #[test]
-    fn set_manifest_root_container_idempotent_members() {
-        // Running twice must not duplicate the identity in memberInstanceIds.
-        let store = store_with_manifest_title("My Repo");
-        seed_note(&store, VALID_IDENTITY_ID);
-        let input = SetManifestRootContainerInput {
-            container_id: VALID_CONTAINER_ID.to_string(),
-            identity_instance_id: VALID_IDENTITY_ID.to_string(),
-            title: None,
-        };
-        set_manifest_root_container(&store, input.clone()).unwrap();
-        let result = set_manifest_root_container(&store, input).unwrap();
-        assert_eq!(result.member_instance_ids, vec![VALID_IDENTITY_ID]);
-    }
-
-    #[test]
-    fn set_manifest_root_container_empty_container_id_returns_error() {
-        let store = MemoryStore::default();
-        let err = set_manifest_root_container(
-            &store,
-            SetManifestRootContainerInput {
-                container_id: "".to_string(),
-                identity_instance_id: VALID_IDENTITY_ID.to_string(),
-                title: None,
-            },
-        )
-        .unwrap_err();
-
-        assert!(
-            matches!(err, RepositoryError::InvalidInput { .. }),
-            "expected InvalidInput, got {err:?}"
-        );
-    }
-
-    #[test]
-    fn set_manifest_root_container_empty_identity_id_returns_error() {
-        let store = MemoryStore::default();
-        let err = set_manifest_root_container(
-            &store,
-            SetManifestRootContainerInput {
-                container_id: VALID_CONTAINER_ID.to_string(),
-                identity_instance_id: "".to_string(),
-                title: None,
-            },
-        )
-        .unwrap_err();
-
-        assert!(
-            matches!(err, RepositoryError::InvalidInput { .. }),
-            "expected InvalidInput, got {err:?}"
-        );
-    }
-
-    #[test]
-    fn set_manifest_root_container_empty_explicit_title_returns_error() {
-        let store = store_with_manifest_title("My Repo");
-        let err = set_manifest_root_container(
-            &store,
-            SetManifestRootContainerInput {
-                container_id: VALID_CONTAINER_ID.to_string(),
-                identity_instance_id: VALID_IDENTITY_ID.to_string(),
-                title: Some("".to_string()),
-            },
-        )
-        .unwrap_err();
-
-        assert!(
-            matches!(err, RepositoryError::InvalidInput { .. }),
-            "expected InvalidInput for explicit empty title, got {err:?}"
-        );
-    }
-
-    #[test]
-    fn set_manifest_root_container_roundtrips_through_json() {
-        // Write via MemoryStore, serialise manifest to JSON, deserialise, assert fields survive.
-        let store = store_with_manifest_title("Roundtrip Repo");
-        seed_note(&store, VALID_IDENTITY_ID);
         set_manifest_root_container(
             &store,
             SetManifestRootContainerInput {
-                container_id: VALID_CONTAINER_ID.to_string(),
-                identity_instance_id: VALID_IDENTITY_ID.to_string(),
-                title: None,
+                container_id: ROOT_A.to_string(),
             },
         )
         .unwrap();
-
-        let manifest = store.load_manifest().unwrap();
-        let json = serde_json::to_string(&manifest).unwrap();
-        let reparsed: crate::manifest::Manifest = serde_json::from_str(&json).unwrap();
-
-        let container = crate::container_service::resolve_root_container(&store, &reparsed)
-            .unwrap()
-            .unwrap();
-        assert_eq!(container.container_id, VALID_CONTAINER_ID);
         assert_eq!(
-            container.identity_instance_id.as_deref(),
-            Some(VALID_IDENTITY_ID)
+            store.load_manifest().unwrap().root_container_id(),
+            Some(ROOT_A)
         );
-        assert_eq!(container.title, "Roundtrip Repo");
-        assert_eq!(container.member_ids(), vec![VALID_IDENTITY_ID.to_string()]);
+        assert_eq!(
+            snapshot(&store),
+            before,
+            "swapping back changed a container"
+        );
+    }
+
+    #[test]
+    fn set_root_container_refuses_an_unknown_id_with_container_not_found() {
+        // Owner ruling A1 (srs#963): no rename path; nothing is written.
+        let store = store_with_two_containers();
+        let before = snapshot(&store);
+        let err = set_manifest_root_container(
+            &store,
+            SetManifestRootContainerInput {
+                container_id: "99999999-0000-4000-8000-000000000099".to_string(),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err.code(), "container-not-found", "{err}");
+        assert_eq!(
+            store.load_manifest().unwrap().root_container_id(),
+            Some(ROOT_A)
+        );
+        assert_eq!(snapshot(&store), before);
+    }
+
+    #[test]
+    fn set_root_container_empty_id_returns_error() {
+        let store = store_with_two_containers();
+        let err = set_manifest_root_container(
+            &store,
+            SetManifestRootContainerInput {
+                container_id: String::new(),
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::InvalidInput { .. }),
+            "{err:?}"
+        );
     }
 
     // ── unset_manifest_root_container (owner ruling srs-rust#742) ──────────────
 
     #[test]
     fn unset_manifest_root_container_is_refused_and_writes_nothing() {
-        // RFC-052 [R1]: a manifest must name its root container, so the pointer cannot be
-        // removed; the refusal leaves the root exactly as it was.
-        let store = store_with_manifest_title("My Repo");
-        seed_note(&store, VALID_IDENTITY_ID);
-        set_manifest_root_container(
-            &store,
-            SetManifestRootContainerInput {
-                container_id: VALID_CONTAINER_ID.to_string(),
-                identity_instance_id: VALID_IDENTITY_ID.to_string(),
-                title: None,
-            },
-        )
-        .unwrap();
-
+        // RFC-052 [R1]/[R8]: a manifest must name its root container, so the pointer cannot
+        // be removed; the refusal leaves the root exactly as it was.
+        let store = store_with_two_containers();
+        let before = snapshot(&store);
         let err = unset_manifest_root_container(&store).unwrap_err();
         assert_eq!(err.code(), "manifest-root-container-missing", "{err}");
-        let manifest = store.load_manifest().unwrap();
-        assert_eq!(manifest.root_container_id(), Some(VALID_CONTAINER_ID));
-        assert!(
-            crate::container_service::resolve_root_container(&store, &manifest)
-                .unwrap()
-                .is_some()
+        assert_eq!(
+            store.load_manifest().unwrap().root_container_id(),
+            Some(ROOT_A)
         );
+        assert_eq!(snapshot(&store), before);
     }
 
     // ── Conformance tests ─────────────────────────────────────────────────────

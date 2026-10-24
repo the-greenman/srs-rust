@@ -2175,7 +2175,8 @@ impl From<srs_repository::manifest_service::DeclaredExtensionsReport>
 #[serde(rename_all = "camelCase")]
 pub struct RepoSetRootContainerPayload {
     pub container_id: String,
-    pub identity_instance_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity_instance_id: Option<String>,
     pub title: String,
     pub member_instance_ids: Vec<String>,
 }

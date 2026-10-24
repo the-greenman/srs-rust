@@ -1735,7 +1735,8 @@ impl RepositoryStore for FileStore {
         )?;
         let mut manifest = serde_json::json!({
             "$schema": srs_schema::MANIFEST_SCHEMA_ID,
-            "dataModelRevision": 2,
+            // Born at this build's revision: a lower stamp is refused on load (RFC-052 [R7]).
+            "dataModelRevision": crate::field_type_migration_service::CURRENT_DATA_MODEL_REVISION,
             "srsVersion": input.repository.srs_version,
             "repositoryId": input.repository.repository_id,
             "namespace": input.repository.namespace,

@@ -69,11 +69,9 @@ pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
         RepoCommand::Map { json: _ } => cmd_repo_map(ctx),
         RepoCommand::Navigation { depth } => cmd_repo_navigation(ctx, depth),
         RepoCommand::AgentIndex => cmd_repo_agent_index(ctx),
-        RepoCommand::SetRootContainer {
-            container_id,
-            identity_instance_id,
-            title,
-        } => cmd_repo_set_root_container(ctx, container_id, identity_instance_id, title),
+        RepoCommand::SetRootContainer { container_id } => {
+            cmd_repo_set_root_container(ctx, container_id)
+        }
         RepoCommand::UnsetRootContainer => cmd_repo_unset_root_container(ctx),
         RepoCommand::Copy {
             from,
@@ -410,17 +408,8 @@ fn render_agent_index(idx: &srs_repository::agent_index_service::AgentIndex) -> 
     out
 }
 
-fn cmd_repo_set_root_container(
-    ctx: CliContext,
-    container_id: String,
-    identity_instance_id: String,
-    title: Option<String>,
-) -> Result<String> {
-    let input = SetManifestRootContainerInput {
-        container_id,
-        identity_instance_id,
-        title,
-    };
+fn cmd_repo_set_root_container(ctx: CliContext, container_id: String) -> Result<String> {
+    let input = SetManifestRootContainerInput { container_id };
     let result = with_store(&ctx, |store| Ok(set_manifest_root_container(store, input)?))?;
     output::serialize(
         "repo set-root-container",
