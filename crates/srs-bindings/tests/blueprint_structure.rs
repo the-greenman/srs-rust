@@ -114,8 +114,7 @@ fn blueprint_srsj() -> String {
 /// `relationSpecs[]`.
 #[test]
 fn list_blueprint_structure_returns_sorted_specs_with_resolved_names() {
-    let store =
-        srs_repository::srsj::open_srsj(&blueprint_srsj()).expect("blueprint srsj must load");
+    let store = ladder_open(&blueprint_srsj()).expect("blueprint srsj must load");
     let specs = blueprint_service::list_blueprint_structure(&store, "bp-guide-001")
         .expect("list_blueprint_structure must succeed");
 
@@ -156,12 +155,21 @@ fn list_blueprint_structure_returns_sorted_specs_with_resolved_names() {
 /// error the CLI's `blueprint structure` command already handles.
 #[test]
 fn list_blueprint_structure_not_found() {
-    let store =
-        srs_repository::srsj::open_srsj(&blueprint_srsj()).expect("blueprint srsj must load");
+    let store = ladder_open(&blueprint_srsj()).expect("blueprint srsj must load");
     let err = blueprint_service::list_blueprint_structure(&store, "bp-does-not-exist")
         .expect_err("unknown blueprint id must error");
     assert!(matches!(
         err,
         srs_repository::error::RepositoryError::BlueprintNotFound { .. }
     ));
+}
+
+/// Fixtures authored below revision 10 are brought to it through the registry ladder
+/// (RFC-052 [R7]) before they are opened.
+fn ladder_open(
+    srsj: &str,
+) -> Result<srs_repository::FileStore, srs_repository::error::RepositoryError> {
+    srs_repository::srsj::open_srsj(
+        &srs_repository::rfc052_root_container_migration_service::ladder_srsj_fixture(srsj)?,
+    )
 }

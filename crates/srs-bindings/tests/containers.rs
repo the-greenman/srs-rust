@@ -31,7 +31,8 @@ fn list_containers_returns_all() {
     let store = gallery_store();
     let summaries =
         list_containers(&store, &ContainerListFilter::default()).expect("list must succeed");
-    assert_eq!(summaries.len(), 4, "gallery has four containers");
+    // Four document containers plus the root the ladder stored (RFC-052).
+    assert_eq!(summaries.len(), 5, "gallery has five containers");
 }
 
 /// A root filter resolves the single container a guide/root belongs to — the path the

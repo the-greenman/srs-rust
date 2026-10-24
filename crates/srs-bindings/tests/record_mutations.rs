@@ -70,7 +70,13 @@ fn minimal_srsj() -> String {
 
 /// Load a fresh `SrsRepository` backed by the minimal in-memory `.srsj`.
 fn repo() -> SrsRepository {
-    SrsRepository::load(&minimal_srsj()).expect("should load minimal srsj")
+    SrsRepository::load(
+        &srs_repository::rfc052_root_container_migration_service::ladder_srsj_fixture(
+            &minimal_srsj(),
+        )
+        .unwrap(),
+    )
+    .expect("should load minimal srsj")
 }
 
 #[test]
@@ -90,7 +96,7 @@ fn create_record_returns_record_with_expected_type_id() {
     // FileStore that powers the binding, verifying the full code path.
     use srs_repository::record_store;
 
-    let store = srs_repository::srsj::open_srsj(&minimal_srsj()).expect("load");
+    let store = ladder_open(&minimal_srsj()).expect("load");
     let record = record_store::create_record(
         &store,
         "type-widget-001",
@@ -120,7 +126,7 @@ fn create_record_returns_record_with_expected_type_id() {
 fn update_record_changes_field_value() {
     use srs_repository::record_store;
 
-    let store = srs_repository::srsj::open_srsj(&minimal_srsj()).expect("load");
+    let store = ladder_open(&minimal_srsj()).expect("load");
 
     // Create
     let record = record_store::create_record(
@@ -168,7 +174,7 @@ fn update_record_changes_field_value() {
 fn delete_record_makes_get_return_none() {
     use srs_repository::record_store;
 
-    let store = srs_repository::srsj::open_srsj(&minimal_srsj()).expect("load");
+    let store = ladder_open(&minimal_srsj()).expect("load");
 
     // Create
     let record = record_store::create_record(
@@ -206,7 +212,7 @@ fn delete_record_makes_get_return_none() {
 fn create_record_missing_required_field_errors() {
     use srs_repository::record_store;
 
-    let store = srs_repository::srsj::open_srsj(&minimal_srsj()).expect("load");
+    let store = ladder_open(&minimal_srsj()).expect("load");
 
     // Attempt to create without supplying the required `title` field
     let result = record_store::create_record(
@@ -221,4 +227,14 @@ fn create_record_missing_required_field_errors() {
         result.is_err(),
         "create without required field should return an error"
     );
+}
+
+/// Fixtures authored below revision 10 are brought to it through the registry ladder
+/// (RFC-052 [R7]) before they are opened.
+fn ladder_open(
+    srsj: &str,
+) -> Result<srs_repository::FileStore, srs_repository::error::RepositoryError> {
+    srs_repository::srsj::open_srsj(
+        &srs_repository::rfc052_root_container_migration_service::ladder_srsj_fixture(srsj)?,
+    )
 }

@@ -174,6 +174,9 @@ fn six_set_repository(root: &Path) {
     // Extension set: only enumerable because the manifest declares the owning
     // extensions ([R5] sixth location class).
     write(root, "changelog.json", r#"{"entries": []}"#);
+
+    // Authored at revision 2: brought to revision 10 through the registry ladder (RFC-052 [R7]).
+    srs_repository::rfc052_root_container_migration_service::ladder_fixture(root).unwrap();
 }
 
 /// `set/kind/id` triples across all six sets — identity, never locators.

@@ -1,13 +1,15 @@
 {
   "srsj": "2",
   "manifest": {
-    "dataModelRevision": 2,
+    "dataModelRevision": 10,
     "namespace": "com.limoma",
     "repositoryId": "8ae058dc-b52d-4e52-8e7e-969018532a04",
+    "rootContainerId": "8ae058dc-b52d-4e52-8e7e-969018532a04",
     "srsVersion": "2.0-draft"
   },
   "data": {
     "containers/138e2fac-6a8a-4a06-9511-5aefd99ceae9.json": {
+      "anchorInstanceId": "9054911c-5285-4c3e-8198-4b9650169001",
       "containerId": "138e2fac-6a8a-4a06-9511-5aefd99ceae9",
       "containerType": "document",
       "createdAt": "2026-05-31T00:00:00Z",
@@ -34,10 +36,15 @@
           "instanceId": "eb4024a0-486f-4d64-a4e4-5d80297129d2"
         }
       ],
-      "title": "Decisions",
-      "anchorInstanceId": "9054911c-5285-4c3e-8198-4b9650169001"
+      "title": "Decisions"
+    },
+    "containers/8ae058dc-b52d-4e52-8e7e-969018532a04.json": {
+      "containerId": "8ae058dc-b52d-4e52-8e7e-969018532a04",
+      "memberInstanceIds": [],
+      "title": "Limoma gallery"
     },
     "containers/b30db206-e9a7-4588-a9aa-53451aacd243.json": {
+      "anchorInstanceId": "5bbf9209-1dc9-44b2-b0a3-f2192db5a879",
       "containerId": "b30db206-e9a7-4588-a9aa-53451aacd243",
       "containerType": "document",
       "createdAt": "2026-05-31T00:00:00Z",
@@ -52,10 +59,10 @@
           "instanceId": "8ed62308-f7b4-47e1-b1a2-5490908efd86"
         }
       ],
-      "title": "Roles",
-      "anchorInstanceId": "5bbf9209-1dc9-44b2-b0a3-f2192db5a879"
+      "title": "Roles"
     },
     "containers/ece00010-0000-4000-8000-000000000010.json": {
+      "anchorInstanceId": "ee000001-0000-4000-8000-000000000001",
       "containerId": "ece00010-0000-4000-8000-000000000010",
       "containerType": "document",
       "createdAt": "2026-06-27T00:00:00Z",
@@ -67,10 +74,10 @@
           "instanceId": "ee000002-0000-4000-8000-000000000002"
         }
       ],
-      "title": "Exercises",
-      "anchorInstanceId": "ee000001-0000-4000-8000-000000000001"
+      "title": "Exercises"
     },
     "containers/f7562aa3-98c7-44be-b4c5-5474df6441f2.json": {
+      "anchorInstanceId": "ad159754-2edd-4bf8-a70f-a29a617e5809",
       "containerId": "f7562aa3-98c7-44be-b4c5-5474df6441f2",
       "containerType": "document",
       "createdAt": "2026-05-31T00:00:00Z",
@@ -94,13 +101,15 @@
           "instanceId": "cc58c0dd-8e3a-4dc5-9b58-f3273911a9a9"
         }
       ],
-      "title": "Articles",
-      "anchorInstanceId": "ad159754-2edd-4bf8-a70f-a29a617e5809"
+      "title": "Articles"
     },
     "package/compositions/articles-and-roles-78b11038.json": {
       "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Renders the Articles of Association together with the current role holders.",
+      "exportConfig": {
+        "format": "markdown"
+      },
       "id": "78b11038-e5d8-4269-9982-fe5c459802b2",
       "name": "articles-and-roles",
       "namespace": "governance",
@@ -132,15 +141,15 @@
           "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
         }
       ],
-      "version": 1,
-      "exportConfig": {
-        "format": "markdown"
-      }
+      "version": 1
     },
     "package/compositions/decision-deliberation-5a3ce87e.json": {
       "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Full deliberation view — shows all fields including question, context, friction, alternatives, requirements, statement, rationale, next steps, owner, revisit, and status.",
+      "exportConfig": {
+        "format": "markdown"
+      },
       "id": "5a3ce87e-8340-4d91-a140-ab56b57f704f",
       "name": "decision-deliberation",
       "namespace": "governance",
@@ -157,15 +166,15 @@
           "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
         }
       ],
-      "version": 1,
-      "exportConfig": {
-        "format": "markdown"
-      }
+      "version": 1
     },
     "package/compositions/decision-log-b5c8d124.json": {
       "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Decision log view — compact summary showing only decision statement, alternatives considered, rationale, and revisit trigger.",
+      "exportConfig": {
+        "format": "markdown"
+      },
       "id": "b5c8d124-2084-4a6b-a231-425e800e1e55",
       "name": "decision-log",
       "namespace": "governance",
@@ -183,10 +192,7 @@
           "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
         }
       ],
-      "version": 1,
-      "exportConfig": {
-        "format": "markdown"
-      }
+      "version": 1
     },
     "package/fields/alternativesconsidered-636ce948.json": {
       "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
@@ -568,14 +574,14 @@
     "package/package.json": {
       "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
       "blueprints": [],
-      "createdAt": "2026-01-01T00:00:00Z",
-      "dataModelRevision": 2,
-      "description": "",
       "compositions": [
         "compositions/articles-and-roles-78b11038.json",
         "compositions/decision-deliberation-5a3ce87e.json",
         "compositions/decision-log-b5c8d124.json"
       ],
+      "createdAt": "2026-01-01T00:00:00Z",
+      "dataModelRevision": 10,
+      "description": "",
       "fields": [
         "fields/title-d7e82557.json",
         "fields/decisionstatement-de1296e0.json",

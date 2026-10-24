@@ -479,8 +479,6 @@ mod tests {
 
     #[test]
     fn read_policy_filestore_roundtrip() {
-        use crate::store::FileStore;
-
         let tmp = tempfile::tempdir().expect("tempdir");
         let repo_root = tmp.path();
 
@@ -584,7 +582,7 @@ mod tests {
         )
         .unwrap();
 
-        let store = FileStore::new(repo_root);
+        let store = crate::validation::fixture_ladder::store(repo_root);
         let result = read_attachment_policy(&store).expect("should not error");
 
         assert!(

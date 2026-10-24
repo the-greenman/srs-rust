@@ -2190,6 +2190,15 @@ struct LinkAttachmentBindingInput {
 
 #[cfg(test)]
 mod tests {
+    /// Fixtures authored below revision 10 are brought to it through the registry ladder
+    /// (RFC-052 [R7]) before they are opened.
+    fn open_fixture(
+        srsj: &str,
+    ) -> Result<srs_repository::FileStore, srs_repository::error::RepositoryError> {
+        srs_repository::srsj::open_srsj(
+            &srs_repository::rfc052_root_container_migration_service::ladder_srsj_fixture(srsj)?,
+        )
+    }
     #[test]
     fn container_list_filter_rejects_retired_root_instance_id_key() {
         let ok: super::ContainerListBindingFilter =
@@ -2521,7 +2530,7 @@ mod tests {
 
     #[test]
     fn graduate_note_service_result_serialises() {
-        let store = srs_repository::srsj::open_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let store = open_fixture(&srsj_with_note_and_type()).expect("load srsj");
         let result = graduate_note_service(
             &store,
             GraduateNoteInput {
@@ -2642,7 +2651,7 @@ mod tests {
         use srs_repository::record_store::{self, CreateRecordInContainerInput};
 
         let srsj = srsj_with_container_and_type();
-        let store = srs_repository::srsj::open_srsj(&srsj).expect("load srsj");
+        let store = open_fixture(&srsj).expect("load srsj");
 
         let result = record_store::create_record_in_container(
             &store,
@@ -2696,7 +2705,7 @@ mod tests {
     #[test]
     fn get_record_summary_by_id_smoke() {
         use srs_repository::record_store::{get_record_summary_by_id, CreateRecordInput};
-        let store = srs_repository::srsj::open_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let store = open_fixture(&srsj_with_note_and_type()).expect("load srsj");
         // Graduate the note to get a typed record we can look up
         let note_id = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
         let graduated = srs_repository::services::graduate_note(
@@ -2731,7 +2740,7 @@ mod tests {
 
     #[test]
     fn declared_extensions_conformance_report_serialises() {
-        let store = srs_repository::srsj::open_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let store = open_fixture(&srsj_with_note_and_type()).expect("load srsj");
         let report = srs_repository::manifest_service::declared_extensions_conformance(&store)
             .expect("conformance report should succeed");
         let json = serde_json::to_value(&report).expect("report must serialize");
@@ -2851,7 +2860,7 @@ mod tests {
     #[test]
     fn get_field_value_by_name_returns_value_for_known_field() {
         use srs_repository::record_store;
-        let store = srs_repository::srsj::open_srsj(&srsj_with_titled_record()).expect("load srsj");
+        let store = open_fixture(&srsj_with_titled_record()).expect("load srsj");
 
         let result = record_store::get_field_value_by_name(
             &store,
@@ -2872,7 +2881,7 @@ mod tests {
     #[test]
     fn get_field_value_by_name_returns_none_for_unknown_field() {
         use srs_repository::record_store;
-        let store = srs_repository::srsj::open_srsj(&srsj_with_titled_record()).expect("load srsj");
+        let store = open_fixture(&srsj_with_titled_record()).expect("load srsj");
 
         let result = record_store::get_field_value_by_name(
             &store,
@@ -2894,7 +2903,7 @@ mod tests {
     #[test]
     fn protocol_run_create_smoke() {
         use srs_repository::protocol_run_service::{create_run, CreateRunInput};
-        let store = srs_repository::srsj::open_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let store = open_fixture(&srsj_with_note_and_type()).expect("load srsj");
         let result = create_run(
             &store,
             CreateRunInput {
@@ -2918,7 +2927,7 @@ mod tests {
         use srs_repository::protocol_run_service::{
             advance_stage, create_run, AdvanceStageInput, CreateRunInput,
         };
-        let store = srs_repository::srsj::open_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let store = open_fixture(&srsj_with_note_and_type()).expect("load srsj");
         let run = create_run(
             &store,
             CreateRunInput {
@@ -2948,7 +2957,7 @@ mod tests {
     #[test]
     fn protocol_run_get_not_found_returns_null() {
         use srs_repository::protocol_run_service::{get_run, GetRunResult};
-        let store = srs_repository::srsj::open_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let store = open_fixture(&srsj_with_note_and_type()).expect("load srsj");
         let result = get_run(&store, "no-such-run").expect("get_run should not error");
         assert!(matches!(result, GetRunResult::NotFound));
     }
@@ -2956,7 +2965,7 @@ mod tests {
     #[test]
     fn protocol_run_list_empty_smoke() {
         use srs_repository::protocol_run_service::{list_runs, RunListFilter};
-        let store = srs_repository::srsj::open_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let store = open_fixture(&srsj_with_note_and_type()).expect("load srsj");
         let runs = list_runs(&store, RunListFilter::default()).expect("list_runs should succeed");
         assert!(runs.is_empty(), "fresh repo has no runs");
     }
@@ -2966,7 +2975,7 @@ mod tests {
         use srs_repository::protocol_run_service::{
             abandon_run, complete_run, create_run, CreateRunInput,
         };
-        let store = srs_repository::srsj::open_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let store = open_fixture(&srsj_with_note_and_type()).expect("load srsj");
 
         let r1 = create_run(
             &store,
@@ -3042,7 +3051,7 @@ mod tests {
         })
         .to_string();
 
-        let store = srs_repository::srsj::open_srsj(&srsj).expect("load srsj");
+        let store = open_fixture(&srsj).expect("load srsj");
         let result = rebuild_precedes_chain(
             &store,
             RebuildPrecedesChainInput {
@@ -3110,8 +3119,7 @@ mod tests {
         use srs_repository::relation_service::{
             insert_into_precedes_chain, InsertIntoPrecedesChainInput,
         };
-        let store =
-            srs_repository::srsj::open_srsj(&precedes_chain_splice_test_srsj()).expect("load srsj");
+        let store = open_fixture(&precedes_chain_splice_test_srsj()).expect("load srsj");
         let result = insert_into_precedes_chain(
             &store,
             InsertIntoPrecedesChainInput {
@@ -3130,8 +3138,7 @@ mod tests {
         use srs_repository::relation_service::{
             remove_from_precedes_chain, RemoveFromPrecedesChainInput,
         };
-        let store =
-            srs_repository::srsj::open_srsj(&precedes_chain_splice_test_srsj()).expect("load srsj");
+        let store = open_fixture(&precedes_chain_splice_test_srsj()).expect("load srsj");
         let result = remove_from_precedes_chain(
             &store,
             RemoveFromPrecedesChainInput {
@@ -3146,8 +3153,7 @@ mod tests {
     #[test]
     fn test_move_in_precedes_chain_binding_smoke() {
         use srs_repository::relation_service::{move_in_precedes_chain, MoveInPrecedesChainInput};
-        let store =
-            srs_repository::srsj::open_srsj(&precedes_chain_splice_test_srsj()).expect("load srsj");
+        let store = open_fixture(&precedes_chain_splice_test_srsj()).expect("load srsj");
         let result = move_in_precedes_chain(
             &store,
             MoveInPrecedesChainInput {
@@ -3168,7 +3174,7 @@ mod tests {
     fn archive_service_roundtrip_smoke() {
         use srs_repository::services::{list_notes, ListNotesFilter};
 
-        let store = srs_repository::srsj::open_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let store = open_fixture(&srsj_with_note_and_type()).expect("load srsj");
 
         let bytes = srs_repository::archive_to_vec(&store).expect("archive_to_vec");
 
@@ -3268,7 +3274,7 @@ mod tests {
         })
         .to_string();
 
-        let store = srs_repository::srsj::open_srsj(&srsj).expect("load srsj fixture");
+        let store = open_fixture(&srsj).expect("load srsj fixture");
 
         store
             .save_binary_file("source-documents/big-file.bin", &[0u8; 200])

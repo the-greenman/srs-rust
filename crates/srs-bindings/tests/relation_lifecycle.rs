@@ -160,7 +160,7 @@ fn lifecycle_srsj() -> String {
 // ---------------------------------------------------------------------------
 #[test]
 fn list_relations_empty_filter_succeeds() {
-    let store = srs_repository::srsj::open_srsj(GALLERY_SRSJ).expect("gallery must load");
+    let store = ladder_open(GALLERY_SRSJ).expect("gallery must load");
     let summaries = relation_service::list_relations(&store, ListRelationsFilter::default())
         .expect("list_relations with empty filter must not error");
     // gallery.srsj has 15 relations
@@ -180,7 +180,7 @@ fn list_relations_empty_filter_succeeds() {
 fn create_relation_appears_in_list_by_source() {
     use srs_core::types::relation::Relation;
 
-    let store = srs_repository::srsj::open_srsj(GALLERY_SRSJ).expect("gallery must load");
+    let store = ladder_open(GALLERY_SRSJ).expect("gallery must load");
 
     let relation = Relation {
         created_by: None,
@@ -225,7 +225,7 @@ fn create_relation_appears_in_list_by_source() {
 fn delete_relation_removes_it() {
     use srs_core::types::relation::Relation;
 
-    let store = srs_repository::srsj::open_srsj(GALLERY_SRSJ).expect("gallery must load");
+    let store = ladder_open(GALLERY_SRSJ).expect("gallery must load");
 
     // Create a relation to delete.
     let relation = Relation {
@@ -267,8 +267,7 @@ fn delete_relation_removes_it() {
 // ---------------------------------------------------------------------------
 #[test]
 fn set_lifecycle_state_transitions_record() {
-    let store =
-        srs_repository::srsj::open_srsj(&lifecycle_srsj()).expect("lifecycle fixture must load");
+    let store = ladder_open(&lifecycle_srsj()).expect("lifecycle fixture must load");
 
     // draft → active
     let result = record_store::transition_record_lifecycle(
@@ -298,8 +297,7 @@ fn set_lifecycle_state_transitions_record() {
 // ---------------------------------------------------------------------------
 #[test]
 fn set_lifecycle_state_full_chain_to_final() {
-    let store =
-        srs_repository::srsj::open_srsj(&lifecycle_srsj()).expect("lifecycle fixture must load");
+    let store = ladder_open(&lifecycle_srsj()).expect("lifecycle fixture must load");
 
     // draft → active
     record_store::transition_record_lifecycle(
@@ -346,8 +344,7 @@ fn set_lifecycle_state_full_chain_to_final() {
 // ---------------------------------------------------------------------------
 #[test]
 fn set_lifecycle_state_result_includes_warnings_field() {
-    let store =
-        srs_repository::srsj::open_srsj(&lifecycle_srsj()).expect("lifecycle fixture must load");
+    let store = ladder_open(&lifecycle_srsj()).expect("lifecycle fixture must load");
 
     // Transition to a final state (active → archived) so warnings is non-empty.
     record_store::transition_record_lifecycle(
@@ -399,8 +396,7 @@ fn set_lifecycle_state_result_includes_warnings_field() {
 // ---------------------------------------------------------------------------
 #[test]
 fn create_record_successor_supersedes() {
-    let store =
-        srs_repository::srsj::open_srsj(&lifecycle_srsj()).expect("lifecycle fixture must load");
+    let store = ladder_open(&lifecycle_srsj()).expect("lifecycle fixture must load");
 
     let result = record_store::create_record_successor(
         &store,
@@ -442,8 +438,7 @@ fn create_record_successor_supersedes() {
 // ---------------------------------------------------------------------------
 #[test]
 fn create_record_successor_refines() {
-    let store =
-        srs_repository::srsj::open_srsj(&lifecycle_srsj()).expect("lifecycle fixture must load");
+    let store = ladder_open(&lifecycle_srsj()).expect("lifecycle fixture must load");
 
     let result = record_store::create_record_successor(
         &store,
@@ -483,8 +478,7 @@ fn create_record_successor_refines() {
 #[test]
 fn create_relation_depends_on() {
     use srs_core::types::relation::Relation;
-    let store =
-        srs_repository::srsj::open_srsj(&lifecycle_srsj()).expect("lifecycle fixture must load");
+    let store = ladder_open(&lifecycle_srsj()).expect("lifecycle fixture must load");
 
     let relation = Relation {
         created_by: None,
@@ -516,4 +510,14 @@ fn create_relation_depends_on() {
             .any(|r| r.relation_id == "b1000003-0000-4000-a000-000000000003"),
         "depends-on relation must appear in filtered list"
     );
+}
+
+/// Fixtures authored below revision 10 are brought to it through the registry ladder
+/// (RFC-052 [R7]) before they are opened.
+fn ladder_open(
+    srsj: &str,
+) -> Result<srs_repository::FileStore, srs_repository::error::RepositoryError> {
+    srs_repository::srsj::open_srsj(
+        &srs_repository::rfc052_root_container_migration_service::ladder_srsj_fixture(srsj)?,
+    )
 }

@@ -1735,7 +1735,8 @@ impl RepositoryStore for FileStore {
         )?;
         let mut manifest = serde_json::json!({
             "$schema": srs_schema::MANIFEST_SCHEMA_ID,
-            "dataModelRevision": 2,
+            // Born at this build's revision: a lower stamp is refused on load (RFC-052 [R7]).
+            "dataModelRevision": crate::field_type_migration_service::CURRENT_DATA_MODEL_REVISION,
             "srsVersion": input.repository.srs_version,
             "repositoryId": input.repository.repository_id,
             "namespace": input.repository.namespace,
@@ -4583,6 +4584,8 @@ mod tests {
             serde_json::to_string_pretty(&package_json).unwrap(),
         )
         .unwrap();
+        // Authored at revision 2; brought to the current revision through the ladder.
+        crate::rfc052_root_container_migration_service::ladder_fixture(root).unwrap();
     }
 
     // --- FileStore tests ---
@@ -5853,6 +5856,18 @@ mod tests {
         )
         .unwrap();
 
+        std::fs::write(
+            root.join("package/fields/field-aaa.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "id": "00000000-0000-4000-8000-0000000000aa", "namespace": "com.test",
+                "name": "aaa", "version": 1, "description": "a",
+                "aiGuidance": {"purpose": "a"}, "fieldType": {"datatype": "string"},
+                "createdAt": "2026-01-01T00:00:00Z"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        crate::rfc052_root_container_migration_service::ladder_fixture(root).unwrap();
         let store = FileStore::new(root);
         let boundaries = store.list_package_boundaries().unwrap();
         assert_eq!(boundaries.len(), 2, "should have primary + 1 sub-package");
@@ -5951,6 +5966,7 @@ mod tests {
         )
         .unwrap();
 
+        crate::rfc052_root_container_migration_service::ladder_fixture(root).unwrap();
         let store = FileStore::new(root);
         let package = store.load_package().unwrap();
         assert_eq!(package.blueprints.len(), 2);
@@ -6243,7 +6259,9 @@ mod tests {
             "package/package.json".to_string(),
             serde_json::to_vec_pretty(&catalog_ready_package_json()).unwrap(),
         );
-        MemVfs::from_map(files)
+        MemVfs::from_map(
+            crate::rfc052_root_container_migration_service::ladder_fixture_tree(files).unwrap(),
+        )
     }
 
     /// A cache hit hands out the memo itself, never a deep copy: per-id lookups

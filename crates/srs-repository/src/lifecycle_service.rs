@@ -441,7 +441,6 @@ mod tests {
     fn create_lifecycle_in_file_sub_package_registers_and_lists() {
         // Cross-store coverage for the same behavior verified on MemoryStore above.
         use crate::package_service::{create_package, CreatePackageInput};
-        use crate::store::FileStore;
 
         let temp = tempfile::TempDir::new().unwrap();
         std::fs::create_dir_all(temp.path().join(".srs")).unwrap();
@@ -464,7 +463,7 @@ mod tests {
             .to_string(),
         )
         .unwrap();
-        let store = FileStore::new(temp.path());
+        let store = crate::validation::fixture_ladder::store(temp.path());
         create_package(
             &store,
             CreatePackageInput {
@@ -655,8 +654,6 @@ mod tests {
     /// the in-memory fast path.
     #[test]
     fn update_lifecycle_in_file_store_replaces_definition_on_disk() {
-        use crate::store::FileStore;
-
         let temp = tempfile::TempDir::new().unwrap();
         std::fs::create_dir_all(temp.path().join(".srs")).unwrap();
         std::fs::write(
@@ -678,7 +675,7 @@ mod tests {
             .to_string(),
         )
         .unwrap();
-        let store = FileStore::new(temp.path());
+        let store = crate::validation::fixture_ladder::store(temp.path());
 
         let created = create_lifecycle(&store, make_substrate_lifecycle(""), None).unwrap();
         let id = created.lifecycle.id.clone();

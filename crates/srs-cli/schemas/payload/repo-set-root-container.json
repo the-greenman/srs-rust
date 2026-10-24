@@ -4,7 +4,6 @@
   "type": "object",
   "required": [
     "containerId",
-    "identityInstanceId",
     "memberInstanceIds",
     "title"
   ],
@@ -13,7 +12,10 @@
       "type": "string"
     },
     "identityInstanceId": {
-      "type": "string"
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "memberInstanceIds": {
       "type": "array",

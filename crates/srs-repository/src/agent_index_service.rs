@@ -163,7 +163,7 @@ mod tests {
 
         let srsj = r#"{"srsj":"2","manifest":{"dataModelRevision":2,"repositoryId":"agent-index-test","namespace":"com.example.test","srsVersion":"2.0-draft","title":"Agent Index Test"},"data":{"package/package.json":{"$schema":"https://srs.semanticops.com/schema/2.0/package-manifest.json","id":"test-pkg","namespace":"com.example.test","name":"primary","version":"1.0.0","title":"Primary","description":"","status":"active","createdAt":"2026-01-01T00:00:00Z","fields":[],"types":[],"relationTypes":[],"views":[],"compositions":[]}}}"#;
 
-        let store = crate::srsj::open_srsj(srsj).unwrap();
+        let store = crate::validation::fixture_ladder::open_srsj(srsj).unwrap();
         let result = build_agent_index(&store);
         assert!(
             result.is_ok(),
@@ -306,16 +306,13 @@ mod tests {
             "views": [],
             "compositions": [],
         });
-        let mut files = BTreeMap::new();
-        files.insert(
-            "manifest.json".to_string(),
-            serde_json::to_vec_pretty(&manifest).unwrap(),
-        );
-        files.insert(
-            "package/package.json".to_string(),
-            serde_json::to_vec_pretty(&package).unwrap(),
-        );
-
+        // Revision 2 fixture brought to revision 10 through the registry ladder (RFC-052 [R7]).
+        let doc = serde_json::json!({
+            "srsj": "2", "manifest": manifest, "data": {"package/package.json": package}
+        });
+        let files =
+            crate::srsj::tree_from_srsj(&crate::validation::fixture_ladder::srsj(&doc.to_string()))
+                .unwrap();
         let store =
             FileStore::from_vfs(std::rc::Rc::new(MemVfs::from_map(files)) as std::rc::Rc<dyn Vfs>);
 

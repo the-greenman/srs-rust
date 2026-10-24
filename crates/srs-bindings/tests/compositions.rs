@@ -90,15 +90,14 @@ fn bound_view_srsj() -> String {
 
 fn gallery_store() -> FileStore {
     let srsj = include_str!("../../srs-repository/tests/fixtures/gallery.srsj");
-    srs_repository::srsj::open_srsj(srsj).expect("gallery srsj must load")
+    ladder_open(srsj).expect("gallery srsj must load")
 }
 
 /// A container whose root Type matches a view's `rootTypeRefs` returns that view — the join the
 /// web client uses to pick which document view renders a selected container.
 #[test]
 fn compositions_for_container_returns_matching() {
-    let store =
-        srs_repository::srsj::open_srsj(&bound_view_srsj()).expect("bound-view srsj must load");
+    let store = ladder_open(&bound_view_srsj()).expect("bound-view srsj must load");
     let views = view_service::compositions_for_container(&store, CONTAINER_ID)
         .expect("lookup must succeed");
     assert_eq!(
@@ -122,4 +121,14 @@ fn compositions_for_container_empty_when_unbound() {
         views.is_empty(),
         "gallery views declare no rootTypeRefs, so nothing matches"
     );
+}
+
+/// Fixtures authored below revision 10 are brought to it through the registry ladder
+/// (RFC-052 [R7]) before they are opened.
+fn ladder_open(
+    srsj: &str,
+) -> Result<srs_repository::FileStore, srs_repository::error::RepositoryError> {
+    srs_repository::srsj::open_srsj(
+        &srs_repository::rfc052_root_container_migration_service::ladder_srsj_fixture(srsj)?,
+    )
 }

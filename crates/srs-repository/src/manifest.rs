@@ -113,26 +113,20 @@ pub(crate) mod rfc052 {
     use crate::error::RepositoryError;
     use crate::field_type_migration_service::RFC052_ROOT_CONTAINER_REVISION;
 
-    /// Detection is by shape below revision 10: a manifest that still carries
-    /// the inline `container` is refused naming the migration ([R7]); a
-    /// revision-10 manifest must name its root and must not embed it ([R1]).
-    /// A pre-10 manifest with no inline root (a rootless legacy corpus, which
-    /// `repo validate` already reports under I-79) keeps loading as before.
+    /// Detection is by the declared revision ([R7], owner ruling 1 on srs#953): below 10 the
+    /// corpus is refused naming the pending registry entries, whatever its manifest carries;
+    /// a revision-10 manifest must name its root and must not embed it ([R1]).
     pub(crate) fn check_root_container(
         raw: &serde_json::Value,
         declared: u64,
     ) -> Result<(), RepositoryError> {
-        let inline = raw.get("container").is_some();
         if declared < RFC052_ROOT_CONTAINER_REVISION {
-            if inline {
-                return Err(RepositoryError::ContainerMigrationNeeded {
-                    declared,
-                    legacy_rfc043_shape:
-                        crate::rfc043_container_entries_migration_service::raw_manifest_container_is_legacy(raw),
-                });
-            }
-            return Ok(());
+            return Err(RepositoryError::ContainerMigrationNeeded {
+                declared,
+                pending: crate::migration_registry_service::pending_revision_steps(declared),
+            });
         }
+        let inline = raw.get("container").is_some();
         if inline {
             return Err(RepositoryError::ManifestRootContainer {
                 code: "manifest-root-container-inline",
@@ -304,10 +298,40 @@ mod rfc038_tests {
         assert!(check_manifest(&ok).is_ok());
     }
 
+    /// [R7], owner ruling 1 on srs#953: detection reads the declared revision, never the
+    /// shape. A revision-9 manifest that already names its root, and a rootless revision-2
+    /// one, are both reported, naming the pending registry entries in order. A clean
+    /// generation-2 manifest passes [R21]/[R2] and is stopped only by this gate.
     #[test]
-    fn r21_and_r2_pass_together_on_a_clean_generation_2_manifest() {
-        let raw = serde_json::json!({ "dataModelRevision": 2 });
-        assert!(check_manifest(&raw).is_ok());
+    fn rfc052_r7_detects_by_declared_revision_not_shape() {
+        let named = serde_json::json!({ "dataModelRevision": 9, "rootContainerId": "c" });
+        match check_manifest(&named).unwrap_err() {
+            RepositoryError::ContainerMigrationNeeded { declared, pending } => {
+                assert_eq!(declared, 9);
+                assert_eq!(pending, vec!["rfc052-root-container"]);
+            }
+            other => panic!("expected container-migration-needed, got {other:?}"),
+        }
+        let rootless = serde_json::json!({ "dataModelRevision": 2 });
+        match check_manifest(&rootless).unwrap_err() {
+            RepositoryError::ContainerMigrationNeeded { declared, pending } => {
+                assert_eq!(declared, 2);
+                assert_eq!(
+                    pending,
+                    vec![
+                        "metamodel-v1-1-0",
+                        "tier1-removal",
+                        "substrate-properties-to-meta",
+                        "composition-cutover",
+                        "discovery-query-cutover",
+                        "rfc043-container-entries",
+                        "rfc046-actor-provenance",
+                        "rfc052-root-container",
+                    ]
+                );
+            }
+            other => panic!("expected container-migration-needed, got {other:?}"),
+        }
     }
 }
 

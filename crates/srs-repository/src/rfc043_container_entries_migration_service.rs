@@ -106,8 +106,7 @@ fn container_is_legacy(c: &Value) -> bool {
             .is_some_and(|a| a.iter().any(|e| e.is_string()))
 }
 
-/// `true` when the raw manifest's root container is revision-7 shaped. Used by the load gate
-/// (`manifest::rfc038::check_manifest`) to refuse naming RFC-043 ([R16]).
+/// `true` when the raw manifest's root container is revision-7 shaped.
 pub(crate) fn raw_manifest_container_is_legacy(raw: &Value) -> bool {
     raw.get("container").is_some_and(container_is_legacy)
 }

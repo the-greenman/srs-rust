@@ -899,7 +899,6 @@ mod tests {
     // Cross-store roundtrip: MemoryStore setup → FileStore exercised (CLAUDE.md requirement).
     #[test]
     fn list_attachments_filestore_roundtrip() {
-        use crate::store::FileStore;
         use tempfile::TempDir;
 
         let temp = TempDir::new().unwrap();
@@ -949,7 +948,7 @@ mod tests {
         std::fs::create_dir_all(root.join("source-documents/annexes")).unwrap();
         std::fs::write(root.join("source-documents/annexes/annex-a.pdf"), b"annex").unwrap();
 
-        let store = FileStore::new(root);
+        let store = crate::validation::fixture_ladder::store(root);
         let result = list_attachments(&store, ListAttachmentsFilter::default()).unwrap();
 
         assert_eq!(result.source_documents_path, "source-documents");
@@ -1267,7 +1266,8 @@ mod tests {
             "data": {}
         })
         .to_string();
-        let store = crate::srsj::open_srsj(&srsj).expect("valid minimal FileStore");
+        let store =
+            crate::validation::fixture_ladder::open_srsj(&srsj).expect("valid minimal FileStore");
 
         let add_result = add_attachment(
             &store,
@@ -1607,7 +1607,6 @@ mod tests {
 
     #[test]
     fn link_attachment_filestore_roundtrip() {
-        use crate::store::FileStore;
         use tempfile::TempDir;
 
         let temp = TempDir::new().unwrap();
@@ -1667,7 +1666,7 @@ mod tests {
         )
         .unwrap();
 
-        let store = FileStore::new(root);
+        let store = crate::validation::fixture_ladder::store(root);
         let result = link_attachment(
             &store,
             LinkAttachmentInput {
@@ -1699,7 +1698,6 @@ mod tests {
 
     #[test]
     fn add_attachment_filestore_roundtrip() {
-        use crate::store::FileStore;
         use tempfile::TempDir;
 
         let temp = TempDir::new().unwrap();
@@ -1725,7 +1723,7 @@ mod tests {
         )
         .unwrap();
 
-        let store = FileStore::new(root);
+        let store = crate::validation::fixture_ladder::store(root);
         let result = add_attachment(
             &store,
             AddAttachmentInput {
@@ -1988,7 +1986,6 @@ mod tests {
 
     #[test]
     fn resolve_composition_attachments_filestore_roundtrip() {
-        use crate::store::FileStore;
         use tempfile::TempDir;
 
         let temp = TempDir::new().unwrap();
@@ -2047,7 +2044,7 @@ mod tests {
         )
         .unwrap();
 
-        let store = FileStore::new(root);
+        let store = crate::validation::fixture_ladder::store(root);
         link_attachment(
             &store,
             LinkAttachmentInput {
@@ -2165,7 +2162,6 @@ mod tests {
 
     #[test]
     fn get_attachment_bytes_filestore_roundtrip() {
-        use crate::store::FileStore;
         use tempfile::TempDir;
 
         let temp = TempDir::new().unwrap();
@@ -2210,7 +2206,7 @@ mod tests {
         )
         .unwrap();
 
-        let store = FileStore::new(root);
+        let store = crate::validation::fixture_ladder::store(root);
         let result = get_attachment_bytes(
             &store,
             GetAttachmentBytesInput {
@@ -2365,7 +2361,6 @@ mod tests {
 
     #[test]
     fn get_record_attachments_filestore_roundtrip() {
-        use crate::store::FileStore;
         use tempfile::TempDir;
 
         let temp = TempDir::new().unwrap();
@@ -2426,7 +2421,7 @@ mod tests {
         )
         .unwrap();
 
-        let store = FileStore::new(root);
+        let store = crate::validation::fixture_ladder::store(root);
         link_attachment(
             &store,
             LinkAttachmentInput {
@@ -2518,7 +2513,6 @@ mod tests {
         );
 
         // ── FileStore half ────────────────────────────────────────────────────
-        use crate::store::FileStore;
         use tempfile::TempDir;
 
         let temp = TempDir::new().unwrap();
@@ -2583,7 +2577,7 @@ mod tests {
         .unwrap();
         std::fs::write(root.join("source-documents/brief.pdf"), b"pdf bytes").unwrap();
 
-        let file_store = FileStore::new(root);
+        let file_store = crate::validation::fixture_ladder::store(root);
         let file_result = get_record_attachments(
             &file_store,
             GetRecordAttachmentsInput {

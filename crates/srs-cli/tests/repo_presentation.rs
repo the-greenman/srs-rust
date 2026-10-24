@@ -28,6 +28,8 @@ fn create_minimal_repo_with_package(dir: &std::path::Path) {
         .unwrap(),
     )
     .unwrap();
+    // Authored at revision 2: brought to the current revision through the ladder (RFC-052 [R7]).
+    srs_repository::rfc052_root_container_migration_service::ladder_fixture(dir).unwrap();
 }
 
 fn create_test_composition(store: &FileStore, name: &str) -> String {

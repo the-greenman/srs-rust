@@ -3467,7 +3467,7 @@ mod tests {
             &serde_json::from_str(&manifest_json).unwrap(),
         )
         .unwrap();
-        let store = crate::FileStore::new(temp.path());
+        let store = crate::validation::fixture_ladder::store(temp.path());
         let c = get_container(&store, embed_id).unwrap();
         assert_eq!(c.container_id, embed_id);
         assert_eq!(c.title, "Root");

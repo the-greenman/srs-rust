@@ -695,57 +695,49 @@ Must return `ok: false` with a message referencing the absent `meta` or `upstrea
 
 **Intention.** *"I've created the governance container that serves as my organisation's navigation entry point. I want to record that pointer in the manifest — so any client running `repo navigation` always knows where to start, without me having to tell it every time."*
 
-**Capabilities exercised.** `set_manifest_root_container` service writing the root container to `containers/<containerId>.json` and `manifest.rootContainerId` (RFC-052); the RFC-013 contract that a valid repository always names its root container; `repo navigation` reading back the pointer; `repo validate` asserting the invariant.
+**Capabilities exercised.** `set_manifest_root_container`, which is pointer-only (RFC-052 Change D / [R8], srs-rust#1453): it changes only `manifest.rootContainerId`, accepts only an existing container and writes no container; the RFC-013 contract that a valid repository always names its root container; `repo navigation` reading back the pointer; `repo validate` asserting the invariant.
 
 **CLI surface.** `repo create`, `container create`, `repo set-root-container`, `repo navigation`, `repo validate`.
 
 **Steps.**
 
-1. Create a throwaway repository:
+1. Create a throwaway repository and note the scaffolded root:
    ```bash
    srs repo create --repo /tmp/dogfood-s17 --namespace com.example.s17 \
      --package-name s17-pkg --package-version 1.0.0 --srs-version 2.0-draft
+   OLD=$(python3 -c "import json;print(json.load(open('/tmp/dogfood-s17/manifest.json'))['rootContainerId'])")
    ```
-2. Create the navigation root container (the "home" for records):
+2. Create the new navigation root container, then snapshot `containers/`:
    ```bash
    echo '{"title":"Root","namespace":"com.example.s17"}' \
      | srs container create --repo /tmp/dogfood-s17
+   cp -r /tmp/dogfood-s17/containers /tmp/dogfood-s17-before
    ```
    Capture `payload.container.containerId` as `$ROOT_ID`.
-3. Retrieve the identity instance (`repo create` always scaffolds a `com.semanticops.core/purpose` record and sets the root container's `identityInstanceId` to it since #424):
+3. Point the manifest at it:
    ```bash
-   srs repo navigation --repo /tmp/dogfood-s17 --pretty
+   srs repo set-root-container --repo /tmp/dogfood-s17 --container-id "$ROOT_ID"
    ```
-   Capture `payload.navigation.identity.instanceId` as `$IDENTITY_ID`.
-4. Pin the root container in the manifest:
-   ```bash
-   srs repo set-root-container --repo /tmp/dogfood-s17 \
-     --container-id "$ROOT_ID" \
-     --identity-instance-id "$IDENTITY_ID"
-   ```
-   Confirm the response: `ok: true`, `payload.containerId == $ROOT_ID`, `payload.identityInstanceId == $IDENTITY_ID`.
-5. Inspect the manifest to confirm the pointer was written:
-   ```bash
-   cat /tmp/dogfood-s17/manifest.json | python3 -m json.tool
-   ```
-   Confirm `.container.containerId == $ROOT_ID` and `.container.identityInstanceId == $IDENTITY_ID`.
+   Confirm `ok: true`, `payload.containerId == $ROOT_ID` and `payload.title == "Root"` (the promoted container as stored; nothing is copied into it).
+4. Confirm only the manifest changed: `manifest.json` has `rootContainerId == $ROOT_ID`, and `diff -r /tmp/dogfood-s17-before /tmp/dogfood-s17/containers` is empty. The previous root (`$OLD`) is an ordinary container.
+5. Swap back with `--container-id "$OLD"`; the `diff -r` is still empty.
 6. Validate:
    ```bash
    srs repo validate --repo /tmp/dogfood-s17 --pretty
    ```
    The repo must pass RFC-013 I-79 with 0 errors.
 
-**Negative case.** Pass `--container-id ""` (empty string) — confirm `ok: false` with a message containing `"container_id must not be empty"` and that `manifest.rootContainerId` and the root container are unchanged. Similarly, pass `--identity-instance-id ""` — same pattern.
+**Negative cases.** `--container-id ""` returns `ok: false` with `"container_id must not be empty"`; an id that names no container returns `errors[0].code == "container-not-found"`; `repo unset-root-container` returns `manifest-root-container-missing`. Each leaves `manifest.json` and `containers/` byte-identical.
 
-**Done when.** `set-root-container` returns the two IDs in its payload; `manifest.json` on disk carries `.container.containerId` and `.container.identityInstanceId` matching what was passed; `repo validate` reports 0 errors; empty-flag inputs return `ok: false` with a clear diagnostic without corrupting the manifest.
+**Done when.** A swap and a swap back change only `manifest.rootContainerId`; every refusal writes nothing; `repo validate` reports 0 errors. To change a root's title, identity or members, use `container update`.
 
 #### S17b — A container that stands alone (identity-less navigation, #838)
 
 **Intention.** *"I deleted the record that stated my repository's purpose. I want navigation to tell me the purpose is gone — not quietly appoint one of my sections to the role and drop it from the sidebar."*
 
-**Capabilities exercised.** RFC-029's rule that a root container with no `identityInstanceId` is **valid**; ADR-044's rule that a derived field with no source in the data is reported absent, never inferred; the #834 delete cascade as the route into that state; recovery via `repo set-root-container`.
+**Capabilities exercised.** RFC-029's rule that a root container with no `identityInstanceId` is **valid**; ADR-044's rule that a derived field with no source in the data is reported absent, never inferred; the #834 delete cascade as the route into that state; recovery via `container update` (identity is a container edit, never a side effect of `repo set-root-container`).
 
-**CLI surface.** `repo create`, `record create --type --container`, `container roots add`, `record delete`, `repo navigation`, `repo validate`, `repo set-root-container`.
+**CLI surface.** `repo create`, `record create --type --container`, `container roots add`, `record delete`, `repo navigation`, `repo validate`, `container update`.
 
 **Steps.**
 
@@ -774,8 +766,8 @@ Must return `ok: false` with a message referencing the absent `meta` or `upstrea
 5. Confirm the repo is genuinely valid, not merely tolerated: `srs repo validate --repo /tmp/dogfood-s17b` → **0 errors**.
 6. Recover by naming an identity explicitly:
    ```bash
-   srs repo set-root-container --repo /tmp/dogfood-s17b \
-     --container-id "$ROOT" --identity-instance-id "$SEC"
+   echo "{\"identityInstanceId\":\"$SEC\"}" \
+     | srs container update "$ROOT" --repo /tmp/dogfood-s17b
    srs repo navigation --repo /tmp/dogfood-s17b --pretty
    ```
    `identity.displayLabel` is now `"Articles"`, `sections` is empty (the identity is correctly excluded from its own navigation), diagnostics empty.
@@ -917,7 +909,8 @@ EOF
 
 # Override identityInstanceId to a Tier-0 note — simulates the legacy case that triggers I-81
 $SRS_BIN container members add --repo "$SCRATCH" "$CONTAINER_ID" "$NOTE_ID" --pretty
-$SRS_BIN repo set-root-container --repo "$SCRATCH" --container-id "$CONTAINER_ID" --identity-instance-id "$NOTE_ID" --pretty
+echo "{\"identityInstanceId\":\"$NOTE_ID\"}" | $SRS_BIN container update "$CONTAINER_ID" --repo "$SCRATCH"
+$SRS_BIN repo set-root-container --repo "$SCRATCH" --container-id "$CONTAINER_ID" --pretty
 $SRS_BIN repo validate --repo "$SCRATCH" --pretty
 $SRS_BIN repo navigation --repo "$SCRATCH" --pretty
 ```
@@ -973,11 +966,10 @@ CONTAINER_ID=$($SRS_BIN container create --repo "$SCRATCH" <<'EOF' | python3 -c 
 EOF
 )
 
-# Identity must be in the container's member list before set-root-container
+# Identity must be in the container's member list before it is named the identity
 $SRS_BIN container members add --repo "$SCRATCH" "$CONTAINER_ID" "$NOTE_ID"
-$SRS_BIN repo set-root-container --repo "$SCRATCH" \
-  --container-id "$CONTAINER_ID" \
-  --identity-instance-id "$NOTE_ID" --pretty
+echo "{\"identityInstanceId\":\"$NOTE_ID\"}" | $SRS_BIN container update "$CONTAINER_ID" --repo "$SCRATCH"
+$SRS_BIN repo set-root-container --repo "$SCRATCH" --container-id "$CONTAINER_ID" --pretty
 
 # Before migration: validate warns about Tier-0 identity (ok: true, warnings: 1)
 $SRS_BIN repo validate --repo "$SCRATCH" --pretty

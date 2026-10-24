@@ -101,7 +101,7 @@ fn fixture_srsj() -> String {
 }
 
 fn fixture_store() -> FileStore {
-    srs_repository::srsj::open_srsj(&fixture_srsj()).expect("fixture srsj must load")
+    ladder_open(&fixture_srsj()).expect("fixture srsj must load")
 }
 
 /// #1134 acceptance: the native dispatcher and the browser session answer the context
@@ -114,14 +114,16 @@ fn context_resource_native_matches_browser_session() {
     let req = json!({"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri": uri}});
 
     let mut native = srs_mcp_core::McpDispatcher::new(
-        srs_mcp_core::SrsMcpApplication::open(srs_repository::srsj::open_srsj(&srsj).unwrap())
-            .unwrap(),
+        srs_mcp_core::SrsMcpApplication::open(ladder_open(&srsj).unwrap()).unwrap(),
     );
     let init = json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18"}});
     native.dispatch(init.clone()).unwrap();
     let native_out = native.dispatch(req.clone()).unwrap();
 
-    let repo = srs_bindings::SrsRepository::load(&srsj).ok().unwrap();
+    let laddered =
+        srs_repository::rfc052_root_container_migration_service::ladder_srsj_fixture(&srsj)
+            .unwrap();
+    let repo = srs_bindings::SrsRepository::load(&laddered).ok().unwrap();
     let mut session = repo.open_mcp_session().ok().unwrap();
     session.handle(&init.to_string()).unwrap();
     let browser_out: Value =
@@ -237,4 +239,14 @@ fn neighbours_service_pages_with_total() {
         NeighboursPage::default(),
     );
     assert_eq!(none.unwrap().total, 0);
+}
+
+/// Fixtures authored below revision 10 are brought to it through the registry ladder
+/// (RFC-052 [R7]) before they are opened.
+fn ladder_open(
+    srsj: &str,
+) -> Result<srs_repository::FileStore, srs_repository::error::RepositoryError> {
+    srs_repository::srsj::open_srsj(
+        &srs_repository::rfc052_root_container_migration_service::ladder_srsj_fixture(srsj)?,
+    )
 }

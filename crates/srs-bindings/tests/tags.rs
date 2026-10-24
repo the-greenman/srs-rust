@@ -2,7 +2,7 @@ use srs_repository::{tag_service, FileStore};
 
 fn gallery_store() -> FileStore {
     let srsj = include_str!("../../srs-repository/tests/fixtures/gallery.srsj");
-    srs_repository::srsj::open_srsj(srsj).expect("gallery srsj must load")
+    ladder_open(srsj).expect("gallery srsj must load")
 }
 
 #[test]
@@ -62,9 +62,19 @@ fn vocab_srsj() -> String {
 
 #[test]
 fn list_tags_returns_terms_from_vocabulary() {
-    let store = srs_repository::srsj::open_srsj(&vocab_srsj()).expect("vocab srsj must load");
+    let store = ladder_open(&vocab_srsj()).expect("vocab srsj must load");
     let terms = tag_service::list_terms(&store).expect("list_terms must succeed");
     assert_eq!(terms.len(), 1, "one term registered");
     assert_eq!(terms[0].key, "category:core");
     assert_eq!(terms[0].namespace, "com.test");
+}
+
+/// Fixtures authored below revision 10 are brought to it through the registry ladder
+/// (RFC-052 [R7]) before they are opened.
+fn ladder_open(
+    srsj: &str,
+) -> Result<srs_repository::FileStore, srs_repository::error::RepositoryError> {
+    srs_repository::srsj::open_srsj(
+        &srs_repository::rfc052_root_container_migration_service::ladder_srsj_fixture(srsj)?,
+    )
 }
