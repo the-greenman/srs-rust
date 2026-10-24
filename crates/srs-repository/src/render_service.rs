@@ -12914,7 +12914,7 @@ mod tests {
 
         let store = MemoryStore::empty();
         let container = Container {
-            container_id: "d0c8cba0-test-0001-0000-000000000001".to_string(),
+            container_id: "00000000-0000-4000-8000-00000051ed0d".to_string(),
             title: "Recognising decisions".to_string(),
             namespace: None,
             name: None,
@@ -12945,7 +12945,7 @@ mod tests {
             &store,
             &dv,
             &manifest,
-            Some("d0c8cba0-test-0001-0000-000000000001"),
+            Some("00000000-0000-4000-8000-00000051ed0d"),
         );
         assert_eq!(
             title, "Recognising decisions",
@@ -12963,7 +12963,7 @@ mod tests {
 
         let store = MemoryStore::empty();
         let container = Container {
-            container_id: "idx-test-cid".to_string(),
+            container_id: "00000000-0000-4000-8000-00000051ed0c".to_string(),
             title: "File Title".to_string(),
             namespace: None,
             name: None,
@@ -12986,7 +12986,12 @@ mod tests {
         let manifest = minimal_manifest_no_index();
 
         let dv = minimal_composition();
-        let title = resolve_container_title(&store, &dv, &manifest, Some("idx-test-cid"));
+        let title = resolve_container_title(
+            &store,
+            &dv,
+            &manifest,
+            Some("00000000-0000-4000-8000-00000051ed0c"),
+        );
         assert_eq!(title, "File Title");
     }
 
@@ -13019,8 +13024,8 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let repo_root = tmp.path();
 
-        let cid = "fs-test-cid-0001";
-        let container_path = "containers/fs-test-cid-0001.json";
+        let cid = "00000000-0000-4000-8000-0000000f5c01";
+        let container_path = "containers/00000000-0000-4000-8000-0000000f5c01.json";
 
         std::fs::create_dir_all(repo_root.join("containers")).unwrap();
         let container = Container {

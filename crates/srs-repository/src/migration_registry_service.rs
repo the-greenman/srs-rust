@@ -562,6 +562,55 @@ static MIGRATIONS: &[MigrationDefinition] = &[
             })
         },
     },
+    // Ordered after `rfc052-root-container` (it requires revision 10) and raw-tree: a
+    // revision-11 build refuses a flat container file on load (RFC-051 [R13]).
+    MigrationDefinition {
+        id: "rfc051-container-entries",
+        title: "Adopt RFC-051: each container is stored as a directory of one-line entry files",
+        description: "Converts every flat container file (the root container included) to \
+                       the directory containers/<containerId>/: a one-line head \
+                       container.json (the container without memberInstanceIds) and one \
+                       one-line entries/<instanceId>.json per member, carrying its parent \
+                       (RFC-043 [R5]) and a fractional key, the next successive append among \
+                       its siblings, so the result is deterministic. Stamps dataModelRevision: \
+                       11 on the manifest and every stamped package manifest. This is \
+                       data-model migration #11 (revision 10 -> 11), per srs-rust#1450 \
+                       (RFC-051, srs#940). Reads and writes the raw file tree — the sole \
+                       sanctioned reader of flat container files at revision 11, where it \
+                       also converts any it finds. All-or-nothing: it refuses before any \
+                       write an outline that breaks RFC-043 [R2] (its arrangement-* code), a \
+                       container id that cannot name a directory (container-name-mismatch), \
+                       or a gate difference (`migration-gate-failed`: every container, the \
+                       navigation and every Composition render, unscoped and per container, \
+                       read before and after on in-memory trees, must be identical); a failed \
+                       write undoes the earlier ones, and a run cut short is finished by a \
+                       re-run. Requires revision 10 (rfc052-root-container) first.",
+        revision_step: Some(RevisionStep {
+            from: crate::field_type_migration_service::RFC051_CONTAINER_ENTRIES_REVISION - 1,
+            to: crate::field_type_migration_service::RFC051_CONTAINER_ENTRIES_REVISION,
+            // A Package Bundle carries no container: nothing it carries changes shape at
+            // this step (RFC-003 [C6]).
+            bundle: BundleForm::Restamp,
+        }),
+        status_fn: |store| {
+            if crate::rfc051_container_entries_migration_service::migration_needed(store) {
+                Ok(MigrationStatus::Needed)
+            } else {
+                Ok(MigrationStatus::AlreadyApplied)
+            }
+        },
+        apply_fn: |store| {
+            let result =
+                crate::rfc051_container_entries_migration_service::migrate_rfc051_container_entries(
+                    store,
+                )?;
+            serde_json::to_value(&result).map_err(|e| RepositoryError::InvalidSnapshotData {
+                message: format!(
+                    "failed to serialize rfc051-container-entries migration result: {e}"
+                ),
+            })
+        },
+    },
     MigrationDefinition {
         id: "migrate-identity",
         title: "Graduate identity to purpose record",
@@ -895,7 +944,7 @@ mod tests {
     fn list_migrations_returns_every_entry_for_store_with_no_identity_note() {
         let store = make_store_with_container_no_identity();
         let migrations = list_migrations(&store).unwrap();
-        assert_eq!(migrations.len(), 16);
+        assert_eq!(migrations.len(), 17);
         assert_eq!(migrations[0].id, "graduated-at-cleanup");
         assert_eq!(migrations[1].id, "revisions-sidecar-cleanup");
         assert_eq!(migrations[2].id, "field-type");
@@ -908,10 +957,11 @@ mod tests {
         assert_eq!(migrations[9].id, "rfc043-container-entries");
         assert_eq!(migrations[10].id, "rfc046-actor-provenance");
         assert_eq!(migrations[11].id, "rfc052-root-container");
-        assert_eq!(migrations[12].id, "migrate-identity");
-        assert_eq!(migrations[13].id, "repo-upgrade");
-        assert_eq!(migrations[14].id, "core-relation-type-reference-cleanup");
-        assert_eq!(migrations[15].id, "rfc038-storage");
+        assert_eq!(migrations[12].id, "rfc051-container-entries");
+        assert_eq!(migrations[13].id, "migrate-identity");
+        assert_eq!(migrations[14].id, "repo-upgrade");
+        assert_eq!(migrations[15].id, "core-relation-type-reference-cleanup");
+        assert_eq!(migrations[16].id, "rfc038-storage");
         // No legacy graduatedAt Notes → AlreadyApplied
         assert_eq!(migrations[0].status, MigrationStatus::AlreadyApplied);
         // No .revisions.json sidecars → AlreadyApplied
@@ -936,14 +986,16 @@ mod tests {
         assert_eq!(migrations[10].status, MigrationStatus::Needed);
         // Revision < 10 → rfc052-root-container Needed
         assert_eq!(migrations[11].status, MigrationStatus::Needed);
-        // Container exists but identity_instance_id is None → migrate-identity Needed
+        // Revision < 11 → rfc051-container-entries Needed
         assert_eq!(migrations[12].status, MigrationStatus::Needed);
+        // Container exists but identity_instance_id is None → migrate-identity Needed
+        assert_eq!(migrations[13].status, MigrationStatus::Needed);
         // Zero instances → all paths canonical → AlreadyApplied
-        assert_eq!(migrations[13].status, MigrationStatus::AlreadyApplied);
-        // No local relation-type definitions at all → nothing to clean up.
         assert_eq!(migrations[14].status, MigrationStatus::AlreadyApplied);
+        // No local relation-type definitions at all → nothing to clean up.
+        assert_eq!(migrations[15].status, MigrationStatus::AlreadyApplied);
         // MemoryStore is not a file tree — there is no storage layout to place.
-        assert_eq!(migrations[15].status, MigrationStatus::NotApplicable);
+        assert_eq!(migrations[16].status, MigrationStatus::NotApplicable);
     }
 
     fn indexed_srsj_store() -> crate::store::FileStore {
@@ -1208,6 +1260,9 @@ mod tests {
         assert!(matches!(s.bundle, BundleForm::Transform(_)));
         let (id, s) = revision_step_from(8).unwrap();
         assert_eq!(id, "rfc046-actor-provenance");
+        assert!(matches!(s.bundle, BundleForm::Restamp));
+        let (id, s) = revision_step_from(10).unwrap();
+        assert_eq!(id, "rfc051-container-entries");
         assert!(matches!(s.bundle, BundleForm::Restamp));
         assert_eq!(revision_step_from(0).unwrap().0, "field-type");
     }

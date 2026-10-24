@@ -148,9 +148,24 @@ fn seed_is_a_byte_copy_of_the_published_seed() {
     let Ok(published) = std::fs::read_to_string(spec.join(&rel)) else {
         return; // explicit but unusable SRS_SPEC_DIR: skip, as core_bundle_drift does
     };
+    // Between a revision bump and srs republishing the seed at the new revision (the
+    // revision-bump choreography), the vendored seed is the published one brought to the
+    // current revision through the registry ladder (`srs repo apply-migration` on the .srsj),
+    // byte for byte — still never a hand edit.
+    let published_revision = serde_json::from_str::<serde_json::Value>(&published)
+        .ok()
+        .and_then(|v| v["manifest"]["dataModelRevision"].as_u64())
+        .unwrap_or(0);
+    let expected = if published_revision < CURRENT_DATA_MODEL_REVISION {
+        srs_repository::rfc052_root_container_migration_service::ladder_srsj_fixture(&published)
+            .expect("the published seed climbs the ladder")
+    } else {
+        published
+    };
     assert!(
-        raw == published,
-        "governance-seed.srsj is not a byte-copy of srs {rel} — re-vendor it with `cp`, \
-         never hand-edit (ADR-046)"
+        raw == expected,
+        "governance-seed.srsj is not a byte-copy of srs {rel} (laddered to the current \
+         revision while srs still publishes an older one) — re-vendor it with `cp` (or `srs \
+         repo apply-migration` on the copy), never hand-edit (ADR-046)"
     );
 }

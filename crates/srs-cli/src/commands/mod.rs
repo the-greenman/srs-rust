@@ -608,7 +608,8 @@ pub enum ContainerMembersCommand {
         #[arg(long)]
         down: bool,
     },
-    /// Remove every entry whose instance no longer resolves (RFC-043 repair)
+    /// Remove every entry whose instance no longer resolves (RFC-043 repair); re-attach
+    /// orphans and loop breaks, and remove a container directory with no head (RFC-051 [R11])
     Repair { container_id: String },
 }
 
@@ -809,7 +810,7 @@ pub enum RepoCommand {
         #[arg(long = "container-id")]
         container_id: String,
     },
-    /// Refused at dataModelRevision 10 (`manifest-root-container-missing`): a manifest
+    /// Refused from dataModelRevision 10 (`manifest-root-container-missing`): a manifest
     /// must name its root container (RFC-052 [R1]). Point it at another container with
     /// `repo set-root-container` instead. Nothing is written.
     #[command(name = "unset-root-container")]

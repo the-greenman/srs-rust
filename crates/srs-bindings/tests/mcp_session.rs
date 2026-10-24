@@ -17,7 +17,7 @@ fn open_repo() -> SrsRepository {
         &store,
         &InitializeRepositoryInput {
             repository: RepositoryMetadata {
-                repository_id: "browser-mcp".into(),
+                repository_id: "00000000-0000-4000-8000-00000051ed08".into(),
                 namespace: "com.example.browser".into(),
                 srs_version: "2.0".into(),
                 title: Some("Browser MCP".into()),
@@ -66,7 +66,7 @@ fn mcp_write_is_visible_to_export_without_any_implicit_save() {
         .as_array()
         .unwrap()
         .iter()
-        .any(|r| r["uri"] == "srs://browser-mcp/map"));
+        .any(|r| r["uri"] == "srs://00000000-0000-4000-8000-00000051ed08/map"));
 
     let created = send(
         &mut session,
@@ -153,7 +153,7 @@ fn write_epoch_tracks_mutation_only() {
         &mut session,
         3,
         "resources/read",
-        json!({ "uri": "srs://browser-mcp/map" }),
+        json!({ "uri": "srs://00000000-0000-4000-8000-00000051ed08/map" }),
     );
     send(
         &mut session,

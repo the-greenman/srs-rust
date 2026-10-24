@@ -20,7 +20,7 @@ fn canonical_store() -> (tempfile::TempDir, FileStore) {
     store
         .initialize_repository(&InitializeRepositoryInput {
             repository: RepositoryMetadata {
-                repository_id: "golden-archive-repo-00000000000000000000000000".to_string(),
+                repository_id: "00000000-0000-4000-8000-00000051ed0b".to_string(),
                 namespace: "com.example.golden".to_string(),
                 srs_version: "2.0-draft".to_string(),
                 title: Some("Golden Archive Test Repository".to_string()),

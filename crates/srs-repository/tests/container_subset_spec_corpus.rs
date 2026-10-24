@@ -36,10 +36,10 @@ const TEST_COMPOSITION_ID: &str = "3a000099-0000-4000-a000-000000000099";
 fn spec_is_current_revision(spec: PathBuf) -> Option<PathBuf> {
     let raw = std::fs::read_to_string(spec.join("srs/manifest.json")).ok()?;
     let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
-    // RFC-052: this build reads dataModelRevision 10; skip until the srs corpus-migration
-    // PR (srs#948) lands it.
+    // RFC-051: this build reads dataModelRevision 11; skip until the srs corpus-migration
+    // PR (srs#949) lands it.
     (v.get("dataModelRevision").and_then(|r| r.as_u64())
-        >= Some(srs_repository::field_type_migration_service::RFC052_ROOT_CONTAINER_REVISION))
+        >= Some(srs_repository::field_type_migration_service::RFC051_CONTAINER_ENTRIES_REVISION))
     .then_some(spec)
 }
 

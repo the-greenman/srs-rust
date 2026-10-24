@@ -92,7 +92,7 @@ fn cross_store_field_json_parity() {
         session.store(),
         &InitializeRepositoryInput {
             repository: RepositoryMetadata {
-                repository_id: "parity-repo".to_string(),
+                repository_id: "00000000-0000-4000-8000-00000051ed04".to_string(),
                 namespace: "com.test".to_string(),
                 srs_version: "2.0-draft".to_string(),
                 title: None,

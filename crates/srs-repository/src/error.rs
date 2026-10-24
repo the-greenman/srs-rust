@@ -534,7 +534,7 @@ pub enum RepositoryError {
     /// the declared revision only, never the manifest's shape (owner ruling 1 on srs#953).
     /// This build refuses every operation except the registry migration; `pending` names
     /// the revision-keyed registry entries the corpus still needs, in the order to apply them.
-    #[error("manifest.json declares dataModelRevision {declared}; this build reads dataModelRevision 10 (RFC-052 [R7]) — apply the pending registry migrations in order: {}", pending.iter().map(|id| format!("`srs repo apply-migration --id {id}`")).collect::<Vec<_>>().join(", then "))]
+    #[error("manifest.json declares dataModelRevision {declared}; this build reads dataModelRevision {} (RFC-052 [R7], RFC-051 [R13]) — apply the pending registry migrations in order: {}", crate::field_type_migration_service::CURRENT_DATA_MODEL_REVISION, pending.iter().map(|id| format!("`srs repo apply-migration --id {id}`")).collect::<Vec<_>>().join(", then "))]
     ContainerMigrationNeeded {
         declared: u64,
         pending: Vec<&'static str>,
@@ -556,6 +556,17 @@ pub enum RepositoryError {
     /// `migration-root-missing`, `migration-gate-failed`).
     #[error("{message}")]
     MigrationRefused {
+        #[serde(skip)]
+        code: &'static str,
+        #[serde(skip)]
+        message: String,
+    },
+
+    /// RFC-051 [R14]: a stored Container directory that cannot be read or written as it is
+    /// (`container-schema`, `container-name-mismatch`, `container-entry-misplaced`,
+    /// `arrangement-key`, or an id that cannot name a directory).
+    #[error("{message}")]
+    ContainerStorage {
         #[serde(skip)]
         code: &'static str,
         #[serde(skip)]
@@ -1286,6 +1297,7 @@ impl RepositoryError {
             Self::ContainerMigrationNeeded { .. } => "container-migration-needed",
             Self::ManifestRootContainer { code, .. } => code,
             Self::MigrationRefused { code, .. } => code,
+            Self::ContainerStorage { code, .. } => code,
             Self::ActorProvenance { code, .. } => code,
             Self::InvalidPackageBundle { code, .. } => code,
             Self::SliceRefused { code, .. } => code,
@@ -1657,6 +1669,10 @@ mod tests {
                 code: "migration-x",
                 message: "x".into(),
             },
+            R::ContainerStorage {
+                code: "container-x",
+                message: "x".into(),
+            },
             R::ActorProvenance {
                 code: "actor-x",
                 message: "x".into(),
@@ -1679,7 +1695,7 @@ mod tests {
         let all = all_variants();
         assert_eq!(
             all.len(),
-            101,
+            102,
             "all_variants() is out of step with the enum"
         );
         let mut seen = std::collections::HashSet::new();

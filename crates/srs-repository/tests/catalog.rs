@@ -41,9 +41,9 @@ fn laddered(manifest: &str) -> Vec<(String, Vec<u8>)> {
     // The ladder reads a package; the tests author their own, so it is not returned.
     write(tmp.path(), "package/package.json", &srs_package_json());
     srs_repository::rfc052_root_container_migration_service::ladder_fixture(tmp.path()).unwrap();
-    let root = format!(
-        "containers/{}.json",
-        srs_repository::rfc052_root_container_migration_service::FIXTURE_ROOT_ID
+    // RFC-051: the root container is a directory (its head, and no entries).
+    let root = srs_repository::container_store::head_path(
+        srs_repository::rfc052_root_container_migration_service::FIXTURE_ROOT_ID,
     );
     ["manifest.json".to_string(), root]
         .into_iter()
@@ -138,8 +138,8 @@ fn fixture_catalog_reproduces_identity_sets_ignoring_manifest() {
         .iter()
         .all(|e| e.kind == CatalogKind::Relation && e.tier.is_none()));
 
-    // Containers: thirteen files, the root container included (RFC-052: it is
-    // stored in the container set at containers/<containerId>.json).
+    // Containers: thirteen directories, the root container included (RFC-052: it is
+    // stored in the container set; RFC-051: as containers/<containerId>/).
     assert_eq!(cat.containers.len(), 13);
     let root_id = store
         .load_manifest()
@@ -148,7 +148,8 @@ fn fixture_catalog_reproduces_identity_sets_ignoring_manifest() {
         .unwrap()
         .to_string();
     assert!(cat.containers.iter().any(|e| e.id == root_id
-        && e.locator.as_deref() == Some(format!("containers/{root_id}.json").as_str())));
+        && e.locator.as_deref()
+            == Some(srs_repository::container_store::head_path(&root_id).as_str())));
 
     assert_eq!(cat.source_documents.len(), 5);
 
@@ -1119,15 +1120,9 @@ fn relation_json(id: &str, src: &str, tgt: &str) -> String {
     )
 }
 
-fn container_json(id: &str, members: &[String]) -> String {
-    let entries: Vec<String> = members
-        .iter()
-        .map(|m| format!(r#"{{"instanceId": "{m}"}}"#))
-        .collect();
-    format!(
-        r#"{{"containerId": "{id}", "title": "c", "memberInstanceIds": [{}]}}"#,
-        entries.join(",")
-    )
+/// RFC-051: one entry file of a stored container.
+fn entry_json(container: &str, id: &str, key: &str) -> String {
+    serde_json::json!({"containerId": container, "instanceId": id, "key": key}).to_string()
 }
 
 /// Compare the store's (possibly patched) catalog with a from-scratch build
@@ -1191,13 +1186,27 @@ fn patched_catalog_equals_fresh_build_over_random_writes() {
                         Some(relation_json(&r, &s, &t).into_bytes()),
                     )
                 }
+                // RFC-051: a stored container's head, or one of its entries (a headless
+                // directory and a dangling entry are both reachable states).
                 5 => {
                     let c = uuid(200 + rng.next() % 3);
-                    let members = vec![rng.pick(&ids).clone(), rng.pick(&ids).clone()];
-                    (
-                        format!("containers/{c}.json"),
-                        Some(container_json(&c, &members).into_bytes()),
-                    )
+                    if rng.next().is_multiple_of(2) {
+                        (
+                            srs_repository::container_store::head_path(&c),
+                            Some(
+                                serde_json::json!({"containerId": c, "title": "c"})
+                                    .to_string()
+                                    .into_bytes(),
+                            ),
+                        )
+                    } else {
+                        let m = rng.pick(&ids).clone();
+                        let key = rng.pick(&["a0", "a1", "a0V"]).to_string();
+                        (
+                            srs_repository::container_store::entry_path(&c, &m),
+                            Some(entry_json(&c, &m, &key).into_bytes()),
+                        )
+                    }
                 }
                 6 => (
                     format!("records/{}.json", rng.next() % 6),

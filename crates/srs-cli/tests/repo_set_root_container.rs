@@ -39,18 +39,22 @@ fn code(v: &Value) -> &str {
     v["errors"][0]["code"].as_str().unwrap()
 }
 
-/// Every file under `containers/`, by path.
+/// Every file under `containers/` (RFC-051: each container is a directory), by path.
 fn containers(dir: &Path) -> BTreeMap<String, Vec<u8>> {
-    std::fs::read_dir(dir.join("containers"))
-        .unwrap()
-        .map(|e| e.unwrap().path())
-        .map(|p| {
-            (
-                p.file_name().unwrap().to_string_lossy().into_owned(),
-                std::fs::read(&p).unwrap(),
-            )
-        })
-        .collect()
+    fn walk(base: &Path, dir: &Path, out: &mut BTreeMap<String, Vec<u8>>) {
+        for p in std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()) {
+            if p.is_dir() {
+                walk(base, &p, out);
+            } else {
+                let rel = p.strip_prefix(base).unwrap().to_string_lossy().into_owned();
+                out.insert(rel, std::fs::read(&p).unwrap());
+            }
+        }
+    }
+    let base = dir.join("containers");
+    let mut out = BTreeMap::new();
+    walk(&base, &base, &mut out);
+    out
 }
 
 fn root_id(dir: &Path) -> String {

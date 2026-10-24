@@ -223,8 +223,7 @@ fn load_container_for_diagnostics(
     centry: &crate::catalog::CatalogEntry,
 ) -> Option<srs_core::types::container::Container> {
     match centry.locator.as_deref() {
-        Some(path) => store
-            .load_instance_json(path)
+        Some(path) => crate::container_store::logical_value(store, path)
             .ok()
             .and_then(|v| serde_json::from_value(v).ok()),
         None => None,
@@ -2513,8 +2512,9 @@ pub(crate) fn validate_definition_write_schema(
 
 /// RFC-043 [R2], [R3], [R5]: every arrangement diagnostic for one container — codes
 /// `arrangement-depth`, `arrangement-duplicate`, `arrangement-unresolved`,
-/// `arrangement-identity` and `arrangement-pointer` (a declared `identityInstanceId` /
-/// `anchorInstanceId` that is not an entry). One diagnostic per offending entry.
+/// `arrangement-identity` and `container-pointer-unresolved` (RFC-051 [R14]: a declared
+/// `identityInstanceId` / `anchorInstanceId` that is not an entry; RFC-043 [R3] assigned no
+/// code). One diagnostic per offending entry.
 fn container_arrangement_diagnostics(
     container: &srs_core::types::container::Container,
     is_root: bool,
@@ -2571,7 +2571,7 @@ fn container_arrangement_diagnostics(
                     DiagnosticSeverity::Error,
                     format!(
                         "{}: {rule}: container '{cid}' {name} '{id}' is not an entry of memberInstanceIds",
-                        arrangement::CODE_POINTER
+                        crate::container_store::codes::POINTER_UNRESOLVED
                     ),
                 ));
             }
@@ -2631,11 +2631,34 @@ mod tests {
         // revision-10 form (root in the container set, named by rootContainerId).
         if rel == "manifest.json" {
             let mut manifest = value.clone();
-            if let Some((path, root)) =
+            if let Some(root) =
                 crate::rfc052_root_container_migration_service::rewrite_embedded_root(&mut manifest)
             {
-                write_json(dir, &path, &root);
-                return write_json(dir, rel, &manifest);
+                write_json(dir, rel, &manifest);
+                for (path, v) in crate::rfc052_root_container_migration_service::root_fixture_files(
+                    &manifest, &root,
+                ) {
+                    write_json(dir, &path, &v);
+                }
+                return;
+            }
+        }
+        // RFC-051: a flat container fixture in a revision-11 corpus is written as the
+        // directory the migration would write.
+        if crate::container_store::place(rel) == Some(crate::container_store::Place::Flat) {
+            let revision = std::fs::read(dir.join("manifest.json"))
+                .ok()
+                .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+                .and_then(|m| m.get("dataModelRevision").and_then(Value::as_u64))
+                .unwrap_or(0);
+            let files = crate::rfc051_container_entries_migration_service::fixture_container_files(
+                rel, value, revision,
+            );
+            if files.first().is_some_and(|(p, _)| p != rel) {
+                for (path, v) in files {
+                    write_json(dir, &path, &v);
+                }
+                return;
             }
         }
         // RFC-038: the catalog schema-validates every definition candidate under
@@ -7052,7 +7075,7 @@ mod tests {
             "arrangement-duplicate",
             "arrangement-unresolved",
             "arrangement-identity",
-            "arrangement-pointer", // anchor "zz" is not an entry
+            "container-pointer-unresolved", // anchor "zz" is not an entry (RFC-051 [R14])
             "rootInstanceIds is removed",
         ] {
             assert!(all.contains(code), "missing {code} in:\n{all}");
@@ -11385,7 +11408,20 @@ pub(crate) mod fixture_ladder {
         )
         .unwrap();
         ladder(root);
-        std::fs::write(&path, authored).unwrap();
+        // RFC-051: the root as authored, in the directory form the laddered tree stores.
+        let dir = root.join(format!("containers/{id}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_file(&path);
+        let authored: serde_json::Value = serde_json::from_slice(&authored).unwrap();
+        for (rel, v) in crate::rfc051_container_entries_migration_service::fixture_container_files(
+            &crate::store::root_container_path(id),
+            &authored,
+            crate::field_type_migration_service::CURRENT_DATA_MODEL_REVISION,
+        ) {
+            let file = root.join(rel);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, v.to_string()).unwrap();
+        }
         crate::store::FileStore::new(root)
     }
 

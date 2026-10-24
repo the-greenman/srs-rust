@@ -616,7 +616,7 @@ mod tests {
         // repair seam, the one surface that can still express it.
         let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440099", "Partial");
         c.member_instance_ids = Some(srs_core::types::container::entries(vec![
-            "does-not-exist".to_string()
+            "00000000-0000-4000-8000-0000000d0e51".to_string(),
         ]));
         store.save_container_unchecked(&c).unwrap();
 
@@ -629,7 +629,7 @@ mod tests {
         .unwrap_err();
 
         assert!(
-            matches!(&err, RepositoryError::CatalogLoad { first, .. } if first.contains("does-not-exist")),
+            matches!(&err, RepositoryError::CatalogLoad { first, .. } if first.contains("00000000-0000-4000-8000-0000000d0e51")),
             "expected a fatal [R13] catalog diagnostic naming the dangling id, got: {err:?}"
         );
     }

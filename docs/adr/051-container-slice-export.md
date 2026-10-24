@@ -70,7 +70,9 @@ export --container <id> <out.srs>`, WASM `SrsRepository::export_slice`).
    `container` ([C] step 1; its `containers/` file is not written), `ext:slices` appended to
    `declaredExtensions` ([R4]), the `slice` block, and the `packageRefs` filter above. The
    source root container, when it is a declared descendant, is written to
-   `containers/<id>.json`. `.srs/` carries only the marker.
+   `containers/<id>.json` (at revision 11, RFC-051 [R12]: every carried container is written
+   as its stored directory, `containers/<id>/`, every file of it). `.srs/` carries only the
+   marker.
 6. **Refusals** (`RepositoryError::SliceRefused { code }`): `slice-root-identity-invalid` when
    the boundary's identity entry is absent, below depth 0 or has descendants (D2: the outline
    is never rewritten); `slice-exported-at-invalid`; `slice-repository-id-reused`;
