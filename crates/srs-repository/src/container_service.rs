@@ -810,6 +810,72 @@ fn require_valid_child_containers(
     Ok(())
 }
 
+/// RFC-034 [R7] / I-150 at rest: every `childContainerIds` entry MUST name an
+/// existing, distinct Container and the graph MUST be acyclic. The write-time
+/// twin is `require_valid_child_containers`; this one reads a whole container
+/// set, so `repo validate` (CLI, MCP, WASM alike) reports a dangling id that
+/// reached the tree by another route (delete, merge, hand edit, older tool).
+/// Each message names the parent container and the offending child id; a cycle
+/// is reported once, on the edge that closes it.
+pub fn child_container_diagnostics(containers: &[Container]) -> Vec<String> {
+    use std::collections::HashMap;
+    let by_id: HashMap<&str, &Container> = containers
+        .iter()
+        .map(|c| (c.container_id.as_str(), c))
+        .collect();
+    let mut out: Vec<String> = Vec::new();
+    for parent in containers {
+        for child in parent.child_container_ids.iter().flatten() {
+            if child == &parent.container_id {
+                out.push(format!(
+                    "RFC-034 [R7] I-150: container '{}' lists itself in childContainerIds (self-reference)",
+                    parent.container_id
+                ));
+            } else if !by_id.contains_key(child.as_str()) {
+                out.push(format!(
+                    "RFC-034 [R7] I-150: container '{}' childContainerIds entry '{}' does not name an existing Container",
+                    parent.container_id, child
+                ));
+            }
+        }
+    }
+    // Cycles of length >= 2: depth-first, three-colour; a back edge closes one.
+    let mut state: HashMap<&str, u8> = HashMap::new(); // 1 = on path, 2 = done
+    let mut ids: Vec<&str> = by_id.keys().copied().collect();
+    ids.sort_unstable();
+    for start in ids {
+        if state.contains_key(start) {
+            continue;
+        }
+        let mut stack: Vec<(&str, usize)> = vec![(start, 0)];
+        state.insert(start, 1);
+        while let Some(&(id, i)) = stack.last() {
+            let kids: &[String] = by_id[id].child_container_ids.as_deref().unwrap_or(&[]);
+            if i >= kids.len() {
+                state.insert(id, 2);
+                stack.pop();
+                continue;
+            }
+            stack.last_mut().unwrap().1 += 1;
+            let kid = kids[i].as_str();
+            if kid == id || !by_id.contains_key(kid) {
+                continue;
+            }
+            match state.get(kid) {
+                Some(1) => out.push(format!(
+                    "RFC-034 [R7] I-150: container '{id}' childContainerIds entry '{kid}' closes a cycle in the childContainerIds graph"
+                )),
+                Some(_) => {}
+                None => {
+                    state.insert(kid, 1);
+                    stack.push((kid, 0));
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Effective membership (RFC-034 [R3]) — the deep, recursive scope. Every
 /// membership-listing consumer wants this: `find --container`, `container
 /// resolve-view`, the MCP container resource, `containers_for_instance`,
@@ -1839,6 +1905,58 @@ mod tests {
                 .is_empty(),
             "legacy container-endpoint edge must be cascaded"
         );
+    }
+
+    fn with_children(id: &str, kids: &[&str]) -> Container {
+        let mut c = minimal_container(id, "C");
+        c.child_container_ids = Some(kids.iter().map(|k| k.to_string()).collect());
+        c
+    }
+
+    #[test]
+    fn child_container_diagnostics_reports_missing_self_and_cycle() {
+        // RFC-034 [R7] / I-150 at rest (srs-rust#1445).
+        let (p, c, x) = ("p-1", "c-1", "x-1");
+        assert!(
+            child_container_diagnostics(&[with_children(p, &[c]), minimal_container(c, "C")])
+                .is_empty()
+        );
+
+        let missing = child_container_diagnostics(&[with_children(p, &[c])]);
+        assert_eq!(missing.len(), 1);
+        assert!(missing[0].contains("'p-1'") && missing[0].contains("'c-1'"));
+
+        let selfref = child_container_diagnostics(&[with_children(p, &[p])]);
+        assert_eq!(selfref.len(), 1);
+        assert!(selfref[0].contains("itself"));
+
+        let cycle = child_container_diagnostics(&[with_children(p, &[c]), with_children(c, &[p])]);
+        assert_eq!(cycle.len(), 1, "{cycle:?}");
+        assert!(cycle[0].contains("cycle"));
+
+        // A diamond is not a cycle.
+        let diamond = child_container_diagnostics(&[
+            with_children(p, &[c, x]),
+            with_children(c, &["d-1"]),
+            with_children(x, &["d-1"]),
+            minimal_container("d-1", "D"),
+        ]);
+        assert!(diamond.is_empty(), "{diamond:?}");
+    }
+
+    #[test]
+    fn child_container_diagnostics_reads_a_dangling_id_left_by_a_store_write() {
+        // MemoryStore round trip: a dangling id saved past the write-time check is reported.
+        let store = make_store();
+        let (p, c) = (
+            "00000000-0000-4000-8000-0000000000a9",
+            "00000000-0000-4000-8000-0000000000c9",
+        );
+        store.save_container(&with_children(p, &[c])).unwrap();
+        let all = vec![store.load_container(p).unwrap()];
+        let d = child_container_diagnostics(&all);
+        assert_eq!(d.len(), 1);
+        assert!(d[0].contains(p) && d[0].contains(c));
     }
 
     #[test]
