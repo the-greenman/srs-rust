@@ -223,8 +223,7 @@ fn load_container_for_diagnostics(
     centry: &crate::catalog::CatalogEntry,
 ) -> Option<srs_core::types::container::Container> {
     match centry.locator.as_deref() {
-        Some(path) => store
-            .load_instance_json(path)
+        Some(path) => crate::container_store::logical_value(store, path)
             .ok()
             .and_then(|v| serde_json::from_value(v).ok()),
         None => None,
@@ -2513,8 +2512,9 @@ pub(crate) fn validate_definition_write_schema(
 
 /// RFC-043 [R2], [R3], [R5]: every arrangement diagnostic for one container — codes
 /// `arrangement-depth`, `arrangement-duplicate`, `arrangement-unresolved`,
-/// `arrangement-identity` and `arrangement-pointer` (a declared `identityInstanceId` /
-/// `anchorInstanceId` that is not an entry). One diagnostic per offending entry.
+/// `arrangement-identity` and `container-pointer-unresolved` (RFC-051 [R14]: a declared
+/// `identityInstanceId` / `anchorInstanceId` that is not an entry; RFC-043 [R3] assigned no
+/// code). One diagnostic per offending entry.
 fn container_arrangement_diagnostics(
     container: &srs_core::types::container::Container,
     is_root: bool,
@@ -2571,7 +2571,7 @@ fn container_arrangement_diagnostics(
                     DiagnosticSeverity::Error,
                     format!(
                         "{}: {rule}: container '{cid}' {name} '{id}' is not an entry of memberInstanceIds",
-                        arrangement::CODE_POINTER
+                        crate::container_store::codes::POINTER_UNRESOLVED
                     ),
                 ));
             }
@@ -7052,7 +7052,7 @@ mod tests {
             "arrangement-duplicate",
             "arrangement-unresolved",
             "arrangement-identity",
-            "arrangement-pointer", // anchor "zz" is not an entry
+            "container-pointer-unresolved", // anchor "zz" is not an entry (RFC-051 [R14])
             "rootInstanceIds is removed",
         ] {
             assert!(all.contains(code), "missing {code} in:\n{all}");

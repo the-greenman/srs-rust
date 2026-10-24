@@ -215,8 +215,13 @@ pub fn export_container_slice(
             continue;
         };
         // RFC-052: the root container is a file in the container set like any other.
+        // RFC-051: a stored directory reads as its logical Container (head + decoded entries).
         let path = carrying_file(store, loc)?;
-        let v = parse(&tree, &path)?;
+        let v = if crate::container_store::is_head(&path) {
+            crate::container_store::logical_value(store, &path)?
+        } else {
+            parse(&tree, &path)?
+        };
         containers.push((e.id.clone(), path, v));
     }
     let entries_of = |v: &Value| -> Vec<ContainerEntry> {

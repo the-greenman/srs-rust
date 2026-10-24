@@ -1421,14 +1421,11 @@ pub fn validate_container_invariants(
         .find(|e| e.id == container_id)
         .and_then(|e| e.locator.as_deref())
     {
-        Some(path) => {
-            serde_json::from_value(store.load_instance_json(path)?).map_err(|source| {
-                RepositoryError::ManifestParse {
-                    path: std::path::PathBuf::from(path),
-                    source,
-                }
-            })?
-        }
+        Some(path) => serde_json::from_value(crate::container_store::logical_value(store, path)?)
+            .map_err(|source| RepositoryError::ManifestParse {
+            path: std::path::PathBuf::from(path),
+            source,
+        })?,
         None => {
             return Err(RepositoryError::ContainerNotFound {
                 container_id: container_id.to_string(),

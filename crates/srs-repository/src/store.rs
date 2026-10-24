@@ -2961,11 +2961,8 @@ fn load_container_at<S: RepositoryStore + ?Sized>(
             container_id: container_id.to_string(),
         });
     };
-    let val = store.load_instance_json(&path)?;
-    serde_json::from_value(val).map_err(|source| RepositoryError::ManifestParse {
-        path: PathBuf::from(&path),
-        source,
-    })
+    // RFC-051: a stored head is decoded with its entries; a flat file is read as it is.
+    crate::container_store::load(store, &path)
 }
 
 /// The body shared by `save_container` and `save_container_unchecked`.

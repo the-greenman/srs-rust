@@ -10,6 +10,7 @@ pub mod blueprint_service;
 pub mod catalog;
 pub mod composition_cutover_migration_service;
 pub mod container_service;
+pub mod container_store;
 pub mod container_view_service;
 pub mod context_query_service;
 pub(crate) mod core_package;

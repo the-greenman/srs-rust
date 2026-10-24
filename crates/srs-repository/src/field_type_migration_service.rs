@@ -121,6 +121,11 @@ pub const RFC046_ACTOR_PROVENANCE_REVISION: u64 = 9;
 /// manifest names it by `rootContainerId`).
 pub const RFC052_ROOT_CONTAINER_REVISION: u64 = 10;
 
+/// The revision the RFC-051 `rfc051-container-entries` migration produces (migration #11:
+/// each Container is stored as a directory of a one-line head and one one-line entry file per
+/// member, `containers/<containerId>/{container.json,entries/<instanceId>.json}`).
+pub const RFC051_CONTAINER_ENTRIES_REVISION: u64 = 11;
+
 /// The manifest property carrying the generation stamp (RFC-033 [R6] / #265).
 pub const DATA_MODEL_REVISION_KEY: &str = "dataModelRevision";
 

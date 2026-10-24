@@ -27,6 +27,7 @@ use crate::store::{CandidateSource, RepositoryStore};
 use crate::validation::DiagnosticSeverity;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use srs_core::container_decode::StoredEntry;
 use srs_core::types::relation::{Relation, RelationsCollection};
 use srs_schema::SchemaRegistry;
 use std::collections::{BTreeMap, BTreeSet};
@@ -290,7 +291,7 @@ pub fn resolvable_field_ids(definitions: &[CatalogEntry]) -> BTreeSet<String> {
 // ---------------------------------------------------------------------------
 
 /// Directory segments never entered by discovery ([R3], [R5]).
-const SKIPPED_SEGMENTS: &[&str] = &[".git", "node_modules", ".srs"];
+pub(crate) const SKIPPED_SEGMENTS: &[&str] = &[".git", "node_modules", ".srs"];
 
 /// Directory segments that belong to another tool, never to the repository.
 ///
@@ -518,6 +519,9 @@ struct Builder<'a> {
     relation_endpoints: Vec<(String, String, String, String)>,
     /// (container locator, referenced instance ids with property name) for [R13].
     container_refs: Vec<(String, &'static str, Vec<String>)>,
+    /// RFC-051: every well-formed stored entry, as (directory id, locator, entry), for the
+    /// set-level checks (headless directories, [R12] resolution, [R6] orphans and loops).
+    container_entries: Vec<(String, String, StoredEntry)>,
     /// (id, version, locator) for definition duplicate detection: versioned
     /// lineages legally share a UUID across versions, so the version joins
     /// the [R12] identity key for definitions.
@@ -559,6 +563,7 @@ struct Contribution {
     type_field_refs: Vec<(String, Vec<String>)>,
     relation_endpoints: Vec<(String, String, String, String)>,
     container_refs: Vec<(String, &'static str, Vec<String>)>,
+    container_entries: Vec<(String, String, StoredEntry)>,
     definition_dup_keys: Vec<(String, Option<u64>, String)>,
 }
 
@@ -581,6 +586,9 @@ pub(crate) struct CatalogState {
     /// RFC-052 [R1]: the container `manifest.rootContainerId` names, which must
     /// be in the container set.
     root_container_id: Option<String>,
+    /// The declared `dataModelRevision`: at 11 a flat container file is
+    /// `container-migration-needed` (RFC-051 [R13]).
+    revision: u64,
     /// Discriminator check, package-manifest diagnostics, extension aggregate
     /// — anything not owned by one file.
     global: Contribution,
@@ -625,6 +633,7 @@ impl CatalogState {
                     package_roots: Vec::new(),
                     file_set: BTreeSet::new(),
                     root_container_id: None,
+                    revision: 0,
                     global: Contribution::default(),
                     per_file: BTreeMap::new(),
                 });
@@ -797,6 +806,10 @@ impl CatalogState {
             package_roots,
             file_set,
             root_container_id: manifest.root_container_id().map(str::to_string),
+            revision: manifest_value
+                .get(crate::field_type_migration_service::DATA_MODEL_REVISION_KEY)
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
             global: b.into_contribution(),
             per_file: BTreeMap::new(),
         };
@@ -861,7 +874,7 @@ impl CatalogState {
         } else if under(path, "relations") {
             b.classify_relations_file(path);
         } else if under(path, "containers") {
-            b.classify_container_candidate(path);
+            b.classify_container_path(path, self.revision);
         } else if let Some((kind, schema)) = self.declared_defs.get(path) {
             b.classify_definition_candidate(path, *kind, schema);
         } else {
@@ -955,6 +968,7 @@ impl CatalogState {
             }
         }
         // --- Set-level checks ([R12], [R13]) and ordering ([R14]) ---
+        b.check_container_entries();
         b.detect_duplicates();
         b.resolve_references();
         b.finish(self.package_roots.clone())
@@ -970,6 +984,7 @@ impl<'a> Builder<'a> {
             type_field_refs: Vec::new(),
             relation_endpoints: Vec::new(),
             container_refs: Vec::new(),
+            container_entries: Vec::new(),
             definition_dup_keys: Vec::new(),
         }
     }
@@ -981,6 +996,7 @@ impl<'a> Builder<'a> {
             type_field_refs: self.type_field_refs,
             relation_endpoints: self.relation_endpoints,
             container_refs: self.container_refs,
+            container_entries: self.container_entries,
             definition_dup_keys: self.definition_dup_keys,
         }
     }
@@ -1009,6 +1025,8 @@ impl<'a> Builder<'a> {
         self.relation_endpoints
             .extend_from_slice(&c.relation_endpoints);
         self.container_refs.extend_from_slice(&c.container_refs);
+        self.container_entries
+            .extend_from_slice(&c.container_entries);
         self.definition_dup_keys
             .extend_from_slice(&c.definition_dup_keys);
     }
@@ -1196,6 +1214,157 @@ impl<'a> Builder<'a> {
             tier: None,
             locator: Some(locator),
         });
+    }
+
+    /// Dispatch a file under `containers/` by where it sits (RFC-051 [R1]): a head, an entry,
+    /// a stray file, or a flat container file, which at revision 11 is
+    /// `container-migration-needed` ([R13]).
+    fn classify_container_path(&mut self, path: &str, revision: u64) {
+        use crate::container_store::{codes as c, place, Place};
+        match place(path) {
+            Some(Place::Head(dir)) => self.classify_container_head(path, dir),
+            Some(Place::Entry { dir, file }) => self.classify_container_entry(path, dir, file),
+            Some(Place::Stray(dir)) => self.error(
+                c::STRAY_FILE,
+                vec![path.to_string()],
+                format!(
+                    "containers/{dir}/ may hold only container.json and entries/<instanceId>.json                      (RFC-051 [R1])"
+                ),
+            ),
+            _ if revision
+                >= crate::field_type_migration_service::RFC051_CONTAINER_ENTRIES_REVISION =>
+            {
+                self.error(
+                    c::MIGRATION_NEEDED,
+                    vec![path.to_string()],
+                    format!(
+                        "a flat container file in a revision-{revision} corpus; at revision 11 \
+                         every container is a directory (RFC-051 [R13]) — run `srs repo \
+                         apply-migration --id rfc051-container-entries`"
+                    ),
+                )
+            }
+            _ => self.classify_container_candidate(path),
+        }
+    }
+
+    /// RFC-051 [R1]/[R2]/[R12]: a stored head `containers/<dir>/container.json`. Same
+    /// admissibility as a flat container file, without `memberInstanceIds`, named by its id.
+    fn classify_container_head(&mut self, path: &str, dir: &str) {
+        use crate::container_store::{codes as c, is_canonical_id};
+        let Some(value) = self.read_candidate(path) else {
+            return;
+        };
+        let id = value
+            .get("containerId")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let declared = value.get("$schema").and_then(Value::as_str);
+        let problem = if declared.is_some_and(|d| d != srs_schema::CONTAINER_SCHEMA_ID) {
+            Some((
+                c::SCHEMA,
+                format!(
+                    "declared schema {} is not container.json",
+                    declared.unwrap_or_default()
+                ),
+            ))
+        } else if value.get("memberInstanceIds").is_some() {
+            Some((
+                c::SCHEMA,
+                "a stored head must not carry memberInstanceIds (RFC-051 [R1])".to_string(),
+            ))
+        } else if let Err(e) =
+            SchemaRegistry::global().validate_by_id(srs_schema::CONTAINER_SCHEMA_ID, &value)
+        {
+            Some((c::SCHEMA, format!("head fails container.json: {e}")))
+        } else if id != dir || !is_canonical_id(dir) {
+            Some((
+                c::NAME_MISMATCH,
+                format!(
+                    "directory containers/{dir}/ must be its containerId '{id}' in canonical \
+                     lowercase UUID form (RFC-051 [R2])"
+                ),
+            ))
+        } else {
+            None
+        };
+        if let Some((code, message)) = problem {
+            self.error(code, vec![path.to_string()], message);
+            return;
+        }
+        self.entries.containers.push(CatalogEntry {
+            id,
+            kind: CatalogKind::Container,
+            tier: None,
+            locator: Some(path.to_string()),
+        });
+    }
+
+    /// RFC-051 [R1]/[R2]/[R4]: one entry file. Checked here, file by file, before any
+    /// decode sees it; the set-level checks run in [`Self::check_container_entries`].
+    fn classify_container_entry(&mut self, path: &str, dir: &str, file: &str) {
+        let Some(value) = self.read_candidate(path) else {
+            return;
+        };
+        match crate::container_store::parse_entry(&value, dir, file) {
+            Ok(entry) => self
+                .container_entries
+                .push((dir.to_string(), path.to_string(), entry)),
+            Err((code, message)) => self.error(code, vec![path.to_string()], message),
+        }
+    }
+
+    /// RFC-051 set-level checks over the stored entries: a directory with entries and no head
+    /// is `container-head-missing` (a warning; the directory is ignored, [R14]); every other
+    /// entry's `instanceId` resolves against the instance set ([R12], via [R13]'s dangling
+    /// reference); each container is decoded, in `instanceId` order, and its orphans and
+    /// loops are warnings ([R6]).
+    fn check_container_entries(&mut self) {
+        use crate::container_store::{codes as c, place, Place};
+        let heads: BTreeMap<String, String> = self
+            .entries
+            .containers
+            .iter()
+            .filter_map(|e| {
+                let loc = e.locator.as_deref()?;
+                match place(loc) {
+                    Some(Place::Head(dir)) => Some((dir.to_string(), loc.to_string())),
+                    _ => None,
+                }
+            })
+            .collect();
+        let mut by_dir: BTreeMap<String, Vec<(String, StoredEntry)>> = BTreeMap::new();
+        for (dir, loc, entry) in std::mem::take(&mut self.container_entries) {
+            by_dir.entry(dir).or_default().push((loc, entry));
+        }
+        for (dir, mut entries) in by_dir {
+            entries.sort_by(|a, b| a.1.instance_id.cmp(&b.1.instance_id));
+            let Some(head) = heads.get(&dir) else {
+                self.warn(
+                    c::HEAD_MISSING,
+                    entries.iter().map(|(l, _)| l.clone()).collect(),
+                    format!(
+                        "containers/{dir}/ has entries but no container.json; it is ignored \
+                         until repair removes it (RFC-051 [R11], [R14])"
+                    ),
+                );
+                continue;
+            };
+            self.container_refs.push((
+                head.clone(),
+                "memberInstanceIds",
+                entries.iter().map(|(_, e)| e.instance_id.clone()).collect(),
+            ));
+            let stored: Vec<StoredEntry> = entries.iter().map(|(_, e)| e.clone()).collect();
+            for f in srs_core::container_decode::decode(&stored, None).findings {
+                let loc = entries
+                    .iter()
+                    .find(|(_, e)| e.instance_id == f.instance_id)
+                    .map_or_else(|| head.clone(), |(l, _)| l.clone());
+                self.warn(f.code, vec![loc], f.message);
+            }
+        }
     }
 
     /// Classify a candidate under `containers/` ([R7]/[R8]; singleton
