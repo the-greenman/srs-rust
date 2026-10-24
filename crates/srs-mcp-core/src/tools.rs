@@ -396,8 +396,10 @@ runSize, runEnd} (runEnd = exclusive index of the entry's run in the same list).
 of deriving parents or run ends from the flat entries.";
 
 pub const DESC_CONTAINER_MEMBER_REPAIR: &str = "Remove every outline entry whose instanceId no \
-longer resolves to an instance, promoting descendants, and report each in `removed`. Idempotent. \
-Never changes identityInstanceId or anchorInstanceId (a dangling pointer stays a validation error).";
+longer resolves to an instance, promoting descendants, and report each in `removed`; re-attach \
+every orphan and loop break at the end of the top level, reported in `reattached`; and remove a \
+container directory that has entries but no head (RFC-051 [R11]). Idempotent. Never changes \
+identityInstanceId or anchorInstanceId (a dangling pointer stays a validation error).";
 
 pub const DESC_CONTAINER_COPY: &str =
     "Copy a container (a document): the new container SHARES the \

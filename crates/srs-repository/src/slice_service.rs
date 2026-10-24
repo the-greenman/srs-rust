@@ -351,6 +351,38 @@ pub fn export_container_slice(
         if !closure.contains(id) {
             continue;
         }
+        if crate::container_store::is_head(path) {
+            // RFC-051 [R12]: slices write stored directories, every file of each one carried.
+            let dir = format!("containers/{id}/");
+            for (p, bytes) in tree
+                .range(dir.clone()..)
+                .take_while(|(p, _)| p.starts_with(&dir))
+            {
+                out.insert(p.clone(), bytes.clone());
+            }
+            if *id == input.container_id && !dropped.is_empty() {
+                // The promoting removal, as repair writes it ([R11]).
+                let stored = crate::container_store::read_entries(store, id)?;
+                let ws =
+                    srs_core::container_write::repair(&stored, None, |i| instances.contains_key(i))
+                        .map_err(|v| RepositoryError::ContainerStorage {
+                            code: v.code,
+                            message: v.message,
+                        })?;
+                for i in &ws.remove {
+                    out.remove(&crate::container_store::entry_path(id, i));
+                }
+                for e in &ws.write {
+                    let line =
+                        crate::container_store::line(&crate::container_store::entry_value(id, e));
+                    out.insert(
+                        crate::container_store::entry_path(id, &e.instance_id),
+                        line.into_bytes(),
+                    );
+                }
+            }
+            continue;
+        }
         let bytes = if *id == input.container_id && !dropped.is_empty() {
             pretty(&boundary)
         } else {

@@ -1313,7 +1313,8 @@ impl SrsRepository {
         to_js(&outline)
     }
 
-    /// Remove every entry that no longer resolves to an instance (RFC-043 repair).
+    /// Remove every entry that no longer resolves to an instance (RFC-043 repair); re-attach
+    /// orphans and loop breaks, reported as `reattached` (RFC-051 [R11]).
     pub fn repair_container_members(&self, container_id: &str) -> Result<JsValue, JsValue> {
         let result =
             container_service::repair_members(&self.store, container_id).map_err(|e| js_err(&e))?;

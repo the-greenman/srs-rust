@@ -6,6 +6,7 @@
     "containerId",
     "members",
     "promoted",
+    "reattached",
     "removed"
   ],
   "properties": {
@@ -25,6 +26,13 @@
     },
     "promoted": {
       "description": "Entries whose depth a promoting removal lowered ([R7]).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "reattached": {
+      "description": "RFC-051 [R11]: detached entries (orphans, loop breaks) `repair` re-attached at the end of the top level. Absent when there were none.",
       "type": "array",
       "items": {
         "type": "string"

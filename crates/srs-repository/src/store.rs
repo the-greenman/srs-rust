@@ -745,8 +745,19 @@ pub trait RepositoryStore {
         &self,
         container: &srs_core::types::container::Container,
     ) -> Result<(), RepositoryError> {
+        self.save_container_moving(container, None)
+    }
+
+    /// [`save_container`] for a move operation: in a stored directory (RFC-051) the entry
+    /// `moved` names is written even where its `parent` is unchanged ([R8]).
+    fn save_container_moving(
+        &self,
+        container: &srs_core::types::container::Container,
+        moved: Option<&str>,
+    ) -> Result<(), RepositoryError> {
         let locator = catalog_file_container_locator(self, &container.container_id)?;
-        save_container_at(self, container, locator)
+        let keying = crate::container_store::Keying::Op { moved };
+        save_container_at(self, container, locator, keying)
     }
 
     /// [`save_container`] with the locator resolved from the **unchecked**
@@ -757,7 +768,27 @@ pub trait RepositoryStore {
         container: &srs_core::types::container::Container,
     ) -> Result<(), RepositoryError> {
         let locator = unchecked_file_container_locator(self, &container.container_id)?;
-        save_container_at(self, container, locator)
+        let keying = crate::container_store::Keying::Op { moved: None };
+        save_container_at(self, container, locator, keying)
+    }
+
+    /// Repair ([R11] step 1) through the unchecked catalog: in a stored directory (RFC-051)
+    /// the entries absent from `container` are removed and detached entries re-attached,
+    /// keyed as repair keys them. Returns the entry ids written (re-attached or promoted).
+    fn repair_container_unchecked(
+        &self,
+        container: &srs_core::types::container::Container,
+    ) -> Result<Vec<String>, RepositoryError> {
+        let locator = unchecked_file_container_locator(self, &container.container_id)?;
+        if locator
+            .as_deref()
+            .is_some_and(crate::container_store::is_head)
+        {
+            let keying = crate::container_store::Keying::Repair;
+            return Ok(crate::container_store::save(self, container, keying)?.written);
+        }
+        let keying = crate::container_store::Keying::Op { moved: None };
+        save_container_at(self, container, locator, keying).map(|()| Vec::new())
     }
 
     /// Delete a container by its logical `container_id` — the container file
@@ -770,6 +801,10 @@ pub trait RepositoryStore {
                 container_id: container_id.to_string(),
             });
         };
+        if crate::container_store::is_head(&path) {
+            // RFC-051 [R1]: delete removes the whole directory.
+            return crate::container_store::delete(self, container_id);
+        }
         self.delete_instance_file(&path)
     }
 
@@ -1276,7 +1311,10 @@ impl FileStore {
     fn vfs_write(&self, rel: &str, content: &[u8]) -> Result<(), RepositoryError> {
         self.ensure_writable()?;
         let target = ChangeTarget::from_path(rel).filter(|_| self.recording.get());
-        let existed = target.is_some() && self.vfs.exists(rel);
+        // RFC-051: an entry file is part of its container, which exists while its head does.
+        let head = entry_head(rel);
+        let existed = target.is_some() && self.vfs.exists(head.as_deref().unwrap_or(rel));
+        let rel_logged = head.as_deref().unwrap_or(rel);
         self.sync_cache_epoch();
         self.vfs.write(rel, content)?;
         self.after_mutation(Some((rel, true)));
@@ -1290,7 +1328,7 @@ impl FileStore {
                     .as_ref()
                     .filter(|_| target == ChangeTarget::Relation)
                     .and_then(relation_ends);
-                self.record_change(rel, target, id, false, existed, ends);
+                self.record_change(rel_logged, target, id, false, existed, ends);
             }
         }
         Ok(())
@@ -1313,7 +1351,15 @@ impl FileStore {
         self.vfs.remove(rel)?;
         self.after_mutation(Some((rel, false)));
         if let Some((target, id, ends)) = found {
-            self.record_change(rel, target, id, true, true, ends);
+            match entry_head(rel) {
+                // RFC-051: removing an entry updates its container; once the head is gone
+                // (a delete), the container's own removal already says so.
+                Some(head) if self.vfs.exists(&head) => {
+                    self.record_change(&head, target, id, false, true, ends)
+                }
+                Some(_) => {}
+                None => self.record_change(rel, target, id, true, true, ends),
+            }
         }
         Ok(())
     }
@@ -1723,16 +1769,20 @@ impl RepositoryStore for FileStore {
         let created_at = chrono::Utc::now().to_rfc3339();
         // RFC-052: the root container lives in the container set, at
         // `containers/<containerId>.json`; the manifest names it.
-        let container_value = serde_json::to_value(default_repository_container(
-            &input.repository.repository_id,
-            &title,
-        ))
-        .unwrap_or_default();
-        self.ensure_dir("containers")?;
-        self.write_json(
-            &root_container_path(&input.repository.repository_id),
-            &container_value,
-        )?;
+        // RFC-051: at revision 11 it is written as its directory.
+        let root = default_repository_container(&input.repository.repository_id, &title);
+        if crate::field_type_migration_service::CURRENT_DATA_MODEL_REVISION
+            >= crate::field_type_migration_service::RFC051_CONTAINER_ENTRIES_REVISION
+        {
+            let keying = crate::container_store::Keying::Op { moved: None };
+            crate::container_store::save(self, &root, keying)?;
+        } else {
+            self.ensure_dir("containers")?;
+            self.write_json(
+                &root_container_path(&input.repository.repository_id),
+                &serde_json::to_value(root).unwrap_or_default(),
+            )?;
+        }
         let mut manifest = serde_json::json!({
             "$schema": srs_schema::MANIFEST_SCHEMA_ID,
             // Born at this build's revision: a lower stamp is refused on load (RFC-052 [R7]).
@@ -2932,11 +2982,20 @@ pub fn save_root_container<S: RepositoryStore + ?Sized>(
     store: &S,
     container: &srs_core::types::container::Container,
 ) -> Result<(), RepositoryError> {
+    let locator = unchecked_file_container_locator(store, &container.container_id)?;
+    let directory = match &locator {
+        Some(path) => crate::container_store::is_head(path),
+        None => writes_container_directories(store)?,
+    };
+    if directory {
+        let keying = crate::container_store::Keying::Op { moved: None };
+        return crate::container_store::save(store, container, keying).map(|_| ());
+    }
     let val = serde_json::to_value(container).map_err(|source| RepositoryError::Serialize {
         path: PathBuf::from("containers"),
         source,
     })?;
-    if let Some(path) = unchecked_file_container_locator(store, &container.container_id)? {
+    if let Some(path) = locator {
         return store.save_instance_json(&path, &val);
     }
     store.ensure_instance_dir("containers")?;
@@ -2947,6 +3006,17 @@ pub fn save_root_container<S: RepositoryStore + ?Sized>(
 /// `containers/<containerId>.json` (RFC-052 Change A, [R7]).
 pub fn root_container_path(container_id: &str) -> String {
     format!("containers/{container_id}.json")
+}
+
+/// RFC-051: the head path of the container an entry file belongs to (`None` for any other
+/// path), so a change log records an entry write as a change to its container.
+fn entry_head(rel: &str) -> Option<String> {
+    match crate::container_store::place(rel) {
+        Some(crate::container_store::Place::Entry { dir, .. }) => {
+            Some(crate::container_store::head_path(dir))
+        }
+        _ => None,
+    }
 }
 
 /// The body shared by `load_container` and `load_container_unchecked` — the two
@@ -2965,12 +3035,38 @@ fn load_container_at<S: RepositoryStore + ?Sized>(
     crate::container_store::load(store, &path)
 }
 
-/// The body shared by `save_container` and `save_container_unchecked`.
+/// RFC-051 [R1]: at `dataModelRevision` 11 a new container is written as a directory.
+pub(crate) fn writes_container_directories<S: RepositoryStore + ?Sized>(
+    store: &S,
+) -> Result<bool, RepositoryError> {
+    let revision = match store.load_manifest() {
+        Ok(m) => m
+            .extra
+            .get(crate::field_type_migration_service::DATA_MODEL_REVISION_KEY)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        Err(RepositoryError::ContainerMigrationNeeded { declared, .. }) => declared,
+        Err(e) => return Err(e),
+    };
+    Ok(revision >= crate::field_type_migration_service::RFC051_CONTAINER_ENTRIES_REVISION)
+}
+
+/// The body shared by `save_container` and `save_container_unchecked`. A stored directory
+/// (an existing head, or a new container at revision 11) is written through
+/// [`crate::container_store::save`] with `keying`; a flat file is overwritten whole.
 fn save_container_at<S: RepositoryStore + ?Sized>(
     store: &S,
     container: &srs_core::types::container::Container,
     locator: Option<String>,
+    keying: crate::container_store::Keying<'_>,
 ) -> Result<(), RepositoryError> {
+    let directory = match &locator {
+        Some(path) => crate::container_store::is_head(path),
+        None => writes_container_directories(store)?,
+    };
+    if directory {
+        return crate::container_store::save(store, container, keying).map(|_| ());
+    }
     let id = &container.container_id;
     let val = serde_json::to_value(container).map_err(|source| RepositoryError::Serialize {
         path: PathBuf::from("containers"),

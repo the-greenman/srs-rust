@@ -511,7 +511,11 @@ fn do_import(
     if let Some(root_container) = &snapshot.root_container {
         if let Some(default_id) = manifest.root_container_id() {
             if default_id != root_container.container_id {
-                target.delete_instance_file(&crate::store::root_container_path(default_id))?;
+                if crate::container_store::has_head(target, default_id) {
+                    crate::container_store::delete(target, default_id)?;
+                } else {
+                    target.delete_instance_file(&crate::store::root_container_path(default_id))?;
+                }
             }
         }
         crate::store::save_root_container(target, root_container)?;
@@ -1494,6 +1498,11 @@ fn import_container_file(
     target: &dyn RepositoryStore,
     container: &srs_core::types::container::Container,
 ) -> Result<(), RepositoryError> {
+    if crate::store::writes_container_directories(target)? {
+        // RFC-051 [R1]: at revision 11 a container is written as its directory.
+        let keying = crate::container_store::Keying::Op { moved: None };
+        return crate::container_store::save(target, container, keying).map(|_| ());
+    }
     let id = &container.container_id;
     let val = serde_json::to_value(container).map_err(|source| RepositoryError::Serialize {
         path: std::path::PathBuf::from("containers"),
