@@ -755,6 +755,8 @@ pub fn create_type_in_package(
 
     if record_type.id.trim().is_empty() {
         record_type.id = new_instance_id();
+    } else if let Some((existing_path, _)) = find_type_path(store, &record_type.id)? {
+        refuse_if_version_orphaned(store, &existing_path, &record_type.id, record_type.version)?;
     }
     let boundary_path = selector.as_deref().unwrap_or("package");
     let rel_filename =
@@ -775,6 +777,40 @@ pub fn create_type_in_package(
     Ok(CreateTypeResult { record_type })
 }
 
+/// Refuse a type write that would drop a version records still bind to (srs-rust#1412,
+/// RFC-039 [R19]). `type update` and `type create` of an existing id rewrite the type's
+/// single file, so the previous version vanishes; if any record binds to it, refuse and
+/// name those records instead of leaving them dangling ([R13]).
+fn refuse_if_version_orphaned(
+    store: &dyn RepositoryStore,
+    existing_path: &str,
+    type_id: &str,
+    new_version: u32,
+) -> Result<(), RepositoryError> {
+    let existing = store.load_instance_json(existing_path)?;
+    let Some(old_version) = existing["version"].as_u64().map(|v| v as u32) else {
+        return Ok(());
+    };
+    if old_version == new_version {
+        return Ok(());
+    }
+    let bound: Vec<String> = crate::record_store::list_all_records(store)?
+        .into_iter()
+        .filter(|r| r.type_id == type_id && r.type_version == old_version)
+        .map(|r| r.instance_id)
+        .collect();
+    if bound.is_empty() {
+        return Ok(());
+    }
+    Err(RepositoryError::CannotDeleteInUse {
+        entity_type: format!(
+            "type version {old_version} (writing version {new_version} would replace it)"
+        ),
+        id: type_id.to_string(),
+        used_by: bound,
+    })
+}
+
 /// Update an existing type definition.
 /// Re-writes the type JSON file.
 pub fn update_type(
@@ -786,6 +822,7 @@ pub fn update_type(
             type_id: record_type.id.clone(),
             version: record_type.version,
         })?;
+    refuse_if_version_orphaned(store, &relative_path, &record_type.id, record_type.version)?;
 
     // Same RFC-038 [R13] field-existence check `create_type_in_package` applies: `update_type`
     // had none (srs-rust#1291 owner ruling), so a hand-written update could introduce a
@@ -2433,6 +2470,59 @@ mod tests {
 
         let result = update_field(&store, updated_field).unwrap();
         assert_eq!(result.field.description, "updated description");
+    }
+
+    #[test]
+    fn update_type_to_new_version_blocked_when_records_bind_to_old_version() {
+        use srs_core::types::record::{FieldValues, Record};
+
+        let tid = "00000000-0000-0000-0000-000000000002";
+        let store = MemoryStore::with_type(make_type(tid, "test-type"));
+        let record = Record {
+            instance_id: "00000000-0000-0000-0000-000000000003".to_string(),
+            type_id: tid.to_string(),
+            type_version: 1,
+            type_namespace: "com.test".to_string(),
+            type_name: "test-type".to_string(),
+            field_values: FieldValues(serde_json::Map::new()),
+            field_meta: None,
+            lifecycle_state: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            created_by: None,
+            extra: std::collections::BTreeMap::new(),
+        };
+        store.save_record(&record).unwrap();
+
+        let mut v2 = make_type(tid, "test-type");
+        v2.version = 2;
+        match update_type(&store, v2.clone()) {
+            Err(RepositoryError::CannotDeleteInUse { id, used_by, .. }) => {
+                assert_eq!(id, tid);
+                assert_eq!(
+                    used_by,
+                    vec!["00000000-0000-0000-0000-000000000003".to_string()]
+                );
+            }
+            other => panic!("expected CannotDeleteInUse, got {:?}", other),
+        }
+        assert!(matches!(
+            create_type(&store, v2),
+            Err(RepositoryError::CannotDeleteInUse { .. })
+        ));
+
+        // Same-version update is still allowed.
+        update_type(&store, make_type(tid, "test-type")).unwrap();
+    }
+
+    #[test]
+    fn update_type_to_new_version_allowed_when_no_records_bind() {
+        let tid = "00000000-0000-0000-0000-000000000002";
+        let store = MemoryStore::with_type(make_type(tid, "test-type"));
+        let mut v2 = make_type(tid, "test-type");
+        v2.version = 2;
+        update_type(&store, v2).unwrap();
     }
 
     #[test]
