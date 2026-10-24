@@ -263,6 +263,21 @@ fn plan(
                 }
             }
         }
+        // Heads are written after every entry, so a planned head already in place means every
+        // planned entry was written: a missing one was removed after cutover.
+        let head = container_store::head_path(&id);
+        if files.get(&head) == out.get(&head) && files.contains_key(&head) {
+            if let Some(p) = out.keys().find(|p| !files.contains_key(*p)) {
+                return Err(refuse(
+                    "migration-container-diverged",
+                    format!(
+                        "{path} is a flat copy of container {id}, but containers/{id}/ no \
+                         longer holds {p}, removed after cutover; resolve which copy is current \
+                         (keep the directory and delete the flat file, or the reverse) and re-run"
+                    ),
+                ));
+            }
+        }
         for (p, bytes) in out {
             if p.ends_with("/container.json") {
                 heads.push((p, Some(bytes)));
@@ -864,6 +879,26 @@ mod tests {
         std::fs::write(
             tmp.path().join(&late),
             container_store::line(&json!({"containerId": PART, "instanceId": IDENT, "key": "a1"})),
+        )
+        .unwrap();
+        std::fs::write(tmp.path().join("containers/part.json"), flat).unwrap();
+        let before = snapshot(tmp.path());
+        let store = FileStore::new(tmp.path()).with_rfc038_exemption();
+        let err = migrate_rfc051_container_entries(&store).unwrap_err();
+        assert_eq!(err.code(), "migration-container-diverged", "{err}");
+        assert_eq!(snapshot(tmp.path()), before, "nothing written");
+    }
+
+    /// ... and a member removed after cutover is never silently restored.
+    #[test]
+    fn a_flat_file_beside_a_directory_missing_an_entry_is_refused() {
+        let tmp = tempfile::tempdir().unwrap();
+        rev10_repo(tmp.path());
+        let flat = std::fs::read(tmp.path().join("containers/part.json")).unwrap();
+        migrated(tmp.path());
+        std::fs::remove_file(
+            tmp.path()
+                .join(format!("containers/{PART}/entries/{SEC_C}.json")),
         )
         .unwrap();
         std::fs::write(tmp.path().join("containers/part.json"), flat).unwrap();
