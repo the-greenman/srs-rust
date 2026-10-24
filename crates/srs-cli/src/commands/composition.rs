@@ -2,15 +2,15 @@ use crate::commands::{with_store, CliContext, CompositionCommand};
 use crate::output;
 use crate::payload::{
     CompositionDeletePayload, CompositionListPayload, CompositionPayload,
-    CompositionsForContainerPayload,
+    CompositionsForContainerPayload, CompositionsShownInPayload,
 };
 use anyhow::Result;
 use srs_core::types::view::Composition;
 use srs_repository::error::RepositoryError;
 use srs_repository::view_service::{
-    compositions_for_container_summary, create_composition_normalized, delete_composition,
-    get_composition_by_id, list_compositions_summary, update_composition, CompositionListFilter,
-    CreateCompositionResult, DeleteCompositionResult, GetCompositionResult,
+    compositions_for_container_summary, compositions_showing, create_composition_normalized,
+    delete_composition, get_composition_by_id, list_compositions_summary, update_composition,
+    CompositionListFilter, CreateCompositionResult, DeleteCompositionResult, GetCompositionResult,
 };
 
 pub fn dispatch(ctx: CliContext, cmd: CompositionCommand) -> Result<String> {
@@ -28,6 +28,7 @@ pub fn dispatch(ctx: CliContext, cmd: CompositionCommand) -> Result<String> {
         CompositionCommand::ListForContainer { container_id } => {
             cmd_composition_list_for_container(ctx, container_id)
         }
+        CompositionCommand::ShownIn { target_id } => cmd_composition_shown_in(ctx, target_id),
     }
 }
 
@@ -112,5 +113,19 @@ fn cmd_composition_list_for_container(ctx: CliContext, container_id: String) -> 
             },
         ),
         Err(e) => Ok(output::any_err("composition list-for-container", &e)),
+    }
+}
+
+fn cmd_composition_shown_in(ctx: CliContext, target_id: String) -> Result<String> {
+    match with_store(&ctx, |store| Ok(compositions_showing(store, &target_id)?)) {
+        Ok(shown) => output::serialize(
+            "composition shown-in",
+            CompositionsShownInPayload {
+                target_id: shown.target_id,
+                target_kind: shown.target_kind,
+                compositions: shown.compositions,
+            },
+        ),
+        Err(e) => Ok(output::any_err("composition shown-in", &e)),
     }
 }
