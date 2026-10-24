@@ -31,6 +31,8 @@ fn create_temp_repo_with_themes() -> TempDir {
         .unwrap(),
     )
     .unwrap();
+    // Authored at revision 2: brought to the current revision through the ladder (RFC-052 [R7]).
+    srs_repository::rfc052_root_container_migration_service::ladder_fixture(temp.path()).unwrap();
     temp
 }
 

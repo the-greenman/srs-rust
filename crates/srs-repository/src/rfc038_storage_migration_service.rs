@@ -541,7 +541,9 @@ pub fn migrate_srsj(content: &str) -> Result<(String, StorageMigrationResult), R
     let shadow_removed = reconcile_shadow_manifest(&mut envelope)?;
     envelope["srsj"] = Value::String(crate::srsj::SRSJ_VERSION.to_string());
 
-    let store = crate::srsj::open_srsj(&envelope.to_string())?;
+    // The tree as it is (no pre-load transformer): this is a migration, and the revision
+    // ladder cannot run before the storage layout it reads is in place.
+    let store = crate::srsj::open_srsj_for_migration(&envelope.to_string())?;
     let mut result = migrate_storage(
         &store,
         &StorageMigrationOptions {
@@ -612,7 +614,9 @@ fn reconcile_shadow_manifest(envelope: &mut Value) -> Result<bool, RepositoryErr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::srsj::open_srsj;
+    // These fixtures are legacy storage layouts, the subject of this migration: open them as
+    // they are, never through the revision ladder.
+    use crate::srsj::open_srsj_for_migration as open_srsj;
     use serde_json::json;
 
     const REL_A: &str = "11111111-1111-4111-8111-111111111111";
@@ -1422,7 +1426,7 @@ mod tests {
             std::fs::write(target, bytes).unwrap();
         }
 
-        let store = crate::store::FileStore::new(dir.path());
+        let store = crate::store::FileStore::new(dir.path()).with_rfc038_exemption();
         migrate_storage(
             &store,
             &StorageMigrationOptions {

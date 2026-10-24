@@ -136,7 +136,7 @@ fn fixture_srsj() -> String {
 /// the Composition-driven column spec.
 #[test]
 fn resolve_container_view_returns_root_members_and_columns() {
-    let store = srs_repository::srsj::open_srsj(&fixture_srsj()).expect("fixture srsj must load");
+    let store = ladder_open(&fixture_srsj()).expect("fixture srsj must load");
     let result = resolve_container_view(
         &store,
         ResolveContainerViewInput {
@@ -299,8 +299,7 @@ fn fixture_srsj_with_excluded_states() -> String {
 /// `isVisibleByDefault: false` in the serialised output (the field the WASM binding delivers to JS).
 #[test]
 fn resolve_container_view_is_visible_by_default_false_serialised() {
-    let store = srs_repository::srsj::open_srsj(&fixture_srsj_with_excluded_states())
-        .expect("fixture srsj must load");
+    let store = ladder_open(&fixture_srsj_with_excluded_states()).expect("fixture srsj must load");
     let result = resolve_container_view(
         &store,
         ResolveContainerViewInput {
@@ -335,7 +334,7 @@ fn resolve_container_view_is_visible_by_default_false_serialised() {
 /// An explicit unknown `view_id` yields empty columns + a diagnostic, but still returns members.
 #[test]
 fn resolve_container_view_unknown_view_id_is_diagnostic_not_error() {
-    let store = srs_repository::srsj::open_srsj(&fixture_srsj()).expect("fixture srsj must load");
+    let store = ladder_open(&fixture_srsj()).expect("fixture srsj must load");
     let result = resolve_container_view(
         &store,
         ResolveContainerViewInput {
@@ -352,4 +351,14 @@ fn resolve_container_view_unknown_view_id_is_diagnostic_not_error() {
         .diagnostics
         .iter()
         .any(|d| d.contains("composition no-such-dv not found")));
+}
+
+/// Fixtures authored below revision 10 are brought to it through the registry ladder
+/// (RFC-052 [R7]) before they are opened.
+fn ladder_open(
+    srsj: &str,
+) -> Result<srs_repository::FileStore, srs_repository::error::RepositoryError> {
+    srs_repository::srsj::open_srsj(
+        &srs_repository::rfc052_root_container_migration_service::ladder_srsj_fixture(srsj)?,
+    )
 }

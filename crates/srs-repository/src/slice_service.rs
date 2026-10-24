@@ -631,7 +631,15 @@ mod tests {
             pkg("aaaaaaaa-0000-4000-8000-0000000000a2", json!([])),
         );
         t.insert("b/fields/dup.json".into(), field("b"));
-        let store = crate::tree_session::open_tree(t).unwrap();
+        // Authored at revision 2; opened at the current revision through the registry ladder.
+        let dir = tempfile::TempDir::new().unwrap();
+        for (path, bytes) in &t {
+            let file = dir.path().join(path);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, bytes).unwrap();
+        }
+        crate::rfc052_root_container_migration_service::ladder_fixture(dir.path()).unwrap();
+        let store = crate::store::FileStore::new(dir.path());
         match used_package_roots(&store, &BTreeSet::new(), &BTreeSet::new()) {
             Err(RepositoryError::SliceRefused { code, .. }) => {
                 assert_eq!(code, CODE_DEFINITION_IDENTITY_CONFLICT)

@@ -150,6 +150,12 @@ fn snapshot(store: &dyn RepositoryStore) -> Vec<Value> {
     out
 }
 
+/// The migration-tooling view of a repository (RFC-038 [R21] exemption): reads a corpus the
+/// RFC-052 [R7] load gate refuses, as `srs repo apply-migration` does.
+fn exempt(dir: &TempDir) -> FileStore {
+    FileStore::new(dir.path()).with_rfc038_exemption()
+}
+
 fn stored_record(store: &dyn RepositoryStore, id: &str) -> Record {
     store.load_record_by_id(id).unwrap()
 }
@@ -199,9 +205,11 @@ fn no_session_actor_creates_unattributed_and_never_errors() {
             .unwrap()
             .relation;
     assert!(rel.created_by.is_none());
-    // An unattributed session also writes a pre-9 corpus ([R11] never applies).
+    // [R11] never applies to an unattributed session; a pre-10 corpus is refused by its
+    // declared revision instead (RFC-052 [R7]).
     stamp_data_model_revision(&store, 8).unwrap();
-    make_note(&store, "again");
+    let err = services::create_note(&store, note("again")).unwrap_err();
+    assert!(err.to_string().contains("RFC-052 [R7]"), "{err}");
     // ...and is never refused by [R12] (no actor to be invalid).
     assert!(store.session_actor().is_none());
 }
@@ -463,7 +471,7 @@ fn extras_on_update_cannot_smuggle_a_created_by_past_the_envelope_guard() {
 
 #[test]
 fn invalid_session_actor_refuses_every_creation_and_wins_precedence() {
-    let (_d, store) = new_repo(None);
+    let (d, store) = new_repo(None);
     let r = make_record(&store, "one");
     for bad in [
         json!({"kind": "ai", "id": ""}),
@@ -494,10 +502,10 @@ fn invalid_session_actor_refuses_every_creation_and_wins_precedence() {
             &store, PURPOSE, None, input, None, None
         ))
         .starts_with("actor-invalid"));
-        // actor-invalid > revision-too-old.
+        // actor-invalid > the revision checks ([R11], and RFC-052 [R7]'s load gate).
         stamp_data_model_revision(&store, 8).unwrap();
         assert!(code_of(services::create_note(&store, note("n"))).starts_with("actor-invalid"));
-        stamp_data_model_revision(&store, 9).unwrap();
+        stamp_data_model_revision(&exempt(&d), 10).unwrap();
     }
 }
 
@@ -517,11 +525,22 @@ fn actor_supplied_wins_over_revision_too_old() {
 
 #[test]
 fn actor_session_in_a_pre_9_corpus_is_refused_until_migrated() {
-    let (_d, store) = new_repo(Some(agent()));
+    let (d, store) = new_repo(Some(agent()));
     stamp_data_model_revision(&store, 8).unwrap();
-    // The corpus still loads at revision 8 (this build supports 8 and 9).
-    assert!(store.load_manifest().is_ok());
-    let n_before = snapshot(&store).len();
+    // RFC-052 [R7]: a corpus declaring revision 8 is refused by its declared revision, naming
+    // the pending registry entries in order. A creating session with an actor is still
+    // refused by [R11] first (it checks before loading anything).
+    match store.load_manifest().unwrap_err() {
+        srs_repository::error::RepositoryError::ContainerMigrationNeeded { declared, pending } => {
+            assert_eq!(declared, 8);
+            assert_eq!(
+                pending,
+                vec!["rfc046-actor-provenance", "rfc052-root-container"]
+            );
+        }
+        e => panic!("{e:?}"),
+    }
+    let n_before = snapshot(&exempt(&d)).len();
     for r in [
         code_of(services::create_note(&store, note("n"))),
         code_of(record_store::create_record_in_context(
@@ -535,11 +554,12 @@ fn actor_session_in_a_pre_9_corpus_is_refused_until_migrated() {
     ] {
         assert!(r.starts_with("revision-too-old"), "{r}");
     }
-    assert_eq!(snapshot(&store).len(), n_before, "nothing written");
+    assert_eq!(snapshot(&exempt(&d)).len(), n_before, "nothing written");
 
-    // Migration 8 -> 9: a pure re-stamp preserving every instance.
-    let before = snapshot(&store);
-    let statuses = migration_registry_service::list_migrations(&store).unwrap();
+    // Migration 8 -> 9 is a pure re-stamp preserving every instance; then 9 -> 10.
+    let tooling = exempt(&d);
+    let before = snapshot(&tooling);
+    let statuses = migration_registry_service::list_migrations(&tooling).unwrap();
     let m = statuses
         .iter()
         .find(|m| m.id == "rfc046-actor-provenance")
@@ -548,13 +568,20 @@ fn actor_session_in_a_pre_9_corpus_is_refused_until_migrated() {
         m.status,
         migration_registry_service::MigrationStatus::Needed
     );
-    migration_registry_service::apply_migration(&store, "rfc046-actor-provenance").unwrap();
+    migration_registry_service::apply_migration(&tooling, "rfc046-actor-provenance").unwrap();
     assert_eq!(
-        srs_repository::field_type_migration_service::data_model_revision(&store).unwrap(),
+        srs_repository::field_type_migration_service::data_model_revision(&tooling).unwrap(),
         9
     );
-    let after = snapshot(&store);
-    assert_eq!(before, after, "[R6] migration preserves every instance");
+    assert_eq!(
+        snapshot(&tooling),
+        before,
+        "[R6] migration preserves every instance"
+    );
+    migration_registry_service::apply_migration(&tooling, "rfc052-root-container").unwrap();
+    let store = FileStore::new(d.path());
+    store.set_session_actor(Some(agent()));
+    assert_eq!(snapshot(&store), before);
     assert_eq!(
         make_note(&store, "ok now").created_by,
         Some(as_actor(&agent()))
@@ -563,7 +590,7 @@ fn actor_session_in_a_pre_9_corpus_is_refused_until_migrated() {
 
 #[test]
 fn created_by_in_a_pre_9_corpus_is_a_validation_error() {
-    let (_d, store) = new_repo(Some(agent()));
+    let (d, store) = new_repo(Some(agent()));
     make_record(&store, "one");
     assert_eq!(
         validation::validate_repository(&store)
@@ -573,7 +600,13 @@ fn created_by_in_a_pre_9_corpus_is_a_validation_error() {
         0
     );
     stamp_data_model_revision(&store, 8).unwrap();
-    let report = validation::validate_repository(&store).unwrap();
+    // RFC-052 [R7]: an ordinary reader refuses the corpus by its declared revision; the
+    // [R10] rule still holds for the migration-tooling reading of it.
+    assert_eq!(
+        code_of(validation::validate_repository(&store)),
+        "container-migration-needed"
+    );
+    let report = validation::validate_repository(&exempt(&d)).unwrap();
     assert!(
         report
             .diagnostics
@@ -643,8 +676,10 @@ fn copy_archive_and_srsj_preserve_created_by_exactly() {
 
 #[test]
 fn migration_is_idempotent_and_refuses_below_revision_8() {
-    let (_d, store) = new_repo(None);
+    let (d, store) = new_repo(None);
     stamp_data_model_revision(&store, 8).unwrap();
+    // The registry runs on the migration-tooling reading (RFC-052 [R7] refuses the rest).
+    let store = exempt(&d);
     migration_registry_service::apply_migration(&store, "rfc046-actor-provenance").unwrap();
     migration_registry_service::apply_migration(&store, "rfc046-actor-provenance").unwrap();
     assert_eq!(
@@ -667,10 +702,11 @@ fn transport_into_an_existing_pre_9_corpus_is_refused_and_writes_nothing() {
     relation_service::create_relation_auto(&source, relation(&r.instance_id, &n.instance_id))
         .unwrap();
 
-    let (_t, target) = new_repo(None);
+    let (t, target) = new_repo(None);
     stamp_data_model_revision(&target, 8).unwrap();
-    let before = snapshot(&target);
-    let rels_before = target.list_relations().unwrap().len();
+    // The corpus is read through the migration-tooling view (RFC-052 [R7] refuses the rest).
+    let before = snapshot(&exempt(&t));
+    let rels_before = exempt(&t).list_relations().unwrap().len();
 
     // copy (snapshot import) into the existing store
     let e = srs_repository::repository_portability::copy_repository(&source, &target)
@@ -684,12 +720,12 @@ fn transport_into_an_existing_pre_9_corpus_is_refused_and_writes_nothing() {
     assert!(srs_repository::archive_unpack(Cursor::new(buf.into_inner()), &target).is_err());
 
     // .srsj: copying into an existing store backed by a loaded document is refused too
-    let srsj = srs_repository::srsj::to_srsj_string(&target).unwrap();
+    let srsj = srs_repository::srsj::to_srsj_string(&exempt(&t)).unwrap();
     let existing = srs_repository::srsj::open_srsj(&srsj).unwrap();
     assert!(srs_repository::repository_portability::copy_repository(&source, &existing).is_err());
 
-    assert_eq!(snapshot(&target), before, "nothing written");
-    assert_eq!(target.list_relations().unwrap().len(), rels_before);
+    assert_eq!(snapshot(&exempt(&t)), before, "nothing written");
+    assert_eq!(exempt(&t).list_relations().unwrap().len(), rels_before);
     assert!(before.iter().all(|v| v.get("createdBy").is_none()));
 }
 

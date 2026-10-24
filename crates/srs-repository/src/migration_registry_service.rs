@@ -947,7 +947,7 @@ mod tests {
     }
 
     fn indexed_srsj_store() -> crate::store::FileStore {
-        crate::srsj::open_srsj(
+        crate::srsj::open_srsj_for_migration(
             &serde_json::json!({
                 "srsj": "2",
                 // The stamped-but-unstripped transitional state (#242 Phase B):

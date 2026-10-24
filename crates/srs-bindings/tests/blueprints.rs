@@ -103,15 +103,14 @@ fn blueprint_srsj() -> String {
 
 fn gallery_store() -> FileStore {
     let srsj = include_str!("../../srs-repository/tests/fixtures/gallery.srsj");
-    srs_repository::srsj::open_srsj(srsj).expect("gallery srsj must load")
+    ladder_open(srsj).expect("gallery srsj must load")
 }
 
 /// A repo with one registered blueprint returns a single summary carrying its identity and
 /// root-type count — the shape the web client lists in a blueprint picker.
 #[test]
 fn list_blueprints_returns_summaries() {
-    let store =
-        srs_repository::srsj::open_srsj(&blueprint_srsj()).expect("blueprint srsj must load");
+    let store = ladder_open(&blueprint_srsj()).expect("blueprint srsj must load");
     let result =
         blueprint_service::list_blueprints_summary(&store).expect("list_blueprints must succeed");
 
@@ -144,4 +143,14 @@ fn list_blueprints_empty_on_gallery() {
         "no provenance diagnostics expected: {:?}",
         result.diagnostics
     );
+}
+
+/// Fixtures authored below revision 10 are brought to it through the registry ladder
+/// (RFC-052 [R7]) before they are opened.
+fn ladder_open(
+    srsj: &str,
+) -> Result<srs_repository::FileStore, srs_repository::error::RepositoryError> {
+    srs_repository::srsj::open_srsj(
+        &srs_repository::rfc052_root_container_migration_service::ladder_srsj_fixture(srsj)?,
+    )
 }

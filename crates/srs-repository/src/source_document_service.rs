@@ -512,7 +512,6 @@ mod tests {
 
     #[test]
     fn file_store_list_source_documents_tempdir_repo() {
-        use crate::store::FileStore;
         use tempfile::TempDir;
 
         let temp = TempDir::new().unwrap();
@@ -549,7 +548,7 @@ mod tests {
         )
         .unwrap();
 
-        let store = FileStore::new(root);
+        let store = crate::validation::fixture_ladder::store(root);
         let result = list_source_documents(&store, ListSourceDocumentsFilter::default()).unwrap();
 
         assert_eq!(result.entries.len(), 2, "expected 2 sidecars");

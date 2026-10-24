@@ -976,6 +976,8 @@ mod tests {
         let pkg_dir = root.join("package");
         std::fs::create_dir_all(&pkg_dir).unwrap();
         write_package_json(&pkg_dir, "primary-pkg-id", "com.test", "primary", &[], &[]);
+        // Revision 2 fixture brought to revision 10 through the registry ladder (RFC-052 [R7]).
+        crate::rfc052_root_container_migration_service::ladder_fixture(root).unwrap();
     }
 
     /// Write a package.json for the given dir, listing optional field/type files.

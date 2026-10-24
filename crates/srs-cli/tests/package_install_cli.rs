@@ -431,25 +431,30 @@ fn package_export_cli_writes_homepage() {
 }
 
 #[test]
-fn package_export_cli_reports_below_floor_notes() {
+fn package_export_cli_from_a_repository_below_revision_10_is_refused() {
+    // RFC-052 [R7] (owner ruling 1 on srs#953): a repository declaring revision 6 is refused
+    // by its declared revision before export runs, naming the pending migrations, and no
+    // bundle is written. The below-floor note is now reachable only from a library store
+    // (package_bundle.rs `export_from_repository_below_reader_floor_*`).
     let (ws, a, _b) = two_repos();
-    let out = ws.path().join("n.srspkg").to_string_lossy().into_owned();
+    let out = ws.path().join("n.srspkg");
     srs_repository::field_type_migration_service::stamp_data_model_revision(
         &srs_repository::store::FileStore::new(Path::new(&a)),
         6,
     )
     .unwrap();
-    let env = export(ws.path(), &a, &out);
-    let notes = env["payload"]["notes"].as_array().unwrap();
-    assert_eq!(notes.len(), 1, "{env}");
-    assert!(
-        notes[0]
-            .as_str()
-            .unwrap()
-            .contains("bundle-below-reader-floor"),
+    let (_, env) = export_with(ws.path(), &a, &out.to_string_lossy(), &[]);
+    let env = env.expect("JSON envelope");
+    assert_eq!(env["ok"], false, "{env}");
+    assert_eq!(
+        env["errors"][0]["code"], "container-migration-needed",
         "{env}"
     );
-    assert_eq!(env["payload"]["dataModelRevision"], 6);
+    assert_eq!(
+        env["errors"][0]["details"]["pending"][0], "discovery-query-cutover",
+        "{env}"
+    );
+    assert!(!out.exists());
 }
 
 #[test]

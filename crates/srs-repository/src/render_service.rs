@@ -11198,7 +11198,6 @@ mod tests {
     fn render_rfc011_cross_store_roundtrip() {
         // Same DiscoveryQuery with lifecycle filter returns the same instance IDs from MemoryStore
         // and from a FileStore backed by a serialised copy of the same data.
-        use crate::store::FileStore;
 
         let dv_id = "dv-roundtrip";
         let dv = rfc011_dv(
@@ -11291,7 +11290,7 @@ mod tests {
         )
         .unwrap();
 
-        let file_store = FileStore::new(repo_root);
+        let file_store = crate::validation::fixture_ladder::store(repo_root);
         let file_result = render_composition(RenderCompositionOptions {
             store: &file_store,
             view_id: dv_id,
@@ -13015,7 +13014,6 @@ mod tests {
         // Cross-store test: the container file under containers/ carries the
         // title; resolution discovers it through the store (catalog-backed),
         // no containerIndex involved (RFC-038 Change J).
-        use crate::store::FileStore;
         use srs_core::types::container::Container;
 
         let tmp = tempfile::TempDir::new().unwrap();
@@ -13057,7 +13055,7 @@ mod tests {
         )
         .unwrap();
 
-        let store = FileStore::new(repo_root);
+        let store = crate::validation::fixture_ladder::store(repo_root);
 
         let manifest = crate::manifest::Manifest {
             root_container_id: None,
@@ -15028,7 +15026,7 @@ mod tests {
         )
         .unwrap();
 
-        let file_store = FileStore::new(repo_root);
+        let file_store = crate::validation::fixture_ladder::store(repo_root);
         let file_result = render_composition(RenderCompositionOptions {
             store: &file_store,
             view_id: dv_id,

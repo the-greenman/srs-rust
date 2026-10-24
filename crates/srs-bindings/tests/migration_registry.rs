@@ -6,14 +6,14 @@
 
 use srs_repository::migration_registry_service::{self, MigrationStatus};
 
-/// `.srsj` fixtures here are written with the pre-RFC-052 embedded root; open them in the
-/// revision-10 form (root in the container set, named by `rootContainerId`).
+/// `.srsj` fixtures here are written below revision 10; they are brought to it through the
+/// registry ladder (RFC-052 [R7]) before they are opened.
 fn open_srsj(
     text: &str,
 ) -> Result<srs_repository::store::FileStore, srs_repository::error::RepositoryError> {
-    let mut doc: serde_json::Value = serde_json::from_str(text).expect("fixture is JSON");
-    srs_repository::rfc052_root_container_migration_service::rewrite_srsj_fixture(&mut doc);
-    srs_repository::srsj::open_srsj(&doc.to_string())
+    srs_repository::srsj::open_srsj(
+        &srs_repository::rfc052_root_container_migration_service::ladder_srsj_fixture(text)?,
+    )
 }
 
 // A deliberately PRE-migration document: unstamped manifest still carrying
@@ -54,9 +54,8 @@ fn minimal_srsj() -> String {
 
 #[test]
 fn available_migrations_lists_the_registered_migrations_with_status() {
-    let store = open_srsj(&minimal_srsj())
-        .expect("fixture must load")
-        .with_rfc038_exemption();
+    let store =
+        srs_repository::srsj::open_srsj_for_migration(&minimal_srsj()).expect("fixture must load");
 
     let migrations =
         migration_registry_service::list_migrations(&store).expect("list_migrations must succeed");
@@ -115,9 +114,8 @@ fn available_migrations_lists_the_registered_migrations_with_status() {
 
 #[test]
 fn apply_migration_repo_upgrade_on_canonical_repo() {
-    let store = open_srsj(&minimal_srsj())
-        .expect("fixture must load")
-        .with_rfc038_exemption();
+    let store =
+        srs_repository::srsj::open_srsj_for_migration(&minimal_srsj()).expect("fixture must load");
 
     let result = migration_registry_service::apply_migration(&store, "repo-upgrade")
         .expect("apply_migration must succeed on canonical repo");
@@ -131,9 +129,8 @@ fn apply_migration_repo_upgrade_on_canonical_repo() {
 
 #[test]
 fn apply_migration_unknown_id_returns_error() {
-    let store = open_srsj(&minimal_srsj())
-        .expect("fixture must load")
-        .with_rfc038_exemption();
+    let store =
+        srs_repository::srsj::open_srsj_for_migration(&minimal_srsj()).expect("fixture must load");
 
     let err = migration_registry_service::apply_migration(&store, "nonexistent-migration")
         .expect_err("unknown migration ID must return an error");

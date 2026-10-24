@@ -708,6 +708,7 @@ mod tests {
             .to_string(),
         )
         .unwrap();
+        crate::rfc052_root_container_migration_service::ladder_fixture(root).unwrap();
     }
 
     fn minimal_view(name: &str) -> View {

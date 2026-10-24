@@ -46,6 +46,8 @@ fn write_minimal_file_repo(temp: &TempDir) {
         serde_json::to_string_pretty(&package_json).unwrap(),
     )
     .unwrap();
+    // Revision 2 fixture brought to revision 10 through the registry ladder (RFC-052 [R7]).
+    crate::validation::fixture_ladder::ladder(root);
 }
 
 #[test]

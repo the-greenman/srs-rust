@@ -1006,7 +1006,10 @@ mod tests {
         // normalises all keys — typed fields and extra — into BTreeMap (sorted) order (ADR-017).
         let srsj = r#"{"srsj":"2","manifest":{"dataModelRevision":2,"repositoryId":"det-test-id","namespace":"com.example.det","srsVersion":"2.0-draft","title":"Det Test","zzz":"last","aaa":"first","createdAt":"2026-01-01T00:00:00Z"},"data":{"package/package.json":{"id":"p","namespace":"com.example.det","name":"n","version":"1","fields":[],"types":[],"relationTypes":[],"views":[],"compositions":[]}}}"#;
 
-        let store = crate::srsj::open_srsj(srsj).unwrap();
+        let store = crate::srsj::open_srsj(
+            &crate::rfc052_root_container_migration_service::ladder_srsj_fixture(srsj).unwrap(),
+        )
+        .unwrap();
         let archive_bytes = pack_to_bytes(&store);
 
         // Read the raw (unreparsed) manifest.json bytes from the archive.

@@ -1025,7 +1025,7 @@ mod tests {
             }
         }"#;
 
-        let store = crate::srsj::open_srsj(srsj).unwrap();
+        let store = crate::validation::fixture_ladder::open_srsj(srsj).unwrap();
         let packet = build_migration_packet_for_profile(&store, "foundation").unwrap();
 
         assert_eq!(packet.profile, "foundation");

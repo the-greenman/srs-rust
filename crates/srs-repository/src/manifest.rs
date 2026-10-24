@@ -298,10 +298,40 @@ mod rfc038_tests {
         assert!(check_manifest(&ok).is_ok());
     }
 
+    /// [R7], owner ruling 1 on srs#953: detection reads the declared revision, never the
+    /// shape. A revision-9 manifest that already names its root, and a rootless revision-2
+    /// one, are both reported, naming the pending registry entries in order. A clean
+    /// generation-2 manifest passes [R21]/[R2] and is stopped only by this gate.
     #[test]
-    fn r21_and_r2_pass_together_on_a_clean_generation_2_manifest() {
-        let raw = serde_json::json!({ "dataModelRevision": 2 });
-        assert!(check_manifest(&raw).is_ok());
+    fn rfc052_r7_detects_by_declared_revision_not_shape() {
+        let named = serde_json::json!({ "dataModelRevision": 9, "rootContainerId": "c" });
+        match check_manifest(&named).unwrap_err() {
+            RepositoryError::ContainerMigrationNeeded { declared, pending } => {
+                assert_eq!(declared, 9);
+                assert_eq!(pending, vec!["rfc052-root-container"]);
+            }
+            other => panic!("expected container-migration-needed, got {other:?}"),
+        }
+        let rootless = serde_json::json!({ "dataModelRevision": 2 });
+        match check_manifest(&rootless).unwrap_err() {
+            RepositoryError::ContainerMigrationNeeded { declared, pending } => {
+                assert_eq!(declared, 2);
+                assert_eq!(
+                    pending,
+                    vec![
+                        "metamodel-v1-1-0",
+                        "tier1-removal",
+                        "substrate-properties-to-meta",
+                        "composition-cutover",
+                        "discovery-query-cutover",
+                        "rfc043-container-entries",
+                        "rfc046-actor-provenance",
+                        "rfc052-root-container",
+                    ]
+                );
+            }
+            other => panic!("expected container-migration-needed, got {other:?}"),
+        }
     }
 }
 

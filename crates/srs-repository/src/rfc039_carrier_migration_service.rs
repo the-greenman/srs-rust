@@ -1489,7 +1489,7 @@ mod tests {
     }
 
     fn migrated_store() -> (FileStore, CarrierMigrationResult) {
-        let store = crate::srsj::open_srsj(&fixture_srsj(&FixtureKnobs::default()))
+        let store = crate::srsj::open_srsj_for_migration(&fixture_srsj(&FixtureKnobs::default()))
             .unwrap()
             .with_rfc038_exemption();
         let result = migrate_carrier(&store).expect("migration must succeed");
@@ -1577,7 +1577,7 @@ mod tests {
         // pin T_ITEM@1 — the migration must re-pin them to @2. T_PLAIN never
         // bumps, so its pin in the same Blueprint's structure must survive
         // untouched.
-        let store = crate::srsj::open_srsj(&fixture_srsj(&FixtureKnobs {
+        let store = crate::srsj::open_srsj_for_migration(&fixture_srsj(&FixtureKnobs {
             pin_stale_type_refs: true,
             ..Default::default()
         }))
@@ -1740,7 +1740,7 @@ mod tests {
         })
         .to_string();
 
-        let store = crate::srsj::open_srsj(&srsj)
+        let store = crate::srsj::open_srsj_for_migration(&srsj)
             .unwrap()
             .with_rfc038_exemption();
         migrate_carrier(&store).expect("inheriting record must migrate");
@@ -1762,7 +1762,7 @@ mod tests {
     /// encounter order — the defect found live on the spec corpus.
     #[test]
     fn carrier_keys_follow_assignment_order_not_encounter_order() {
-        let store = crate::srsj::open_srsj(&fixture_srsj(&FixtureKnobs {
+        let store = crate::srsj::open_srsj_for_migration(&fixture_srsj(&FixtureKnobs {
             reversed_pairs: true,
             ..Default::default()
         }))
@@ -1794,7 +1794,7 @@ mod tests {
 
     #[test]
     fn divergent_entries_abort() {
-        let store = crate::srsj::open_srsj(&fixture_srsj(&FixtureKnobs {
+        let store = crate::srsj::open_srsj_for_migration(&fixture_srsj(&FixtureKnobs {
             divergent_entries: true,
             ..Default::default()
         }))
@@ -2003,7 +2003,7 @@ mod tests {
             }
         })
         .to_string();
-        let store = crate::srsj::open_srsj(&srsj)
+        let store = crate::srsj::open_srsj_for_migration(&srsj)
             .unwrap()
             .with_rfc038_exemption();
         let result = migrate_carrier(&store).expect("sub-package type must resolve (srs-rust#809)");
@@ -2039,7 +2039,7 @@ mod tests {
             "data": {}
         })
         .to_string();
-        let store = crate::srsj::open_srsj(&srsj)
+        let store = crate::srsj::open_srsj_for_migration(&srsj)
             .unwrap()
             .with_rfc038_exemption();
         let err = migrate_carrier(&store).unwrap_err();

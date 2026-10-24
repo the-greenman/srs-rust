@@ -303,11 +303,29 @@ fn author_fixture_root(manifest: &mut Value) {
 pub fn ladder_fixture(root: &std::path::Path) -> Result<Vec<&'static str>, RepositoryError> {
     let store = crate::store::FileStore::new(root).with_rfc038_exemption();
     let mut manifest = raw_manifest(&store)?;
-    if manifest.get("container").is_none() && manifest.get("rootContainerId").is_none() {
-        author_fixture_root(&mut manifest);
+    let authored = manifest.clone();
+    author_fixture_root(&mut manifest);
+    if manifest != authored {
         store.save_text_file("manifest.json", &pretty(&manifest)?)?;
     }
     crate::migration_registry_service::apply_revision_ladder(&store)
+}
+
+/// [`ladder_fixture`] for an in-memory fixture tree (path → bytes).
+#[doc(hidden)]
+pub fn ladder_fixture_tree(
+    mut files: BTreeMap<String, Vec<u8>>,
+) -> Result<BTreeMap<String, Vec<u8>>, RepositoryError> {
+    if let Some(mut manifest) = files
+        .get("manifest.json")
+        .and_then(|b| serde_json::from_slice::<Value>(b).ok())
+    {
+        author_fixture_root(&mut manifest);
+        files.insert("manifest.json".to_string(), pretty(&manifest)?.into_bytes());
+    }
+    let store = crate::tree_session::open_tree(files)?.with_rfc038_exemption();
+    crate::migration_registry_service::apply_revision_ladder(&store)?;
+    crate::tree_session::export_tree(&store)
 }
 
 /// [`ladder_fixture`] for a `.srsj` fixture authored in code: opened as it is, brought to
@@ -866,6 +884,111 @@ mod tests {
         let store = FileStore::new(tmp.path()).with_rfc038_exemption();
         let err = migrate_rfc052_root_container(&store).unwrap_err();
         assert_eq!(err.code(), "migration-root-missing", "{err}");
+    }
+
+    /// A half-migrated corpus (owner ruling A2, srs#963): revision 9, the root already named
+    /// by `rootContainerId` and stored at `containers/<id>.json`.
+    fn half_migrated(dir: &Path) {
+        rev9_repo(dir);
+        let mut m = read(dir, "manifest.json");
+        let root = m
+            .as_object_mut()
+            .unwrap()
+            .shift_remove("container")
+            .unwrap();
+        m["rootContainerId"] = json!(ROOT);
+        w(dir, "manifest.json", &m);
+        w(dir, &format!("containers/{ROOT}.json"), &root);
+    }
+
+    #[test]
+    fn a_half_migrated_manifest_is_only_restamped() {
+        let tmp = tempfile::tempdir().unwrap();
+        half_migrated(tmp.path());
+        // Declared revision 9: refused on load whatever the shape ([R7]).
+        assert_eq!(
+            FileStore::new(tmp.path())
+                .load_manifest()
+                .unwrap_err()
+                .code(),
+            "container-migration-needed"
+        );
+        let root_before =
+            std::fs::read(tmp.path().join(format!("containers/{ROOT}.json"))).unwrap();
+        let store = FileStore::new(tmp.path()).with_rfc038_exemption();
+        let r = migrate_rfc052_root_container(&store).unwrap();
+        assert!(!r.already_applied);
+        assert_eq!(r.root_container_id.as_deref(), Some(ROOT));
+        assert!(r.root_container_path.is_none(), "nothing moved");
+        let m = read(tmp.path(), "manifest.json");
+        assert_eq!(m[DATA_MODEL_REVISION_KEY], 10);
+        assert_eq!(m["rootContainerId"], ROOT);
+        assert_eq!(
+            std::fs::read(tmp.path().join(format!("containers/{ROOT}.json"))).unwrap(),
+            root_before,
+            "the stored root is untouched"
+        );
+        assert!(FileStore::new(tmp.path()).catalog().is_ok());
+        assert!(
+            migrate_rfc052_root_container(&store)
+                .unwrap()
+                .already_applied
+        );
+    }
+
+    #[test]
+    fn a_half_migrated_manifest_whose_root_is_not_stored_is_refused() {
+        let tmp = tempfile::tempdir().unwrap();
+        half_migrated(tmp.path());
+        std::fs::remove_file(tmp.path().join(format!("containers/{ROOT}.json"))).unwrap();
+        let before = std::fs::read(tmp.path().join("manifest.json")).unwrap();
+        let store = FileStore::new(tmp.path()).with_rfc038_exemption();
+        let err = migrate_rfc052_root_container(&store).unwrap_err();
+        assert_eq!(err.code(), "manifest-root-container-missing", "{err}");
+        assert_eq!(
+            std::fs::read(tmp.path().join("manifest.json")).unwrap(),
+            before
+        );
+    }
+
+    #[test]
+    fn a_half_migrated_manifest_with_two_roots_is_refused() {
+        let tmp = tempfile::tempdir().unwrap();
+        half_migrated(tmp.path());
+        w(
+            tmp.path(),
+            "containers/twin.json",
+            &json!({"containerId": ROOT, "title": "Twin"}),
+        );
+        let before = std::fs::read(tmp.path().join("manifest.json")).unwrap();
+        let store = FileStore::new(tmp.path()).with_rfc038_exemption();
+        let err = migrate_rfc052_root_container(&store).unwrap_err();
+        assert_eq!(err.code(), "migration-root-duplicate", "{err}");
+        assert_eq!(
+            std::fs::read(tmp.path().join("manifest.json")).unwrap(),
+            before
+        );
+    }
+
+    #[test]
+    fn a_half_migrated_manifest_whose_root_does_not_validate_is_refused() {
+        let tmp = tempfile::tempdir().unwrap();
+        half_migrated(tmp.path());
+        // A member that resolves to nothing: fatal to the revision-10 catalog.
+        w(
+            tmp.path(),
+            &format!("containers/{ROOT}.json"),
+            &json!({"containerId": ROOT, "title": "Root",
+                "memberInstanceIds": [{"instanceId": "99999999-0000-4000-8000-000000000099"}]}),
+        );
+        let before = std::fs::read(tmp.path().join("manifest.json")).unwrap();
+        let store = FileStore::new(tmp.path()).with_rfc038_exemption();
+        let err = migrate_rfc052_root_container(&store).unwrap_err();
+        assert_eq!(err.code(), "migration-gate-failed", "{err}");
+        assert_eq!(
+            std::fs::read(tmp.path().join("manifest.json")).unwrap(),
+            before
+        );
     }
 
     /// [R7]: the revision-10 reader refuses the embedded form naming RFC-052 and the

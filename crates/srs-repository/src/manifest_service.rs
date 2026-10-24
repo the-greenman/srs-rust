@@ -729,6 +729,7 @@ mod tests {
             r#"{"srsVersion":"2.0-draft","repositoryId":"test","dataModelRevision":2}"#,
         )
         .unwrap();
+        crate::validation::fixture_ladder::ladder(temp.path());
 
         let result = add_package_ref(&store, "package/nonexistent");
         assert!(
@@ -746,6 +747,7 @@ mod tests {
             r#"{"srsVersion":"2.0-draft","repositoryId":"test","dataModelRevision":2}"#,
         )
         .unwrap();
+        crate::validation::fixture_ladder::ladder(temp.path());
 
         let outside = TempDir::new().unwrap();
         create_package_dir(&outside, ".");
@@ -772,6 +774,7 @@ mod tests {
         )
         .unwrap();
         create_package_dir(&temp, "package/sub");
+        crate::validation::fixture_ladder::ladder(temp.path());
 
         let refs = add_package_ref(&store, "package/sub").unwrap();
         assert_eq!(refs.len(), 1);
@@ -789,6 +792,7 @@ mod tests {
         )
         .unwrap();
         create_package_dir(&temp, "package/sub");
+        crate::validation::fixture_ladder::ladder(temp.path());
 
         add_package_ref(&store, "package/sub").unwrap();
         let refs = add_package_ref(&store, "package/sub").unwrap();
@@ -812,6 +816,7 @@ mod tests {
         )
         .unwrap();
         create_package_dir(&temp, "package/sub");
+        crate::validation::fixture_ladder::ladder(temp.path());
 
         add_package_ref(&store, "package/sub").unwrap();
         let refs = remove_package_ref(&store, "package/sub").unwrap();
@@ -1230,6 +1235,7 @@ mod tests {
         )
         .unwrap();
 
+        crate::validation::fixture_ladder::ladder(repo);
         let store = crate::FileStore::new(repo);
         let report = declared_extensions_conformance(&store).unwrap();
 
@@ -1262,6 +1268,7 @@ mod tests {
         )
         .unwrap();
         create_package_dir(&temp, "package");
+        crate::validation::fixture_ladder::ladder(temp.path());
         let store = crate::FileStore::new(temp.path());
         (temp, store)
     }

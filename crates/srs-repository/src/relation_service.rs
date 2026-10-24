@@ -1927,9 +1927,7 @@ mod tests {
                 }
             }
         });
-        let exempt = crate::srsj::open_srsj(&doc.to_string())
-            .unwrap()
-            .with_rfc038_exemption();
+        let exempt = crate::srsj::open_srsj_for_migration(&doc.to_string()).unwrap();
         exempt
             .save_relation(&make_relation(dup_id, "note-1", "note-2", "contains"))
             .unwrap();
@@ -1953,9 +1951,20 @@ mod tests {
             other => panic!("expected DuplicateRelationId, got {other:?}"),
         }
 
-        // Normal reader: the collection itself is the error ([R11]).
-        let normal =
-            crate::srsj::open_srsj(&crate::srsj::to_srsj_string(&exempt).unwrap()).unwrap();
+        // Normal reader: the collection itself is the error ([R11]). A normal reader opens
+        // only revision 10 (RFC-052 [R7]), and the ladder refuses a collection, so the
+        // collection is placed into a corpus laddered without it.
+        let mut bare = doc.clone();
+        let collection = bare["data"]
+            .as_object_mut()
+            .unwrap()
+            .remove("relations/relations-collection.json")
+            .unwrap();
+        let mut laddered: serde_json::Value =
+            serde_json::from_str(&crate::validation::fixture_ladder::srsj(&bare.to_string()))
+                .unwrap();
+        laddered["data"]["relations/relations-collection.json"] = collection;
+        let normal = crate::srsj::open_srsj(&laddered.to_string()).unwrap();
         let err = load_relations(&normal).unwrap_err();
         assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(
@@ -2850,7 +2859,7 @@ mod tests {
             }
         })
         .to_string();
-        let store = crate::srsj::open_srsj(&srsj).unwrap();
+        let store = crate::validation::fixture_ladder::open_srsj(&srsj).unwrap();
         rebuild_precedes_chain(
             &store,
             RebuildPrecedesChainInput {
@@ -2860,7 +2869,7 @@ mod tests {
         )
         .unwrap();
         let exported = crate::srsj::to_srsj_string(&store).unwrap();
-        let store2 = crate::srsj::open_srsj(&exported).unwrap();
+        let store2 = crate::validation::fixture_ladder::open_srsj(&exported).unwrap();
         let all = list_relations(&store2, ListRelationsFilter::default()).unwrap();
         let precedes: Vec<_> = all
             .iter()
