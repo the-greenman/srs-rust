@@ -454,7 +454,10 @@ pub fn delete_container(
     // hand-edited repo may carry such edges — remove them with the container so
     // the delete never leaves dangling endpoints behind.
     store.begin_batch();
+    // RFC-034 [R7] (I-150): no `childContainerIds` entry may name a missing Container, so the
+    // parents that list this container drop it in the same batch (srs-rust#1442).
     let write_result = crate::relation_service::delete_relations_incident_to(store, container_id)
+        .and_then(|_| unlink_child_container(store, container_id))
         .and_then(|_| store.delete_container(container_id));
     match write_result {
         Ok(()) => store.commit_batch()?,
@@ -464,6 +467,32 @@ pub fn delete_container(
         }
     }
     Ok(container_id.to_string())
+}
+
+/// Remove `child_id` from every container's `childContainerIds` (the field becomes `None` when
+/// the list empties, as `update_container` stores it).
+fn unlink_child_container(
+    store: &dyn RepositoryStore,
+    child_id: &str,
+) -> Result<(), RepositoryError> {
+    for (parent_id, _title) in store.list_container_summaries()? {
+        if parent_id == child_id {
+            continue;
+        }
+        let mut parent = store.load_container(&parent_id)?;
+        let Some(children) = parent.child_container_ids.as_mut() else {
+            continue;
+        };
+        if !children.iter().any(|c| c == child_id) {
+            continue;
+        }
+        children.retain(|c| c != child_id);
+        if children.is_empty() {
+            parent.child_container_ids = None;
+        }
+        store.save_container(&parent)?;
+    }
+    Ok(())
 }
 
 /// Why a member of a container being deleted stays (srs-rust#1436).
@@ -1810,6 +1839,51 @@ mod tests {
                 .is_empty(),
             "legacy container-endpoint edge must be cascaded"
         );
+    }
+
+    #[test]
+    fn delete_container_unlinks_it_from_parent_child_container_ids() {
+        // RFC-034 [R7] / I-150 (srs-rust#1442): deleting a listed child must not leave the
+        // parent's `childContainerIds` dangling.
+        let store = make_store();
+        let child = "00000000-0000-4000-8000-0000000000c1";
+        let keep = "00000000-0000-4000-8000-0000000000c2";
+        let parent = "00000000-0000-4000-8000-0000000000a1";
+        create_container(&store, minimal_container(child, "Child")).unwrap();
+        create_container(&store, minimal_container(keep, "Keep")).unwrap();
+        let mut p = minimal_container(parent, "Parent");
+        p.child_container_ids = Some(vec![child.to_string(), keep.to_string()]);
+        create_container(&store, p).unwrap();
+
+        delete_container(&store, child).unwrap();
+
+        let after = store.load_container(parent).unwrap();
+        assert_eq!(after.child_container_ids, Some(vec![keep.to_string()]));
+        assert!(list_members(&store, parent).is_ok());
+
+        delete_container(&store, keep).unwrap();
+        let after = store.load_container(parent).unwrap();
+        assert_eq!(after.child_container_ids, None);
+        assert!(list_members(&store, parent).is_ok());
+    }
+
+    #[test]
+    fn delete_containers_with_records_unlinks_deleted_child_from_parent() {
+        let store = make_store();
+        let child = "00000000-0000-4000-8000-0000000000c1";
+        let parent = "00000000-0000-4000-8000-0000000000a1";
+        create_container(&store, minimal_container(child, "Child")).unwrap();
+        let mut p = minimal_container(parent, "Parent");
+        p.child_container_ids = Some(vec![child.to_string()]);
+        create_container(&store, p).unwrap();
+
+        delete_containers_with_records(&store, &[child.to_string()]).unwrap();
+
+        assert_eq!(
+            store.load_container(parent).unwrap().child_container_ids,
+            None
+        );
+        assert!(list_members(&store, parent).is_ok());
     }
 
     #[test]
