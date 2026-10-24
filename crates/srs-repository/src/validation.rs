@@ -1646,6 +1646,24 @@ pub fn validate_repository(
         }
     }
 
+    // --- RFC-034 [R7] / I-150: childContainerIds targets exist, are distinct, acyclic ---
+    // Every container in the set, the root included; one service function owns the rule.
+    {
+        let containers: Vec<srs_core::types::container::Container> = cat
+            .containers
+            .iter()
+            .filter_map(|centry| load_container_for_diagnostics(store, centry))
+            .collect();
+        for message in crate::container_service::child_container_diagnostics(&containers) {
+            diagnostics.push(ValidationDiagnostic {
+                severity: DiagnosticSeverity::Error,
+                relative_path: "containers".to_string(),
+                schema_id: None,
+                message,
+            });
+        }
+    }
+
     // --- RFC-009 root-type anchor diagnostics (I-63, I-64) ---
     // Both are advisory (Warning): neither invalidates the repository. See RFC-009.
     // RFC-026 Change E 2/3: inside a slice an absent Type or Container is the
@@ -6531,6 +6549,47 @@ mod tests {
             "I-64 must skip when the root Record is unresolvable: {:?}",
             report.diagnostics
         );
+    }
+
+    #[test]
+    fn validate_reports_dangling_child_container_id() {
+        // RFC-034 [R7] / I-150 (srs-rust#1445): FileStore round trip. A dangling
+        // childContainerIds entry planted past the write-time check is an error naming
+        // the parent and the child.
+        let temp = TempDir::new().unwrap();
+        write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
+        let store = crate::store::FileStore::new(temp.path());
+        let (p, c) = (
+            "00000000-0000-4000-8000-0000000000d1",
+            "00000000-0000-4000-8000-0000000000d2",
+        );
+        let container = srs_core::types::container::Container {
+            container_id: p.to_string(),
+            title: "Parent".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            identity_instance_id: None,
+            anchor_instance_id: None,
+            member_instance_ids: None,
+            child_container_ids: Some(vec![c.to_string()]),
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::BTreeMap::new(),
+        };
+        store.save_container_unchecked(&container).unwrap();
+
+        let report = validate_repository(&store).unwrap();
+        let hits: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("I-150"))
+            .collect();
+        assert_eq!(hits.len(), 1, "{:?}", report.diagnostics);
+        assert!(hits[0].message.contains(p) && hits[0].message.contains(c));
     }
 
     #[test]
