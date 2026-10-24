@@ -1228,11 +1228,13 @@ impl<'a> Builder<'a> {
                 c::STRAY_FILE,
                 vec![path.to_string()],
                 format!(
-                    "containers/{dir}/ may hold only container.json and entries/<instanceId>.json                      (RFC-051 [R1])"
+                    "containers/{dir}/ may hold only container.json and entries/<instanceId>.json \
+                     (RFC-051 [R1])"
                 ),
             ),
-            _ if revision
-                >= crate::field_type_migration_service::RFC051_CONTAINER_ENTRIES_REVISION =>
+            _ if path.ends_with(".json")
+                && revision
+                    >= crate::field_type_migration_service::RFC051_CONTAINER_ENTRIES_REVISION =>
             {
                 self.error(
                     c::MIGRATION_NEEDED,

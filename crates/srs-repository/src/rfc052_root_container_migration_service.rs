@@ -724,7 +724,13 @@ pub fn transform_tree(
         return Ok(None);
     };
     let source_revision = revision(&manifest);
-    if source_revision >= crate::field_type_migration_service::CURRENT_DATA_MODEL_REVISION {
+    // RFC-051 [R13]: a current-revision document with a flat container file is converted too.
+    let flat = files.keys().any(|p| {
+        p.ends_with(".json")
+            && crate::container_store::place(p) == Some(crate::container_store::Place::Flat)
+    });
+    if source_revision >= crate::field_type_migration_service::CURRENT_DATA_MODEL_REVISION && !flat
+    {
         return Ok(None);
     }
     let store = crate::tree_session::open_tree(std::mem::take(files))?.with_rfc038_exemption();

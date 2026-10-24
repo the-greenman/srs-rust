@@ -292,6 +292,18 @@ pub fn save<S: RepositoryStore + ?Sized>(
     }
     .map_err(|v| storage_error(v.code, format!("container {id}: {}", v.message)))?;
 
+    // Every written entry names a file: a non-canonical id would escape the directory or
+    // brick the repository ([R2]). Refused before any write.
+    if let Some(e) = ws.write.iter().find(|e| !is_canonical_id(&e.instance_id)) {
+        return Err(storage_error(
+            codes::NAME_MISMATCH,
+            format!(
+                "member id '{}' must be a canonical lowercase UUID: it names an entry file \
+                 (RFC-051 [R2])",
+                e.instance_id
+            ),
+        ));
+    }
     let hp = head_path(id);
     let head = head_value(container)?;
     let current = match store.load_instance_json(&hp) {
@@ -396,6 +408,12 @@ pub fn copy_entries<S: RepositoryStore + ?Sized>(
             key: e.key,
         })
         .collect();
+    if !is_canonical_id(to) || copied.iter().any(|e| !is_canonical_id(&e.instance_id)) {
+        return Err(storage_error(
+            codes::NAME_MISMATCH,
+            format!("copy into {to}: every id must be a canonical lowercase UUID (RFC-051 [R2])"),
+        ));
+    }
     let keep: HashSet<&str> = copied.iter().map(|e| e.instance_id.as_str()).collect();
     for e in read_entries(store, to)? {
         if !keep.contains(e.instance_id.as_str()) {

@@ -459,6 +459,26 @@ fn storage_defects_are_fatal_with_their_codes_on_disk_and_in_srsj() {
     for (code, mutate) in cases {
         let mut doc: Value = serde_json::from_str(&srsj).unwrap();
         mutate(doc["data"].as_object_mut().unwrap());
+        if code == "container-migration-needed" {
+            // [R13]: the pre-load transformer converts a flat file in memory (and says so);
+            // on disk the same file is refused.
+            let opened = srs_repository::srsj::open_srsj(&doc.to_string()).unwrap();
+            assert!(opened.migration_notice().is_some());
+            assert!(opened.catalog().is_ok());
+            let disk = TempDir::new().unwrap();
+            let raw = srs_repository::srsj::open_srsj_for_migration(&doc.to_string()).unwrap();
+            for (path, bytes) in srs_repository::tree_session::export_tree(&raw).unwrap() {
+                let p = disk.path().join(path);
+                std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+                std::fs::write(p, bytes).unwrap();
+            }
+            let err = FileStore::new(disk.path())
+                .catalog()
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains(code), "disk {code}: {err}");
+            continue;
+        }
         let opened = srs_repository::srsj::open_srsj(&doc.to_string()).unwrap();
         let err = opened.catalog().unwrap_err().to_string();
         assert!(err.contains(code), "srsj {code}: {err}");
@@ -610,4 +630,29 @@ fn add_add_and_delete_modify_are_visible_conflicts() {
         !merge(d, "drop", "moved"),
         "delete against modify conflicts"
     );
+}
+
+/// Review finding 1: a member whose id cannot name a file (a hand-written record with a
+/// path-like or non-canonical id) is refused before any write, and the repository stays
+/// usable.
+#[test]
+fn a_member_id_that_cannot_name_a_file_is_refused_before_any_write() {
+    let (tmp, store) = repo();
+    container(&store, C);
+    let d = tmp.path();
+    for bad in ["../../../../escaped", "NOT-A-UUID"] {
+        write(
+            d,
+            &format!("records/notes/bad-{}.json", bad.len()),
+            &json!({"instanceId": bad, "title": "bad", "sections": [{"name": "b", "content": "x"}]})
+                .to_string(),
+        );
+        let store = FileStore::new(d);
+        let before = files(d, C);
+        let err = add_member(&store, C, bad, None, None).unwrap_err();
+        assert_eq!(err.code(), "container-name-mismatch", "{bad}: {err}");
+        assert_eq!(files(d, C), before);
+        assert!(!d.join("../escaped.json").exists());
+        assert!(store.catalog().is_ok(), "{bad}: the repository still loads");
+    }
 }

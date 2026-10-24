@@ -144,6 +144,19 @@ fn convert(
     }
     let ws = srs_core::container_write::write_set(&[], None, None, |_| Ok(entries.clone()))
         .map_err(|v| refuse(v.code, format!("{path}: {}", v.message)))?;
+    // The outline round trip, independent of the catalog ([R13]): the planned entries decode
+    // to the flat outline, absent depth equal to depth 0.
+    let norm = |v: &[ContainerEntry]| -> Vec<(String, u32)> {
+        v.iter()
+            .map(|e| (e.instance_id.clone(), e.depth()))
+            .collect()
+    };
+    if norm(&srs_core::container_decode::decode(&ws.write, None).entries) != norm(&entries) {
+        return Err(refuse(
+            "migration-gate-failed",
+            format!("{path}: the planned entries do not decode to the container's outline"),
+        ));
+    }
     let mut files = BTreeMap::new();
     let head = container_store::head_value(&container)?;
     files.insert(
@@ -228,10 +241,26 @@ fn plan(
                 format!("{other} and {path} both declare container {id}"),
             ));
         }
-        // A run cut short left files here: anything not planned goes.
+        // A run cut short leaves only planned files (identical bytes) and at most one
+        // truncated, unparseable file. Anything else in the directory is live data written
+        // after cutover, which a flat file must never overwrite: refuse.
         for p in dir_files(files, &id) {
-            if !out.contains_key(p) {
-                strays.push((p.clone(), None));
+            match out.get(p) {
+                Some(planned) if *planned == files[p] => {}
+                _ if serde_json::from_slice::<Value>(&files[p]).is_err() => {
+                    strays.push((p.clone(), None))
+                }
+                _ => {
+                    return Err(refuse(
+                        "migration-container-diverged",
+                        format!(
+                            "{path} is a flat copy of container {id}, but containers/{id}/ \
+                             already holds {p}, which differs from what the flat file converts \
+                             to; resolve which copy is current (keep the directory and delete \
+                             the flat file, or the reverse) and re-run"
+                        ),
+                    ))
+                }
             }
         }
         for (p, bytes) in out {
@@ -797,8 +826,8 @@ mod tests {
         .unwrap();
         std::fs::write(
             a.path()
-                .join(format!("containers/{PART}/entries/stray.json")),
-            "{}",
+                .join(format!("containers/{PART}/entries/{SEC_B}.json")),
+            "{\"containerId\":",
         )
         .unwrap();
         migrated(a.path());
@@ -821,6 +850,28 @@ mod tests {
         let r = migrated(b.path());
         assert_eq!(r.containers_converted, 1);
         assert_eq!(snapshot(b.path()), want);
+    }
+
+    /// Review finding 2: a flat file beside a live directory that differs from what the flat
+    /// file converts to (a member added after cutover) is refused, never overwritten.
+    #[test]
+    fn a_flat_file_beside_a_diverged_directory_is_refused() {
+        let tmp = tempfile::tempdir().unwrap();
+        rev10_repo(tmp.path());
+        let flat = std::fs::read(tmp.path().join("containers/part.json")).unwrap();
+        migrated(tmp.path());
+        let late = format!("containers/{PART}/entries/{IDENT}.json");
+        std::fs::write(
+            tmp.path().join(&late),
+            container_store::line(&json!({"containerId": PART, "instanceId": IDENT, "key": "a1"})),
+        )
+        .unwrap();
+        std::fs::write(tmp.path().join("containers/part.json"), flat).unwrap();
+        let before = snapshot(tmp.path());
+        let store = FileStore::new(tmp.path()).with_rfc038_exemption();
+        let err = migrate_rfc051_container_entries(&store).unwrap_err();
+        assert_eq!(err.code(), "migration-container-diverged", "{err}");
+        assert_eq!(snapshot(tmp.path()), before, "nothing written");
     }
 
     /// The pre-load transformer brings a revision-10 `.srsj` to the registry entry's outcome.
