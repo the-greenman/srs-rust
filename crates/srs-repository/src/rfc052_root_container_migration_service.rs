@@ -13,10 +13,11 @@
 //!
 //! A manifest below revision 10 that already names its root by `rootContainerId`, with the
 //! root stored in `containers/` (a half-migrated manifest: a legacy snapshot import writes
-//! that shape), is only re-stamped, after checking that the root file exists, is the only
-//! root and validates (owner ruling A2, srs#963). One with neither `container` nor
-//! `rootContainerId` cannot satisfy [R1] at revision 10 and is refused
-//! (`migration-root-missing`) rather than written into a corpus no command can open.
+//! that shape), is only re-stamped, after checking that exactly one container declares the
+//! root (`manifest-root-container-missing`, `migration-root-duplicate`) and that it passes
+//! container validation (refused with that validation's own errors). One with neither
+//! `container` nor `rootContainerId` is refused (`migration-root-missing`), and one with
+//! both declares its root twice (`migration-root-duplicate`), RFC-052 Revision 6.
 //!
 //! ## Why it reads the raw tree
 //!
@@ -83,6 +84,24 @@ fn refuse(code: &'static str, msg: impl std::fmt::Display) -> RepositoryError {
     }
 }
 
+/// Container validation of a root already stored in the container set (Change C, restamp
+/// path): the schema and the container rules, refused with that validation's own errors.
+fn validate_stored_root(path: &str, root: &Value) -> Result<(), RepositoryError> {
+    srs_schema::SchemaRegistry::global()
+        .validate_by_id(srs_schema::CONTAINER_SCHEMA_ID, root)
+        .map_err(|e| RepositoryError::SchemaValidation {
+            path: std::path::PathBuf::from(path),
+            message: e.to_string(),
+        })?;
+    let container: srs_core::types::container::Container = serde_json::from_value(root.clone())
+        .map_err(|e| RepositoryError::SchemaValidation {
+            path: std::path::PathBuf::from(path),
+            message: e.to_string(),
+        })?;
+    srs_core::validation::container::validate_container(&container)
+        .map_err(|source| RepositoryError::ContainerValidation { source })
+}
+
 fn revision(manifest: &Value) -> u64 {
     manifest
         .get(DATA_MODEL_REVISION_KEY)
@@ -130,6 +149,14 @@ fn plan(manifest_raw: &Value, containers: &[(String, Value)]) -> Result<Plan, Re
     let obj = manifest
         .as_object_mut()
         .ok_or_else(|| refuse("migration-root-missing", "manifest.json is not an object"))?;
+    // Change C: how the manifest declares its root is checked first.
+    if obj.contains_key("container") && obj.contains_key("rootContainerId") {
+        return Err(refuse(
+            "migration-root-duplicate",
+            "manifest.json declares its root twice: it carries both the inline `container` and \
+             `rootContainerId` (RFC-052 [R7])",
+        ));
+    }
     let inline = obj.shift_remove("container");
     let (root_id, root) = match inline {
         Some(container) => {
@@ -144,16 +171,6 @@ fn plan(manifest_raw: &Value, containers: &[(String, Value)]) -> Result<Plan, Re
                     )
                 })?
                 .to_string();
-            // Never re-point a root the manifest already names (a stray embed beside it).
-            if let Some(named) = obj.get("rootContainerId").and_then(Value::as_str) {
-                return Err(refuse(
-                    "manifest-root-container-inline",
-                    format!(
-                        "manifest.json names its root container ({named}) and also embeds a \
-                         container ({id}); remove the stray inline `container` (RFC-052 [R1])"
-                    ),
-                ));
-            }
             let path = crate::store::root_container_path(&id);
             // An earlier run that stopped after writing the root left this exact file: resume.
             let resumed = containers
@@ -176,9 +193,9 @@ fn plan(manifest_raw: &Value, containers: &[(String, Value)]) -> Result<Plan, Re
             }
             (id, Some((path, container)))
         }
-        // A half-migrated manifest (owner ruling A2, srs#963): the root is already named and
-        // stored, so it is only restamped, once the root file exists and is the only root
-        // (here) and validates (the gate).
+        // A half-migrated manifest (Change C, Revision 6): the root is already named and
+        // stored, so it is only restamped, once exactly one container declares it and that
+        // container validates; Change C's gate then runs as for an inline root.
         None => {
             let id = obj
                 .get("rootContainerId")
@@ -193,12 +210,11 @@ fn plan(manifest_raw: &Value, containers: &[(String, Value)]) -> Result<Plan, Re
                     )
                 })?
                 .to_string();
-            let files: Vec<&str> = containers
+            let roots: Vec<&(String, Value)> = containers
                 .iter()
                 .filter(|(_, c)| c.get("containerId").and_then(Value::as_str) == Some(&id))
-                .map(|(p, _)| p.as_str())
                 .collect();
-            match files.as_slice() {
+            match roots.as_slice() {
                 [] => {
                     return Err(refuse(
                         "manifest-root-container-missing",
@@ -208,13 +224,16 @@ fn plan(manifest_raw: &Value, containers: &[(String, Value)]) -> Result<Plan, Re
                         ),
                     ))
                 }
-                [_] => {}
+                [(path, root)] => validate_stored_root(path, root)?,
                 many => {
                     return Err(refuse(
                         "migration-root-duplicate",
                         format!(
                             "{} declare the root container's id {id} (RFC-052 [R5])",
-                            many.join(", ")
+                            many.iter()
+                                .map(|(p, _)| p.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ")
                         ),
                     ))
                 }
@@ -451,29 +470,6 @@ fn gate(
     // Exempt like `before`: the structural `rfc038-storage` entry runs after this one in the
     // registry, so a corpus mid-ladder may still carry retired manifest properties.
     let after = crate::tree_session::open_tree(after_files)?.with_rfc038_exemption();
-
-    // A root that was already stored is restamped only when it validates (owner ruling A2,
-    // srs#963): the revision-10 reading must load it and navigate from it.
-    if inline_root.is_none() {
-        let nav = after
-            .load_container(root_id)
-            .and_then(|_| crate::repository_navigation_service::repository_navigation(&after))
-            .map_err(|e| {
-                refuse(
-                    "migration-gate-failed",
-                    format!("the stored root container {root_id} does not validate: {e}"),
-                )
-            })?;
-        if nav.root_container_id != root_id {
-            return Err(refuse(
-                "migration-gate-failed",
-                format!(
-                    "navigation reads root {} instead of {root_id}",
-                    nav.root_container_id
-                ),
-            ));
-        }
-    }
 
     // A corpus that is already unloadable (a fatal catalog diagnostic unrelated to the root)
     // renders nothing either side: the migration must leave it failing the same way.
@@ -970,25 +966,113 @@ mod tests {
         );
     }
 
+    /// Review N1 on srs-rust#1453: the fixture helpers write a half-migrated manifest at
+    /// revision 7 or 8 too. The whole chain takes it to revision 10, the RFC-043 step
+    /// rewriting a revision-7 shaped root where it sits in the container set.
+    #[test]
+    fn a_half_migrated_manifest_at_revision_7_or_8_climbs_the_whole_chain() {
+        for (rev, legacy_root) in [(8, false), (7, false), (7, true)] {
+            let tmp = tempfile::tempdir().unwrap();
+            half_migrated(tmp.path());
+            let mut m = read(tmp.path(), "manifest.json");
+            m[DATA_MODEL_REVISION_KEY] = json!(rev);
+            w(tmp.path(), "manifest.json", &m);
+            if legacy_root {
+                w(
+                    tmp.path(),
+                    &format!("containers/{ROOT}.json"),
+                    &json!({"containerId": ROOT, "title": "Root", "identityInstanceId": IDENT,
+                        "rootInstanceIds": [IDENT, SEC_B, SEC_A],
+                        "memberInstanceIds": [IDENT, SEC_B, SEC_A]}),
+                );
+            }
+            let applied = ladder_fixture(tmp.path()).unwrap();
+            assert_eq!(
+                applied.last(),
+                Some(&MIGRATION_ID),
+                "rev {rev}: {applied:?}"
+            );
+            let store = FileStore::new(tmp.path());
+            assert_eq!(
+                store.load_manifest().unwrap().root_container_id(),
+                Some(ROOT)
+            );
+            let nav = crate::repository_navigation_service::repository_navigation(&store).unwrap();
+            let sections: Vec<&str> = nav
+                .sections
+                .iter()
+                .map(|s| s.instance_id.as_str())
+                .collect();
+            // Entry order is kept; a revision-7 shaped root is ordered by Rule [N+12], as
+            // every revision-7 container is (no `precedes` chain here: the fallback order).
+            let want = if legacy_root {
+                [SEC_A, SEC_B]
+            } else {
+                [SEC_B, SEC_A]
+            };
+            assert_eq!(sections, want, "rev {rev} legacy {legacy_root}");
+            assert_eq!(
+                nav.identity.as_ref().map(|n| n.instance_id.as_str()),
+                Some(IDENT)
+            );
+            store.catalog().unwrap();
+        }
+    }
+
     #[test]
     fn a_half_migrated_manifest_whose_root_does_not_validate_is_refused() {
+        // Change C (Revision 6): refused with the container validation's own errors.
         let tmp = tempfile::tempdir().unwrap();
         half_migrated(tmp.path());
-        // A member that resolves to nothing: fatal to the revision-10 catalog.
         w(
             tmp.path(),
             &format!("containers/{ROOT}.json"),
-            &json!({"containerId": ROOT, "title": "Root",
-                "memberInstanceIds": [{"instanceId": "99999999-0000-4000-8000-000000000099"}]}),
+            &json!({"containerId": ROOT, "title": "Root", "bogusProperty": 1,
+                "memberInstanceIds": [{"instanceId": IDENT}]}),
         );
-        let before = std::fs::read(tmp.path().join("manifest.json")).unwrap();
+        let before = snapshot(tmp.path());
         let store = FileStore::new(tmp.path()).with_rfc038_exemption();
         let err = migrate_rfc052_root_container(&store).unwrap_err();
-        assert_eq!(err.code(), "migration-gate-failed", "{err}");
-        assert_eq!(
-            std::fs::read(tmp.path().join("manifest.json")).unwrap(),
-            before
+        assert_eq!(err.code(), "schema-validation", "{err}");
+        assert_eq!(snapshot(tmp.path()), before);
+    }
+
+    #[test]
+    fn a_half_migrated_manifest_with_an_unrelated_fatal_defect_is_restamped_as_it_fails() {
+        // Review B2 on srs-rust#1458: a defect elsewhere never blocks the restamp; the gate
+        // leaves the corpus failing the same way, as for an inline root.
+        let tmp = tempfile::tempdir().unwrap();
+        half_migrated(tmp.path());
+        let mut bad = note(SEC_A);
+        bad["bogusProperty"] = json!(1);
+        w(
+            tmp.path(),
+            &format!("records/notes/note-{SEC_A}.json"),
+            &bad,
         );
+        let store = FileStore::new(tmp.path()).with_rfc038_exemption();
+        let r = migrate_rfc052_root_container(&store).unwrap();
+        assert!(r.gate_skipped.is_some(), "{r:?}");
+        assert_eq!(
+            read(tmp.path(), "manifest.json")[DATA_MODEL_REVISION_KEY],
+            10
+        );
+    }
+
+    /// Revision 6: a manifest carrying both `container` and `rootContainerId` declares its
+    /// root twice.
+    #[test]
+    fn a_manifest_declaring_its_root_twice_is_refused() {
+        let tmp = tempfile::tempdir().unwrap();
+        half_migrated(tmp.path());
+        let mut m = read(tmp.path(), "manifest.json");
+        m["container"] = read(tmp.path(), &format!("containers/{ROOT}.json"));
+        w(tmp.path(), "manifest.json", &m);
+        let before = snapshot(tmp.path());
+        let store = FileStore::new(tmp.path()).with_rfc038_exemption();
+        let err = migrate_rfc052_root_container(&store).unwrap_err();
+        assert_eq!(err.code(), "migration-root-duplicate", "{err}");
+        assert_eq!(snapshot(tmp.path()), before);
     }
 
     /// [R7]: the revision-10 reader refuses the embedded form naming RFC-052 and the
@@ -1089,8 +1173,8 @@ mod tests {
         assert_eq!(err.code(), "manifest-root-container-inline");
     }
 
-    /// Review B3: below revision 10, a manifest that names its root and also embeds one is
-    /// refused rather than re-pointed.
+    /// Review B3, Revision 6: below revision 10, a manifest that names its root and also
+    /// embeds one declares its root twice and is refused rather than re-pointed.
     #[test]
     fn a_named_root_beside_an_embed_is_refused_below_revision_10() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1101,7 +1185,7 @@ mod tests {
         let before = snapshot(tmp.path());
         let store = FileStore::new(tmp.path()).with_rfc038_exemption();
         let err = migrate_rfc052_root_container(&store).unwrap_err();
-        assert_eq!(err.code(), "manifest-root-container-inline", "{err}");
+        assert_eq!(err.code(), "migration-root-duplicate", "{err}");
         assert_eq!(snapshot(tmp.path()), before);
     }
 

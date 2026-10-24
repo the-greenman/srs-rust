@@ -909,7 +909,8 @@ EOF
 
 # Override identityInstanceId to a Tier-0 note — simulates the legacy case that triggers I-81
 $SRS_BIN container members add --repo "$SCRATCH" "$CONTAINER_ID" "$NOTE_ID" --pretty
-$SRS_BIN repo set-root-container --repo "$SCRATCH" --container-id "$CONTAINER_ID" --identity-instance-id "$NOTE_ID" --pretty
+echo "{\"identityInstanceId\":\"$NOTE_ID\"}" | $SRS_BIN container update "$CONTAINER_ID" --repo "$SCRATCH"
+$SRS_BIN repo set-root-container --repo "$SCRATCH" --container-id "$CONTAINER_ID" --pretty
 $SRS_BIN repo validate --repo "$SCRATCH" --pretty
 $SRS_BIN repo navigation --repo "$SCRATCH" --pretty
 ```
@@ -965,11 +966,10 @@ CONTAINER_ID=$($SRS_BIN container create --repo "$SCRATCH" <<'EOF' | python3 -c 
 EOF
 )
 
-# Identity must be in the container's member list before set-root-container
+# Identity must be in the container's member list before it is named the identity
 $SRS_BIN container members add --repo "$SCRATCH" "$CONTAINER_ID" "$NOTE_ID"
-$SRS_BIN repo set-root-container --repo "$SCRATCH" \
-  --container-id "$CONTAINER_ID" \
-  --identity-instance-id "$NOTE_ID" --pretty
+echo "{\"identityInstanceId\":\"$NOTE_ID\"}" | $SRS_BIN container update "$CONTAINER_ID" --repo "$SCRATCH"
+$SRS_BIN repo set-root-container --repo "$SCRATCH" --container-id "$CONTAINER_ID" --pretty
 
 # Before migration: validate warns about Tier-0 identity (ok: true, warnings: 1)
 $SRS_BIN repo validate --repo "$SCRATCH" --pretty

@@ -2434,7 +2434,7 @@ mod tests {
 
         // session round trip: export_srsj -> load
         let srsj = srs_repository::srsj::to_srsj_string(&store).unwrap();
-        let again = open_fixture(&srsj).unwrap();
+        let again = srs_repository::srsj::open_srsj(&srsj).unwrap();
         let r2 = srs_repository::validation::validate_repository(&again).unwrap();
         assert_eq!(r2.summary.errors, 0);
         assert_eq!(
