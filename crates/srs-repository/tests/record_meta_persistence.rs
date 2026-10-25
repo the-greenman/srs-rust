@@ -146,3 +146,54 @@ fn file_store_update_record_persists_meta_round_trip() {
         "meta must survive an update_record round trip through actual JSON-on-disk storage"
     );
 }
+
+/// srs-rust#1478 (rfc-decision-2e0cd70a): `record fork` carries the original's
+/// `meta` and tags, proved through an actual `FileStore` round trip.
+#[test]
+fn file_store_fork_carries_meta_and_tags_round_trip() {
+    let tmp = TempDir::new().unwrap();
+    let store = FileStore::new(tmp.path());
+    create_repository(&store, &init_input()).unwrap();
+    package_service::create_field(&store, name_field()).unwrap();
+    package_service::create_type(&store, test_type()).unwrap();
+
+    let mut fv = FieldValues::new();
+    fv.insert("test-name", serde_json::json!("Original"));
+    let record =
+        record_store::create_record(&store, "1041type-test-0001", 1, fv.clone(), None, None)
+            .expect("create");
+    let id = record.instance_id.clone();
+
+    let mut extra = BTreeMap::new();
+    extra.insert(
+        "meta".to_string(),
+        serde_json::json!({"x.example": {"keep": 1}}),
+    );
+    record_store::update_record(
+        &store,
+        &id,
+        UpdateRecordInput {
+            field_values: fv,
+            field_meta: None,
+            tags: Some(vec!["alpha".to_string()]),
+            type_version: None,
+            extra,
+        },
+    )
+    .expect("update");
+
+    let (pairs, _) = srs_repository::fork_service::fork_records(&store, std::slice::from_ref(&id))
+        .expect("fork");
+    let fork_id = pairs[0].fork_id.clone();
+
+    drop(store);
+    let reopened = FileStore::new(tmp.path());
+    let fork = record_store::get_record_by_id(&reopened, &fork_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        fork.extra.get("meta"),
+        Some(&serde_json::json!({"x.example": {"keep": 1}}))
+    );
+    assert_eq!(fork.tags, Some(vec!["alpha".to_string()]));
+}
