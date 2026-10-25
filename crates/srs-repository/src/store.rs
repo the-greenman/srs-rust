@@ -291,6 +291,12 @@ pub trait RepositoryStore {
     /// requests never do). A no-op for stores that cannot carry a session actor.
     fn set_session_actor(&self, _actor: Option<serde_json::Value>) {}
 
+    /// In-memory session attention (srs-rust#1344), shared by every clone of the store;
+    /// `None` for stores that hold no session state. See [`crate::attention_service`].
+    fn attention_board(&self) -> Option<crate::attention_service::AttentionBoard> {
+        None
+    }
+
     /// What the pre-load transformer migrated in memory when this store was opened
     /// (srs-rust#1444), `None` when it opened as stored. While it is set, every write is
     /// refused with `migration-required-before-write`, so a document is never saved at
@@ -1072,6 +1078,8 @@ pub struct FileStore {
     /// RFC-046 session actor (raw, unvalidated JSON) — see
     /// [`RepositoryStore::session_actor`].
     session_actor: RefCell<Option<serde_json::Value>>,
+    /// Session attention (srs-rust#1344): shared by every clone like `epoch`, never persisted.
+    attention: crate::attention_service::AttentionBoard,
     /// Write recorder (ADR-049): shared by every clone like `epoch`; drained by
     /// [`RepositoryStore::drain_changes`]. Coalesced per `(target, id)`, so it is
     /// bounded by the number of distinct entities written.
@@ -1102,6 +1110,7 @@ impl Clone for FileStore {
             epoch: self.epoch.clone(),
             cache_epoch: Cell::new(self.epoch.get()),
             session_actor: RefCell::new(self.session_actor.borrow().clone()),
+            attention: self.attention.clone(),
             changes: self.changes.clone(),
             recording: self.recording.clone(),
             migration_notice: self.migration_notice.clone(),
@@ -1124,6 +1133,7 @@ impl FileStore {
             epoch: Rc::new(Cell::new(0)),
             cache_epoch: Cell::new(0),
             session_actor: RefCell::new(None),
+            attention: Default::default(),
             changes: Rc::default(),
             recording: Rc::default(),
             migration_notice: Rc::default(),
@@ -1144,6 +1154,7 @@ impl FileStore {
             epoch: Rc::new(Cell::new(0)),
             cache_epoch: Cell::new(0),
             session_actor: RefCell::new(None),
+            attention: Default::default(),
             changes: Rc::default(),
             recording: Rc::default(),
             migration_notice: Rc::default(),
@@ -1704,6 +1715,10 @@ impl RepositoryStore for FileStore {
 
     fn set_session_actor(&self, actor: Option<serde_json::Value>) {
         *self.session_actor.borrow_mut() = actor;
+    }
+
+    fn attention_board(&self) -> Option<crate::attention_service::AttentionBoard> {
+        Some(self.attention.clone())
     }
 
     fn migration_notice(&self) -> Option<MigrationNotice> {

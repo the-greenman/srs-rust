@@ -4,6 +4,7 @@ pub mod analysis;
 pub mod archive;
 pub mod attachment_policy_service;
 pub mod attachment_service;
+pub mod attention_service;
 pub mod blueprint_brief_service;
 pub mod blueprint_schema_service;
 pub mod blueprint_service;
