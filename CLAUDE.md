@@ -177,3 +177,7 @@ Every branch must trace to a GitHub issue, and every PR must link its issue. Thi
 - **Merged branches auto-delete** — the repo has `deleteBranchOnMerge` enabled; a branch is removed automatically once its PR merges. Don't recreate deleted merged branches.
 - **Abandoning work** — if a PR is closed **without merging** and the work is still wanted, reopen/flag the linked issue with a pointer to the branch **before** walking away. Otherwise the issue looks done while the fix lives only on a dead branch.
 - **Automated safety net** — the weekly **SRS Branch Auditor** cloud routine reports merged-but-undeleted branches and reopens any issue whose fix survives only on an unmerged branch.
+
+## Narrative explorations
+
+When the owner explains the work, or starts describing a problem or a remedy, capture their words verbatim as a Tier-0 vignette in their conversation's container (srs-programme, Narrative explorations `80b283ef`) before acting, unprompted, and derive records from it as suggestions with `derived-from`. The practice is the clerk handbook chapter *Narrative explorations: how meaning grows* (decision 77e04b19); the brief injected by srs-context carries the rule.
