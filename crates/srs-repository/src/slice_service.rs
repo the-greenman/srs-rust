@@ -215,8 +215,13 @@ pub fn export_container_slice(
             continue;
         };
         // RFC-052: the root container is a file in the container set like any other.
+        // RFC-051: a stored directory reads as its logical Container (head + decoded entries).
         let path = carrying_file(store, loc)?;
-        let v = parse(&tree, &path)?;
+        let v = if crate::container_store::is_head(&path) {
+            crate::container_store::logical_value(store, &path)?
+        } else {
+            parse(&tree, &path)?
+        };
         containers.push((e.id.clone(), path, v));
     }
     let entries_of = |v: &Value| -> Vec<ContainerEntry> {
@@ -344,6 +349,38 @@ pub fn export_container_slice(
     // entries naming no instance were dropped above. -------------------------
     for (id, path, _) in &containers {
         if !closure.contains(id) {
+            continue;
+        }
+        if crate::container_store::is_head(path) {
+            // RFC-051 [R12]: slices write stored directories, every file of each one carried.
+            let dir = format!("containers/{id}/");
+            for (p, bytes) in tree
+                .range(dir.clone()..)
+                .take_while(|(p, _)| p.starts_with(&dir))
+            {
+                out.insert(p.clone(), bytes.clone());
+            }
+            if *id == input.container_id && !dropped.is_empty() {
+                // The promoting removal, as repair writes it ([R11]).
+                let stored = crate::container_store::read_entries(store, id)?;
+                let ws =
+                    srs_core::container_write::repair(&stored, None, |i| instances.contains_key(i))
+                        .map_err(|v| RepositoryError::ContainerStorage {
+                            code: v.code,
+                            message: v.message,
+                        })?;
+                for i in &ws.remove {
+                    out.remove(&crate::container_store::entry_path(id, i));
+                }
+                for e in &ws.write {
+                    let line =
+                        crate::container_store::line(&crate::container_store::entry_value(id, e));
+                    out.insert(
+                        crate::container_store::entry_path(id, &e.instance_id),
+                        line.into_bytes(),
+                    );
+                }
+            }
             continue;
         }
         let bytes = if *id == input.container_id && !dropped.is_empty() {

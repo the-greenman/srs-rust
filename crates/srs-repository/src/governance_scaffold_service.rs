@@ -459,7 +459,12 @@ mod tests {
         .expect("governance-seed.srsj must be present in crates/srs-repository/tests/fixtures/");
         let migrated =
             crate::srsj_migration_service::migrate_rfc014(&raw).expect("RFC-014 migration");
-        crate::srsj::open_srsj(&migrated).expect("seed parses as FileStore")
+        // The vendored seed is published at an older revision: a fixture reaches the
+        // current one through the registry ladder, never by a write to an in-memory migration.
+        let laddered =
+            crate::rfc052_root_container_migration_service::ladder_srsj_fixture(&migrated)
+                .expect("seed climbs the ladder");
+        crate::srsj::open_srsj(&laddered).expect("seed parses as FileStore")
     }
 
     #[test]

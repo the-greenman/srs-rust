@@ -117,6 +117,7 @@ fn rekey(
     }
     let mut keys: Vec<Option<String>> = vec![None; next.len()];
     for sibs in groups.values() {
+        keep_in_order(&next, sibs, &mut written);
         key_group(&next, sibs, &mut written, &mut keys)?;
     }
     for (e, k) in next.iter_mut().zip(keys) {
@@ -131,6 +132,39 @@ fn rekey(
         .map(|(e, _)| e.instance_id.clone())
         .collect();
     Ok((next, ids))
+}
+
+/// A sibling list whose kept entries are out of stored order (a whole-outline replace, which
+/// names no moved entry) keeps the longest run already in `(key, instanceId)` order and
+/// writes the rest, so the result still decodes to the target. For a Change D operation,
+/// whose kept entries are already in order, it writes nothing more.
+fn keep_in_order(next: &[StoredEntry], sibs: &[usize], written: &mut [bool]) {
+    let kept: Vec<usize> = sibs.iter().copied().filter(|&i| !written[i]).collect();
+    let rank = |i: usize| (next[i].key.as_bytes(), next[i].instance_id.as_bytes());
+    // Longest strictly increasing subsequence (patience sorting): `tails[k]` is the
+    // position in `kept` ending the best run of length k + 1.
+    let mut tails: Vec<usize> = Vec::new();
+    let mut prev: Vec<Option<usize>> = vec![None; kept.len()];
+    for p in 0..kept.len() {
+        let k = tails.partition_point(|&t| rank(kept[t]) < rank(kept[p]));
+        prev[p] = k.checked_sub(1).map(|k| tails[k]);
+        if k == tails.len() {
+            tails.push(p);
+        } else {
+            tails[k] = p;
+        }
+    }
+    let mut in_run = vec![false; kept.len()];
+    let mut cur = tails.last().copied();
+    while let Some(p) = cur {
+        in_run[p] = true;
+        cur = prev[p];
+    }
+    for (p, &i) in kept.iter().enumerate() {
+        if !in_run[p] {
+            written[i] = true;
+        }
+    }
 }
 
 /// [R9] over one sibling list: each run of written siblings is keyed in turn between its
@@ -271,6 +305,26 @@ mod tests {
             assert!(ws.remove.is_empty());
             stored = apply(&stored, &ws);
         }
+    }
+
+    /// A whole-outline replace names no moved entry: the longest run already in key order
+    /// keeps its keys, the rest are written, and the result decodes to the target.
+    #[test]
+    fn a_whole_replace_writes_only_the_entries_out_of_order() {
+        let s: Vec<StoredEntry> = ["a", "b", "c", "d"]
+            .iter()
+            .zip(["a0", "a1", "a2", "a3"])
+            .map(|(i, k)| e(i, None, k))
+            .collect();
+        let target: Vec<ContainerEntry> = ["d", "a", "b", "c"]
+            .iter()
+            .map(|i| ContainerEntry::new(*i))
+            .collect();
+        let ws = run(&s, None, |_| Ok(target.clone()));
+        assert_eq!(w(&ws), x(&[("d", None, "Zz")]));
+        let rev: Vec<ContainerEntry> = target.iter().rev().cloned().collect();
+        let ws = run(&s, None, |_| Ok(rev));
+        assert_eq!(ws.write.len(), 2, "{ws:?}");
     }
 
     #[test]

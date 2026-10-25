@@ -185,6 +185,7 @@ fn mutate_payload(
         members: r.members,
         promoted: r.promoted,
         removed: r.removed,
+        reattached: r.reattached,
     }
 }
 

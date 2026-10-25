@@ -314,8 +314,9 @@ fn repo_navigation_resolves_section_members_of_every_remaining_tier() {
     let root = manifest["rootContainerId"].as_str().unwrap();
     // `repo create` scaffolds the Tier-2 purpose record as the identity; every
     // other member is a section. RFC-052: the root lives in the container set.
+    // RFC-051: its head is `containers/<id>/container.json`.
     let root_container: Value = serde_json::from_slice(
-        &std::fs::read(repo.join(format!("containers/{root}.json"))).unwrap(),
+        &std::fs::read(repo.join(format!("containers/{root}/container.json"))).unwrap(),
     )
     .unwrap();
     let identity = root_container["identityInstanceId"]
@@ -5530,16 +5531,8 @@ fn container_scope_relation_list_filters_to_internal() {
         )
         .unwrap();
     }
-    // Containers are discovered from containers/ ([R5]) — no containerIndex.
-    let manifest = serde_json::json!({
-        "dataModelRevision": 2
-    });
-    write_manifest_fixture(
-        temp.path(),
-        serde_json::to_string_pretty(&manifest).unwrap(),
-    )
-    .unwrap();
-
+    // Containers are discovered from containers/ ([R5]) — no containerIndex; the repository
+    // `create_container_for_scope` laddered is kept as it is.
     run_srs_in_dir(temp.path(), &["container", "members", "add", cid, n1]);
     run_srs_in_dir(temp.path(), &["container", "members", "add", cid, n2]);
 
@@ -8316,7 +8309,11 @@ fn repo_migrations_lists_the_registered_migrations() {
     let migrations = result["payload"]["migrations"]
         .as_array()
         .expect("migrations must be an array");
-    assert_eq!(migrations.len(), 16, "expected exactly sixteen migrations");
+    assert_eq!(
+        migrations.len(),
+        17,
+        "expected exactly seventeen migrations"
+    );
 
     let ids: Vec<&str> = migrations
         .iter()
@@ -8337,6 +8334,7 @@ fn repo_migrations_lists_the_registered_migrations() {
             "rfc043-container-entries",
             "rfc046-actor-provenance",
             "rfc052-root-container",
+            "rfc051-container-entries",
             "migrate-identity",
             "repo-upgrade",
             "core-relation-type-reference-cleanup",
@@ -8548,17 +8546,20 @@ fn repo_apply_migration_field_type_rewrites_a_legacy_field_end_to_end() {
         std::fs::remove_file(entry.unwrap().path()).unwrap();
     }
     manifest["instanceIndex"] = serde_json::json!([]);
-    // The scaffolded container files in containers/ (the root included, RFC-052)
-    // carry the purpose record's refs.
+    // The scaffolded containers (the root included, RFC-052) carry the purpose record's
+    // refs. This legacy fixture stores them as the flat files a pre-revision-11 corpus holds
+    // (RFC-051): each head, without the refs and members, at containers/<id>.json.
     if let Ok(entries) = std::fs::read_dir(repo.join("containers")) {
         for entry in entries {
-            let path = entry.unwrap().path();
+            let dir = entry.unwrap().path();
             let mut c: serde_json::Value =
-                serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+                serde_json::from_str(&std::fs::read_to_string(dir.join("container.json")).unwrap())
+                    .unwrap();
             let obj = c.as_object_mut().unwrap();
             obj.remove("identityInstanceId");
             obj.remove("memberInstanceIds");
-            write_json(&path, c);
+            std::fs::remove_dir_all(&dir).unwrap();
+            write_json(&dir.with_extension("json"), c);
         }
     }
     write_json(&manifest_path, manifest);
@@ -8669,6 +8670,16 @@ fn repo_apply_migration_field_type_rewrites_a_legacy_field_end_to_end() {
         &["repo", "apply-migration", "--id", "rfc052-root-container"],
     );
     assert_eq!(rfc052["ok"], true, "expected ok: {rfc052:?}");
+    let rfc051 = run_srs_in_dir(
+        repo,
+        &[
+            "repo",
+            "apply-migration",
+            "--id",
+            "rfc051-container-entries",
+        ],
+    );
+    assert_eq!(rfc051["ok"], true, "expected ok: {rfc051:?}");
     let storage = run_srs_in_dir(repo, &["repo", "apply-migration", "--id", "rfc038-storage"]);
     assert_eq!(storage["ok"], true, "expected ok: {storage:?}");
     let after = run_srs_in_dir(repo, &["repo", "validate"]);

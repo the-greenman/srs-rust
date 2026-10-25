@@ -26,6 +26,9 @@ pub const RELATIONS_COLLECTION_SCHEMA_ID: &str =
     "https://srs.semanticops.com/schema/2.0/relations-collection.json";
 // REVISIONS_SCHEMA_ID removed: rfc-decision-2a1e1590 retired the Revision
 // sidecar mechanism from the spec; srs-rust#866 clean-cut the mirror.
+/// RFC-051 [R1]: one entry file of a stored Container (`containers/<id>/entries/<iid>.json`).
+pub const STORED_CONTAINER_ENTRY_SCHEMA_ID: &str =
+    "https://srs.semanticops.com/schema/2.0/stored-container-entry.json";
 pub const SOURCE_DOCUMENT_META_SCHEMA_ID: &str =
     "https://srs.semanticops.com/schema/2.0/source-document-meta.json";
 /// RFC-038/RFC-039's owed `{srsj, manifest, data}` archive envelope shape
@@ -74,6 +77,7 @@ pub const ALL_SCHEMA_IDS: &[&str] = &[
     RELATIONS_COLLECTION_SCHEMA_ID,
     SOURCE_DOCUMENT_META_SCHEMA_ID,
     SRSJ_ENVELOPE_SCHEMA_ID,
+    STORED_CONTAINER_ENTRY_SCHEMA_ID,
     TERM_SCHEMA_ID,
     VOCABULARY_SCHEMA_ID,
     LIFECYCLE_SCHEMA_ID,
@@ -81,6 +85,14 @@ pub const ALL_SCHEMA_IDS: &[&str] = &[
     TYPE_SCHEMA_ID,
     VIEW_SCHEMA_ID,
 ];
+
+/// RFC-051 (dataModelRevision 11): the staged schemas, compiled ahead of their promotion
+/// into `schemas/2.0/` (srs#949). See `schemas/staged/rfc-051/README.md`.
+macro_rules! include_staged_schema {
+    ($filename:literal) => {
+        include_str!(concat!("../schemas/staged/rfc-051/", $filename))
+    };
+}
 
 macro_rules! include_schema {
     ($filename:literal) => {
@@ -90,14 +102,17 @@ macro_rules! include_schema {
 
 static SCHEMA_SOURCES: &[(&str, &str)] = &[
     (BLUEPRINT_SCHEMA_ID, include_schema!("blueprint.json")),
-    (CONTAINER_SCHEMA_ID, include_schema!("container.json")),
+    (
+        CONTAINER_SCHEMA_ID,
+        include_staged_schema!("container.json"),
+    ),
     (COMPOSITION_SCHEMA_ID, include_schema!("composition.json")),
     (
         DOCUMENT_VIEW_OUTPUT_SCHEMA_ID,
         include_schema!("document-view-output.json"),
     ),
     (FIELD_SCHEMA_ID, include_schema!("field.json")),
-    (MANIFEST_SCHEMA_ID, include_schema!("manifest.json")),
+    (MANIFEST_SCHEMA_ID, include_staged_schema!("manifest.json")),
     (NOTE_SCHEMA_ID, include_schema!("note.json")),
     (
         PACKAGE_BUNDLE_SCHEMA_ID,
@@ -124,7 +139,11 @@ static SCHEMA_SOURCES: &[(&str, &str)] = &[
     ),
     (
         SRSJ_ENVELOPE_SCHEMA_ID,
-        include_schema!("srsj-envelope.json"),
+        include_staged_schema!("srsj-envelope.json"),
+    ),
+    (
+        STORED_CONTAINER_ENTRY_SCHEMA_ID,
+        include_staged_schema!("stored-container-entry.json"),
     ),
     (TERM_SCHEMA_ID, include_schema!("term.json")),
     (VOCABULARY_SCHEMA_ID, include_schema!("vocabulary.json")),
@@ -269,8 +288,9 @@ mod tests {
         // 22: typed-record.json removed (Tier-1 retirement, srs#448/srs-rust#888),
         // federation-{events,registry}.json removed (srs-rust#878/#912), and
         // revisions.json removed (rfc-decision-2a1e1590, srs-rust#866);
-        // srsj-envelope.json added (srs#534/#546, srs-rust#937).
-        assert_eq!(reg.schema_ids().len(), 22);
+        // srsj-envelope.json added (srs#534/#546, srs-rust#937);
+        // stored-container-entry.json added (RFC-051, staged).
+        assert_eq!(reg.schema_ids().len(), 23);
         for id in ALL_SCHEMA_IDS {
             assert!(reg.schema_ids().contains(id), "missing: {id}");
         }

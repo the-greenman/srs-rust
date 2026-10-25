@@ -111,7 +111,14 @@ fn half_migrated(dir: &Path) -> std::path::PathBuf {
     m["dataModelRevision"] = serde_json::json!(9);
     std::fs::write(&path, serde_json::to_string_pretty(&m).unwrap() + "\n").unwrap();
     let root = m["rootContainerId"].as_str().unwrap();
-    dir.join(format!("containers/{root}.json"))
+    // A revision-9 corpus stores its root as a flat file (RFC-051 directories are revision
+    // 11): the empty root `repo create` wrote, as that file.
+    let dir_form = dir.join(format!("containers/{root}"));
+    let head = std::fs::read(dir_form.join("container.json")).unwrap();
+    std::fs::remove_dir_all(&dir_form).unwrap();
+    let flat = dir.join(format!("containers/{root}.json"));
+    std::fs::write(&flat, head).unwrap();
+    flat
 }
 
 /// Every file of the tree, by relative path.
@@ -149,7 +156,7 @@ fn a_revision_9_corpus_naming_its_root_is_refused_then_restamped() {
     assert_eq!(err.code(), "container-migration-needed", "{err}");
     assert_eq!(
         err.report().details.unwrap()["pending"],
-        serde_json::json!(["rfc052-root-container"])
+        serde_json::json!(["rfc052-root-container", "rfc051-container-entries"])
     );
 
     // (b) The registry entry only restamps it: the root file is byte-identical and the
@@ -160,10 +167,12 @@ fn a_revision_9_corpus_naming_its_root_is_refused_then_restamped() {
     apply_migration(&tooling, "rfc052-root-container").unwrap();
     assert_eq!(std::fs::read(&root_file).unwrap(), root_before);
     assert_eq!(manifest_without_stamp(tmp.path()), manifest_before);
+    // RFC-051's step brings it the rest of the way.
+    apply_migration(&tooling, "rfc051-container-entries").unwrap();
     let store = FileStore::new(tmp.path());
     assert_eq!(
         store.load_manifest().unwrap().extra["dataModelRevision"],
-        serde_json::json!(10)
+        serde_json::json!(11)
     );
     assert_eq!(validate_repository(&store).unwrap().summary.errors, 0);
 }

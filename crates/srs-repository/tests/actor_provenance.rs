@@ -505,7 +505,11 @@ fn invalid_session_actor_refuses_every_creation_and_wins_precedence() {
         // actor-invalid > the revision checks ([R11], and RFC-052 [R7]'s load gate).
         stamp_data_model_revision(&store, 8).unwrap();
         assert!(code_of(services::create_note(&store, note("n"))).starts_with("actor-invalid"));
-        stamp_data_model_revision(&exempt(&d), 10).unwrap();
+        stamp_data_model_revision(
+            &exempt(&d),
+            srs_repository::field_type_migration_service::CURRENT_DATA_MODEL_REVISION,
+        )
+        .unwrap();
     }
 }
 
@@ -535,7 +539,11 @@ fn actor_session_in_a_pre_9_corpus_is_refused_until_migrated() {
             assert_eq!(declared, 8);
             assert_eq!(
                 pending,
-                vec!["rfc046-actor-provenance", "rfc052-root-container"]
+                vec![
+                    "rfc046-actor-provenance",
+                    "rfc052-root-container",
+                    "rfc051-container-entries"
+                ]
             );
         }
         e => panic!("{e:?}"),
@@ -556,7 +564,7 @@ fn actor_session_in_a_pre_9_corpus_is_refused_until_migrated() {
     }
     assert_eq!(snapshot(&exempt(&d)).len(), n_before, "nothing written");
 
-    // Migration 8 -> 9 is a pure re-stamp preserving every instance; then 9 -> 10.
+    // Migration 8 -> 9 is a pure re-stamp preserving every instance; then 9 -> 10 -> 11.
     let tooling = exempt(&d);
     let before = snapshot(&tooling);
     let statuses = migration_registry_service::list_migrations(&tooling).unwrap();
@@ -579,6 +587,7 @@ fn actor_session_in_a_pre_9_corpus_is_refused_until_migrated() {
         "[R6] migration preserves every instance"
     );
     migration_registry_service::apply_migration(&tooling, "rfc052-root-container").unwrap();
+    migration_registry_service::apply_migration(&tooling, "rfc051-container-entries").unwrap();
     let store = FileStore::new(d.path());
     store.set_session_actor(Some(agent()));
     assert_eq!(snapshot(&store), before);

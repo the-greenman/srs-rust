@@ -19,10 +19,11 @@ fn seed() -> String {
     .unwrap()
 }
 
-const MIGRATIONS: [&str; 3] = [
+const MIGRATIONS: [&str; 4] = [
     "rfc043-container-entries",
     "rfc046-actor-provenance",
     "rfc052-root-container",
+    "rfc051-container-entries",
 ];
 
 fn note(store: &FileStore) -> Result<(), srs_repository::error::RepositoryError> {

@@ -716,6 +716,10 @@ pub struct ContainerMembersMutatePayload {
     pub promoted: Vec<String>,
     /// Entries the operation removed.
     pub removed: Vec<String>,
+    /// RFC-051 [R11]: detached entries (orphans, loop breaks) `repair` re-attached at the end
+    /// of the top level. Absent when there were none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub reattached: Vec<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]

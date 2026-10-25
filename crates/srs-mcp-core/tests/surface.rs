@@ -10,7 +10,7 @@ use srs_repository::repository_lifecycle::{
 };
 use srs_repository::store::FileStore;
 
-const REPO_ID: &str = "core-surface";
+const REPO_ID: &str = "00000000-0000-4000-8000-00000051ed0a";
 
 fn setup() -> (
     tempfile::TempDir,

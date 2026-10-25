@@ -462,7 +462,7 @@ mod tests {
     ) -> RepositorySnapshot {
         RepositorySnapshot {
             repository: RepositoryMetadata {
-                repository_id: "test-repo-id".to_string(),
+                repository_id: "00000000-0000-4000-8000-00000051ed00".to_string(),
                 namespace: namespace.to_string(),
                 srs_version: srs_version.to_string(),
                 title: None,
@@ -546,7 +546,7 @@ mod tests {
     fn snap_with_packages(packages: Vec<PackageBoundarySnapshot>) -> RepositorySnapshot {
         RepositorySnapshot {
             repository: RepositoryMetadata {
-                repository_id: "test-repo-id".to_string(),
+                repository_id: "00000000-0000-4000-8000-00000051ed00".to_string(),
                 namespace: "com.example".to_string(),
                 srs_version: "2.0-draft".to_string(),
                 title: None,

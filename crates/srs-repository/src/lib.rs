@@ -10,6 +10,7 @@ pub mod blueprint_service;
 pub mod catalog;
 pub mod composition_cutover_migration_service;
 pub mod container_service;
+pub mod container_store;
 pub mod container_view_service;
 pub mod context_query_service;
 pub(crate) mod core_package;
@@ -64,6 +65,7 @@ pub mod revisions_sidecar_cleanup_service;
 pub mod rfc038_storage_migration_service;
 pub mod rfc039_carrier_migration_service;
 pub mod rfc043_container_entries_migration_service;
+pub mod rfc051_container_entries_migration_service;
 pub mod rfc052_root_container_migration_service;
 #[cfg(test)]
 mod selector_parity_tests;

@@ -839,7 +839,7 @@ mod tests {
         store
             .initialize_repository(&InitializeRepositoryInput {
                 repository: RepositoryMetadata {
-                    repository_id: "test-repo-id".to_string(),
+                    repository_id: "00000000-0000-4000-8000-00000051ed00".to_string(),
                     namespace: "com.example.test".to_string(),
                     srs_version: "2.0-draft".to_string(),
                     title: Some("Test Repository".to_string()),
@@ -1036,7 +1036,7 @@ mod tests {
 
         let init_input = InitializeRepositoryInput {
             repository: RepositoryMetadata {
-                repository_id: "cross-store-determinism-00000000000000000000000000".to_string(),
+                repository_id: "00000000-0000-4000-8000-00000051ed06".to_string(),
                 namespace: "com.example.test".to_string(),
                 srs_version: "2.0-draft".to_string(),
                 title: Some("Cross-Store Determinism Test".to_string()),
@@ -1154,7 +1154,7 @@ mod tests {
         source
             .initialize_repository(&InitializeRepositoryInput {
                 repository: RepositoryMetadata {
-                    repository_id: "filestore-test-id".to_string(),
+                    repository_id: "00000000-0000-4000-8000-00000051ed05".to_string(),
                     namespace: "com.example.filetest".to_string(),
                     srs_version: "2.0-draft".to_string(),
                     title: Some("FileStore Test".to_string()),
@@ -1385,7 +1385,7 @@ mod tests {
         source
             .initialize_repository(&InitializeRepositoryInput {
                 repository: RepositoryMetadata {
-                    repository_id: "source-repo-id".to_string(),
+                    repository_id: "00000000-0000-4000-8000-00000051ed02".to_string(),
                     namespace: "com.example.srcdoc".to_string(),
                     srs_version: "2.0-draft".to_string(),
                     title: Some("Source Doc Test".to_string()),

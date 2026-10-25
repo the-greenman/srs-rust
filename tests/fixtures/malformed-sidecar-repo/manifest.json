@@ -1,6 +1,6 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
-  "dataModelRevision": 10,
+  "dataModelRevision": 11,
   "declaredExtensions": [],
   "namespace": "com.example.malformed-sidecar-test",
   "repositoryId": "aaaaaaaa-1111-4000-8000-000000000001",

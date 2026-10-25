@@ -810,6 +810,72 @@ fn require_valid_child_containers(
     Ok(())
 }
 
+/// RFC-034 [R7] / I-150 at rest: every `childContainerIds` entry MUST name an
+/// existing, distinct Container and the graph MUST be acyclic. The write-time
+/// twin is `require_valid_child_containers`; this one reads a whole container
+/// set, so `repo validate` (CLI, MCP, WASM alike) reports a dangling id that
+/// reached the tree by another route (delete, merge, hand edit, older tool).
+/// Each message names the parent container and the offending child id; a cycle
+/// is reported once, on the edge that closes it.
+pub fn child_container_diagnostics(containers: &[Container]) -> Vec<String> {
+    use std::collections::HashMap;
+    let by_id: HashMap<&str, &Container> = containers
+        .iter()
+        .map(|c| (c.container_id.as_str(), c))
+        .collect();
+    let mut out: Vec<String> = Vec::new();
+    for parent in containers {
+        for child in parent.child_container_ids.iter().flatten() {
+            if child == &parent.container_id {
+                out.push(format!(
+                    "RFC-034 [R7] I-150: container '{}' lists itself in childContainerIds (self-reference)",
+                    parent.container_id
+                ));
+            } else if !by_id.contains_key(child.as_str()) {
+                out.push(format!(
+                    "RFC-034 [R7] I-150: container '{}' childContainerIds entry '{}' does not name an existing Container",
+                    parent.container_id, child
+                ));
+            }
+        }
+    }
+    // Cycles of length >= 2: depth-first, three-colour; a back edge closes one.
+    let mut state: HashMap<&str, u8> = HashMap::new(); // 1 = on path, 2 = done
+    let mut ids: Vec<&str> = by_id.keys().copied().collect();
+    ids.sort_unstable();
+    for start in ids {
+        if state.contains_key(start) {
+            continue;
+        }
+        let mut stack: Vec<(&str, usize)> = vec![(start, 0)];
+        state.insert(start, 1);
+        while let Some(&(id, i)) = stack.last() {
+            let kids: &[String] = by_id[id].child_container_ids.as_deref().unwrap_or(&[]);
+            if i >= kids.len() {
+                state.insert(id, 2);
+                stack.pop();
+                continue;
+            }
+            stack.last_mut().unwrap().1 += 1;
+            let kid = kids[i].as_str();
+            if kid == id || !by_id.contains_key(kid) {
+                continue;
+            }
+            match state.get(kid) {
+                Some(1) => out.push(format!(
+                    "RFC-034 [R7] I-150: container '{id}' childContainerIds entry '{kid}' closes a cycle in the childContainerIds graph"
+                )),
+                Some(_) => {}
+                None => {
+                    state.insert(kid, 1);
+                    stack.push((kid, 0));
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Effective membership (RFC-034 [R3]) — the deep, recursive scope. Every
 /// membership-listing consumer wants this: `find --container`, `container
 /// resolve-view`, the MCP container resource, `containers_for_instance`,
@@ -975,6 +1041,10 @@ pub struct ArrangementResult {
     pub promoted: Vec<String>,
     #[serde(default)]
     pub removed: Vec<String>,
+    /// RFC-051 [R11]: the detached entries (orphans and loop breaks) repair re-attached at
+    /// the end of the top level.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reattached: Vec<String>,
 }
 
 pub(crate) fn is_root_container(store: &dyn RepositoryStore, container_id: &str) -> bool {
@@ -1089,6 +1159,7 @@ pub fn remove_member(
         members: out,
         promoted,
         removed: vec![instance_id.to_string()],
+        ..Default::default()
     })
 }
 
@@ -1102,10 +1173,15 @@ pub fn move_member(
     position: Option<usize>,
     depth: Option<u32>,
 ) -> Result<ArrangementResult, RepositoryError> {
-    rearrange(store, container_id, |entries, identity| {
-        arrangement::move_run(entries, instance_id, position, depth, identity)
-            .map_err(arrangement_error)
-    })
+    rearrange(
+        store,
+        container_id,
+        Some(instance_id),
+        |entries, identity| {
+            arrangement::move_run(entries, instance_id, position, depth, identity)
+                .map_err(arrangement_error)
+        },
+    )
 }
 
 /// The identity entry the [R2] identity rule pins: only the root container has one.
@@ -1121,9 +1197,12 @@ fn root_identity<'a>(
 
 /// The shared write path of the arrangement edits: load the container, apply `op` to its
 /// entries with the root container's identity (for the [R2] identity rule), persist the result.
+/// `moved` is the entry a move operation moves (RFC-051 [R8]: it is written even where its
+/// parent is unchanged).
 fn rearrange(
     store: &dyn RepositoryStore,
     container_id: &str,
+    moved: Option<&str>,
     op: impl FnOnce(&[ContainerEntry], Option<&str>) -> Result<Vec<ContainerEntry>, RepositoryError>,
 ) -> Result<ArrangementResult, RepositoryError> {
     let mut container = store.load_container(container_id)?;
@@ -1131,7 +1210,7 @@ fn rearrange(
     let identity = root_identity(store, container_id, &container);
     let out = op(&entries, identity)?;
     store_entries(&mut container, out.clone());
-    store.save_container(&container)?;
+    store.save_container_moving(&container, moved)?;
     Ok(ArrangementResult {
         members: out,
         ..Default::default()
@@ -1147,10 +1226,15 @@ pub fn move_member_relative(
     instance_id: &str,
     mv: &arrangement::RelativeMove,
 ) -> Result<ArrangementResult, RepositoryError> {
-    rearrange(store, container_id, |entries, identity| {
-        mv.apply(entries, instance_id, identity)
-            .map_err(arrangement_error)
-    })
+    rearrange(
+        store,
+        container_id,
+        Some(instance_id),
+        |entries, identity| {
+            mv.apply(entries, instance_id, identity)
+                .map_err(arrangement_error)
+        },
+    )
 }
 
 /// **add relative**: add a new member and place it `before` / `after` / `into` `target` in one
@@ -1163,7 +1247,7 @@ pub fn add_member_relative(
     placement: arrangement::Placement,
 ) -> Result<ArrangementResult, RepositoryError> {
     require_resolvable_instances(store, [instance_id])?;
-    rearrange(store, container_id, |entries, identity| {
+    rearrange(store, container_id, None, |entries, identity| {
         if entries.iter().any(|e| e.instance_id == instance_id) {
             return Err(RepositoryError::InvalidInput {
                 message: format!(
@@ -1283,7 +1367,25 @@ pub fn copy_container(
             swap(&mut e.instance_id);
         }
     }
-    match create_container(store, copy) {
+    let swapped = forks
+        .first()
+        .map(|p| (p.original_id.clone(), p.fork_id.clone()));
+    match create_container(store, copy).and_then(|container| {
+        // RFC-051 [R1]: a copy keeps every entry's `parent` and `key`.
+        use crate::container_store::{copy_entries, has_head};
+        if has_head(store, source_id) && has_head(store, &container.container_id) {
+            copy_entries(
+                store,
+                source_id,
+                &container.container_id,
+                |id| match &swapped {
+                    Some((from, to)) if from == id => to.clone(),
+                    _ => id.to_string(),
+                },
+            )?;
+        }
+        Ok(container)
+    }) {
         Ok(container) => Ok(ContainerCopyResult {
             container,
             forks,
@@ -1338,11 +1440,26 @@ pub fn get_outline(
 /// each by the promoting removal; report each. Exempt from the pointer guard; never touches
 /// `identityInstanceId` or `anchorInstanceId` (a dangling pointer stays a reported
 /// validation error). Idempotent. Repair seam: reads through the unchecked catalog.
+///
+/// RFC-051 [R11]: in a stored directory it also re-attaches every detached entry (orphan or
+/// loop break) at the end of the top level, never removing one; and a headless directory
+/// named by `container_id` is removed whole, its entry ids reported as removed.
 pub fn repair_members(
     store: &dyn RepositoryStore,
     container_id: &str,
 ) -> Result<ArrangementResult, RepositoryError> {
-    let mut container = store.load_container_unchecked(container_id)?;
+    let mut container = match store.load_container_unchecked(container_id) {
+        Err(e @ RepositoryError::ContainerNotFound { .. }) => {
+            return match crate::container_store::remove_headless(store, container_id)? {
+                Some(removed) => Ok(ArrangementResult {
+                    removed,
+                    ..Default::default()
+                }),
+                None => Err(e),
+            };
+        }
+        other => other?,
+    };
     let known: HashSet<String> = store
         .catalog_unchecked()?
         .instances
@@ -1351,18 +1468,23 @@ pub fn repair_members(
         .collect();
     let entries = container.member_instance_ids.clone().unwrap_or_default();
     let (out, removed, promoted) = arrangement::retain_promoting(&entries, |id| known.contains(id));
-    if removed.is_empty() {
+    let reattached: Vec<String> = crate::container_store::detached(store, container_id)?
+        .into_iter()
+        .filter(|id| known.contains(id))
+        .collect();
+    if removed.is_empty() && reattached.is_empty() {
         return Ok(ArrangementResult {
             members: entries,
             ..Default::default()
         });
     }
     store_entries(&mut container, out.clone());
-    store.save_container_unchecked(&container)?;
+    store.repair_container_unchecked(&container)?;
     Ok(ArrangementResult {
         members: out,
         promoted,
         removed,
+        reattached,
     })
 }
 
@@ -1450,14 +1572,11 @@ pub fn validate_container_invariants(
         .find(|e| e.id == container_id)
         .and_then(|e| e.locator.as_deref())
     {
-        Some(path) => {
-            serde_json::from_value(store.load_instance_json(path)?).map_err(|source| {
-                RepositoryError::ManifestParse {
-                    path: std::path::PathBuf::from(path),
-                    source,
-                }
-            })?
-        }
+        Some(path) => serde_json::from_value(crate::container_store::logical_value(store, path)?)
+            .map_err(|source| RepositoryError::ManifestParse {
+            path: std::path::PathBuf::from(path),
+            source,
+        })?,
         None => {
             return Err(RepositoryError::ContainerNotFound {
                 container_id: container_id.to_string(),
@@ -1786,6 +1905,58 @@ mod tests {
                 .is_empty(),
             "legacy container-endpoint edge must be cascaded"
         );
+    }
+
+    fn with_children(id: &str, kids: &[&str]) -> Container {
+        let mut c = minimal_container(id, "C");
+        c.child_container_ids = Some(kids.iter().map(|k| k.to_string()).collect());
+        c
+    }
+
+    #[test]
+    fn child_container_diagnostics_reports_missing_self_and_cycle() {
+        // RFC-034 [R7] / I-150 at rest (srs-rust#1445).
+        let (p, c, x) = ("p-1", "c-1", "x-1");
+        assert!(
+            child_container_diagnostics(&[with_children(p, &[c]), minimal_container(c, "C")])
+                .is_empty()
+        );
+
+        let missing = child_container_diagnostics(&[with_children(p, &[c])]);
+        assert_eq!(missing.len(), 1);
+        assert!(missing[0].contains("'p-1'") && missing[0].contains("'c-1'"));
+
+        let selfref = child_container_diagnostics(&[with_children(p, &[p])]);
+        assert_eq!(selfref.len(), 1);
+        assert!(selfref[0].contains("itself"));
+
+        let cycle = child_container_diagnostics(&[with_children(p, &[c]), with_children(c, &[p])]);
+        assert_eq!(cycle.len(), 1, "{cycle:?}");
+        assert!(cycle[0].contains("cycle"));
+
+        // A diamond is not a cycle.
+        let diamond = child_container_diagnostics(&[
+            with_children(p, &[c, x]),
+            with_children(c, &["d-1"]),
+            with_children(x, &["d-1"]),
+            minimal_container("d-1", "D"),
+        ]);
+        assert!(diamond.is_empty(), "{diamond:?}");
+    }
+
+    #[test]
+    fn child_container_diagnostics_reads_a_dangling_id_left_by_a_store_write() {
+        // MemoryStore round trip: a dangling id saved past the write-time check is reported.
+        let store = make_store();
+        let (p, c) = (
+            "00000000-0000-4000-8000-0000000000a9",
+            "00000000-0000-4000-8000-0000000000c9",
+        );
+        store.save_container(&with_children(p, &[c])).unwrap();
+        let all = vec![store.load_container(p).unwrap()];
+        let d = child_container_diagnostics(&all);
+        assert_eq!(d.len(), 1);
+        assert!(d[0].contains(p) && d[0].contains(c));
     }
 
     #[test]
@@ -2495,7 +2666,10 @@ mod tests {
     #[test]
     fn effective_membership_ignores_contains_relations() {
         let store = MemoryStore::default();
-        for id in ["root-note", "child-note"] {
+        for id in [
+            "00000000-0000-4000-8000-0000000a0006",
+            "00000000-0000-4000-8000-0000000a0007",
+        ] {
             store
                 .save_instance_json(
                     &format!("records/notes/{id}.json"),
@@ -2510,28 +2684,35 @@ mod tests {
                 "relations": [{
                     "relationId": "aaaaaaaa-0000-4000-8000-000000000001",
                     "relationType": "contains",
-                    "sourceInstanceId": "root-note",
-                    "targetInstanceId": "child-note",
+                    "sourceInstanceId": "00000000-0000-4000-8000-0000000a0006",
+                    "targetInstanceId": "00000000-0000-4000-8000-0000000a0007",
                     "createdAt": "2026-01-01T00:00:00Z"
                 }]
             }),
         );
         let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Doc");
-        c.anchor_instance_id = Some("root-note".to_string());
+        c.anchor_instance_id = Some("00000000-0000-4000-8000-0000000a0006".to_string());
         c.member_instance_ids = Some(srs_core::types::container::entries(vec![
-            "root-note".to_string()
+            "00000000-0000-4000-8000-0000000a0006".to_string(),
         ]));
         let created = create_container(&store, c).unwrap();
 
         assert_eq!(
             list_members(&store, &created.container_id).unwrap(),
-            vec!["root-note".to_string()],
+            vec!["00000000-0000-4000-8000-0000000a0006".to_string()],
             "a contains Relation must never add a member (RFC-034 [R4])"
         );
-        assert!(!is_member(&store, &created.container_id, "child-note").unwrap());
-        assert!(containers_for_instance(&store, "child-note")
-            .unwrap()
-            .is_empty());
+        assert!(!is_member(
+            &store,
+            &created.container_id,
+            "00000000-0000-4000-8000-0000000a0007"
+        )
+        .unwrap());
+        assert!(
+            containers_for_instance(&store, "00000000-0000-4000-8000-0000000a0007")
+                .unwrap()
+                .is_empty()
+        );
     }
 
     /// RFC-034 [R8]: `containerScope: "explicit"` (`list_direct_members`) stays
@@ -2643,7 +2824,10 @@ mod tests {
     #[test]
     fn effective_membership_via_declared_children_roundtrips_via_filestore() {
         let store = MemoryStore::default();
-        for id in ["root-note", "child-note"] {
+        for id in [
+            "00000000-0000-4000-8000-0000000a0006",
+            "00000000-0000-4000-8000-0000000a0007",
+        ] {
             store
                 .save_instance_json(
                     &format!("records/notes/{id}.json"),
@@ -2652,16 +2836,16 @@ mod tests {
                 .unwrap();
         }
         let mut child = minimal_container("550e8400-e29b-41d4-a716-446655440001", "Child");
-        child.anchor_instance_id = Some("child-note".to_string());
+        child.anchor_instance_id = Some("00000000-0000-4000-8000-0000000a0007".to_string());
         child.member_instance_ids = Some(srs_core::types::container::entries(vec![
-            "child-note".to_string()
+            "00000000-0000-4000-8000-0000000a0007".to_string(),
         ]));
         create_container(&store, child).unwrap();
 
         let mut root = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Root");
-        root.anchor_instance_id = Some("root-note".to_string());
+        root.anchor_instance_id = Some("00000000-0000-4000-8000-0000000a0006".to_string());
         root.member_instance_ids = Some(srs_core::types::container::entries(vec![
-            "root-note".to_string()
+            "00000000-0000-4000-8000-0000000a0006".to_string(),
         ]));
         root.child_container_ids = Some(vec!["550e8400-e29b-41d4-a716-446655440001".to_string()]);
         let created = create_container(&store, root).unwrap();
@@ -2672,7 +2856,10 @@ mod tests {
 
         assert_eq!(
             list_members(&file_store, &created.container_id).unwrap(),
-            vec!["root-note".to_string(), "child-note".to_string()]
+            vec![
+                "00000000-0000-4000-8000-0000000a0006".to_string(),
+                "00000000-0000-4000-8000-0000000a0007".to_string()
+            ]
         );
     }
 
@@ -3509,12 +3696,15 @@ mod tests {
         let err = resolve_root_container(&store, &manifest).unwrap_err();
         match err {
             RepositoryError::CatalogLoad { diagnostics, .. } => {
+                // RFC-051: at revision 11 the root is a directory named by its id, so a second
+                // file declaring that id can only be a flat file, refused as
+                // `container-migration-needed` — still fatal, still propagated.
                 assert!(
                     diagnostics
                         .iter()
-                        .any(|d| d.code == crate::catalog::codes::DUPLICATE_ID),
-                    "expected a {} diagnostic, got: {diagnostics:?}",
-                    crate::catalog::codes::DUPLICATE_ID
+                        .any(|d| d.code == crate::catalog::codes::DUPLICATE_ID
+                            || d.code == crate::container_store::codes::MIGRATION_NEEDED),
+                    "expected a fatal duplicate diagnostic, got: {diagnostics:?}"
                 );
             }
             other => panic!("expected RepositoryError::CatalogLoad, got: {other:?}"),
