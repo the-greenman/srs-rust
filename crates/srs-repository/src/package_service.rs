@@ -33,7 +33,7 @@ use srs_core::extensions::import_tracking::{
 };
 use srs_core::types::field::{Field, FieldType};
 use srs_core::types::record_type::RecordType;
-use srs_core::types::relation_type_definition::RelationTypeDefinition;
+use srs_core::types::relation_type_definition::{RelationTypeDefinition, RelationTypeStatus};
 use srs_core::validation::relation_type_definition::validate_relation_type_definition;
 use srs_schema::{SchemaRegistry, FIELD_SCHEMA_ID, RELATION_TYPE_SCHEMA_ID, TYPE_SCHEMA_ID};
 
@@ -1008,8 +1008,13 @@ pub fn create_relation_type(
     })
 }
 
+/// Most relation ids named in a `relation-type-retire-in-use` refusal.
+const RETIRE_IN_USE_ID_CAP: usize = 10;
+
 /// Update an existing relation type definition.
 /// Re-writes the definition JSON file in place.
+/// Returns `RelationTypeRetireInUse` when the update moves the definition to `retired`
+/// while Relations still use its key (RFC-006 V5, RFC-005 E1; srs-rust#1475).
 pub fn update_relation_type(
     store: &dyn RepositoryStore,
     def: RelationTypeDefinition,
@@ -1033,6 +1038,26 @@ pub fn update_relation_type(
             source,
         }
     })?;
+
+    if matches!(def.status, Some(RelationTypeStatus::Retired)) {
+        let was_retired = store
+            .load_instance_json(&relative_path)
+            .ok()
+            .is_some_and(|cur| cur["status"].as_str() == Some("retired"));
+        if !was_retired {
+            let mut refs = find_relations_of_type(store, &def.key)?;
+            if !refs.is_empty() {
+                let count = refs.len();
+                refs.truncate(RETIRE_IN_USE_ID_CAP);
+                return Err(RepositoryError::RelationTypeRetireInUse {
+                    id: def.id.clone(),
+                    key: def.key.clone(),
+                    count,
+                    used_by: refs,
+                });
+            }
+        }
+    }
 
     store.save_relation_type_definition(&relative_path, &def)?;
     Ok(UpdateRelationTypeResult {
@@ -2783,6 +2808,90 @@ mod tests {
         // Relations unchanged
         let remaining = load_relations(&store).unwrap();
         assert_eq!(remaining.len(), 1);
+    }
+
+    fn retire_test_def(id: &str, key: &str) -> RelationTypeDefinition {
+        use srs_core::types::relation_type_definition::RelationTypeCategory;
+        RelationTypeDefinition {
+            schema: Some(RELATION_TYPE_SCHEMA_ID.to_string()),
+            id: id.to_string(),
+            version: 1,
+            key: key.to_string(),
+            namespace: "com.test".to_string(),
+            label: "Retire Test".to_string(),
+            description: "A relation type for retire tests".to_string(),
+            category: RelationTypeCategory::Dependency,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            status: None,
+            canonical_direction: None,
+            inverse_type: None,
+            irreflexive: None,
+            require_same_type: None,
+            updated_at: None,
+            meta: None,
+        }
+    }
+
+    // srs-rust#1475: RFC-006 V5 / RFC-005 E1.
+    #[test]
+    fn relation_type_retire_refused_while_relations_use_the_key() {
+        let store = MemoryStore::default();
+        let def = retire_test_def("rt-ret-001", "retire-link");
+        create_relation_type(&store, def.clone(), None).unwrap();
+        let rel_json = serde_json::json!({
+            "relations": [{
+                "relationId": "eeeeeeee-0000-4000-8000-000000000041",
+                "relationType": "retire-link",
+                "sourceInstanceId": "source-001",
+                "targetInstanceId": "target-001"
+            }]
+        });
+        crate::store::write_relations_standalone_for_test(&store, &rel_json);
+
+        let mut retired = def.clone();
+        retired.status = Some(RelationTypeStatus::Retired);
+        match update_relation_type(&store, retired) {
+            Err(RepositoryError::RelationTypeRetireInUse {
+                id,
+                key,
+                count,
+                used_by,
+            }) => {
+                assert_eq!(id, "rt-ret-001");
+                assert_eq!(key, "retire-link");
+                assert_eq!(count, 1);
+                assert_eq!(used_by, vec!["eeeeeeee-0000-4000-8000-000000000041"]);
+            }
+            other => panic!("expected RelationTypeRetireInUse, got {:?}", other),
+        }
+
+        // Nothing written: the stored definition is still not retired.
+        let (path, _) = find_relation_type_path(&store, "rt-ret-001")
+            .unwrap()
+            .unwrap();
+        let stored = store.load_instance_json(&path).unwrap();
+        assert!(stored.get("status").is_none_or(|s| s != "retired"));
+
+        // deprecated and tombstone keep resolving, so they stay allowed.
+        for status in [
+            RelationTypeStatus::Deprecated,
+            RelationTypeStatus::Tombstone,
+        ] {
+            let mut d = def.clone();
+            d.status = Some(status);
+            update_relation_type(&store, d).unwrap();
+        }
+    }
+
+    #[test]
+    fn relation_type_retire_allowed_when_no_relations_use_the_key() {
+        let store = MemoryStore::default();
+        let def = retire_test_def("rt-ret-002", "unused-retire-link");
+        create_relation_type(&store, def.clone(), None).unwrap();
+
+        let mut retired = def;
+        retired.status = Some(RelationTypeStatus::Retired);
+        update_relation_type(&store, retired).unwrap();
     }
 
     #[test]

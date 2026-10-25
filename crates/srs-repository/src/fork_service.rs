@@ -6,7 +6,11 @@
 //!
 //! One fork core ([`fork_records`]) = [`record_store::create_record_successor`] with
 //! `derived-from` (actor stamping from the session, relation validation, same type and
-//! fieldValues, initial lifecycle state). v1: Tier 2 records only; fieldValues only.
+//! fieldValues, initial lifecycle state). Tier 2 records only. The fork carries the original's
+//! `fieldValues`, its envelope extras (`meta`, `sourceRefs`, ...) verbatim and its `tags`
+//! (rfc-decision-2e0cd70a: a write never silently drops what it does not understand,
+//! srs-rust#1478). It does not copy identity, timestamps, `createdBy` (stamped from the
+//! session, RFC-046) or lifecycle state (initial).
 
 use crate::container_service;
 use crate::error::RepositoryError;
@@ -80,7 +84,9 @@ pub fn fork_records(
                     message: format!("{id} is not a Tier 2 record; only records can be forked"),
                 }
             })?;
-            record_store::create_record_successor(
+            // `Record.extra` is flattened, so it can never hold one of `Record`'s own keys:
+            // everything in it is an extra the successor core accepts.
+            let mut made = record_store::create_record_successor(
                 store,
                 id,
                 CreateRecordSuccessorInput {
@@ -88,9 +94,16 @@ pub fn fork_records(
                     field_values: original.field_values.clone(),
                     lifecycle_state: None,
                     type_version: None,
-                    extra: BTreeMap::new(),
+                    extra: original.extra.clone(),
                 },
-            )
+            )?;
+            // `tags` is a `Record` field the successor input has no slot for (it is a reserved
+            // envelope key), so carry it onto the freshly created fork.
+            if original.tags.is_some() {
+                made.record.tags = original.tags.clone();
+                store.save_record(&made.record)?;
+            }
+            Ok(made)
         })();
         match step {
             Ok(r) => {
@@ -414,6 +427,77 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(orig.field_values, fork.field_values);
+    }
+
+    /// Give `id` a `meta` envelope extra and tags, as an extension carrier would.
+    fn decorate(store: &MemoryStore, id: &str) {
+        let mut r = record_store::get_record_by_id(store, id).unwrap().unwrap();
+        r.extra
+            .insert("meta".into(), serde_json::json!({"x.example": {"keep": 1}}));
+        r.extra.insert(
+            "sourceRefs".into(),
+            serde_json::json!([{"sourceType": "external-document", "sourceId": "doc-1"}]),
+        );
+        r.tags = Some(vec!["alpha".into(), "beta".into()]);
+        store.save_record(&r).unwrap();
+    }
+
+    fn assert_carries(store: &MemoryStore, original: &str, fork: &str) {
+        let o = record_store::get_record_by_id(store, original)
+            .unwrap()
+            .unwrap();
+        let f = record_store::get_record_by_id(store, fork)
+            .unwrap()
+            .unwrap();
+        assert_ne!(f.instance_id, o.instance_id);
+        assert_eq!(f.extra, o.extra, "envelope extras carried verbatim");
+        assert_eq!(f.extra["meta"]["x.example"]["keep"], 1);
+        assert_eq!(f.tags, o.tags);
+        assert_eq!(f.field_values, o.field_values);
+    }
+
+    // srs-rust#1478 (rfc-decision-2e0cd70a): a fork keeps the original's meta and tags.
+    #[test]
+    fn fork_carries_meta_extras_and_tags() {
+        let store = make_store_with_lifecycle();
+        let a = rec(&store);
+        decorate(&store, &a);
+        let (pairs, _) = fork_records(&store, std::slice::from_ref(&a)).unwrap();
+        assert_carries(&store, &a, &pairs[0].fork_id);
+        // The original is untouched.
+        let o = record_store::get_record_by_id(&store, &a).unwrap().unwrap();
+        assert_eq!(o.tags.as_deref().map(<[String]>::len), Some(2));
+    }
+
+    #[test]
+    fn fork_without_meta_or_tags_stays_bare() {
+        let store = make_store_with_lifecycle();
+        let a = rec(&store);
+        let (pairs, _) = fork_records(&store, std::slice::from_ref(&a)).unwrap();
+        let f = record_store::get_record_by_id(&store, &pairs[0].fork_id)
+            .unwrap()
+            .unwrap();
+        assert!(f.tags.is_none() && !f.extra.contains_key("meta"));
+    }
+
+    #[test]
+    fn copy_container_carries_the_anchors_meta() {
+        let store = make_store_with_lifecycle();
+        let (t, p1) = (rec(&store), rec(&store));
+        decorate(&store, &t);
+        let src = container(
+            "c1c1c1c1-0000-4000-8000-000000000001",
+            Some(&t),
+            &[(&t, 0), (&p1, 0)],
+        );
+        container_service::create_container(&store, src.clone()).unwrap();
+        let r = container_service::copy_container(
+            &store,
+            &src.container_id,
+            ContainerCopyInput::default(),
+        )
+        .unwrap();
+        assert_carries(&store, &t, &r.forks[0].fork_id);
     }
 
     #[test]
