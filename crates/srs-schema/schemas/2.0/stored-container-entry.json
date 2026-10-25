@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/stored-container-entry.json",
+  "title": "SRS Stored Container Entry",
+  "description": "RFC-051 [R1]. One entry of a stored Container, at containers/<containerId>/entries/<instanceId>.json, written on one line (RFC-051 [R3]). The logical memberInstanceIds outline is decoded from a container's entries (RFC-051 [R5]); this file is storage only and is never presented by an adapter.",
+  "type": "object",
+  "required": [
+    "containerId",
+    "instanceId",
+    "key"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://srs.semanticops.com/schema/2.0/stored-container-entry.json",
+      "description": "Optional schema declaration (RFC-038 [R7])."
+    },
+    "containerId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "RFC-051 [R1]-[R2]. The container this entry belongs to; MUST equal the directory's containerId (container-entry-misplaced)."
+    },
+    "instanceId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "RFC-051 [R1]-[R2]. The member; MUST equal the file name (container-name-mismatch) and resolve against the instance set (RFC-051 [R12])."
+    },
+    "parent": {
+      "type": "string",
+      "format": "uuid",
+      "description": "RFC-051 [R5]. The instanceId of this entry's parent entry in the same container; absent means top level. A parent naming no entry is an orphan, and a parent chain that loops is a loop (RFC-051 [R6], warnings)."
+    },
+    "key": {
+      "type": "string",
+      "pattern": "^[A-Za-z][0-9A-Za-z]*$",
+      "description": "RFC-051 [R4] and Appendix. The fractional-index position among siblings, compared byte-wise. The integer-part length, the reserved key and the no-trailing-0 fraction rule are validator checks (arrangement-key)."
+    }
+  }
+}
