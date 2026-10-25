@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://srs.semanticops.com/schema/2.0/container.json",
   "title": "SRS Container",
-  "description": "A lightweight grouping boundary over a collection of instances. Containers answer scoping questions — which instances belong together — that the Relation graph alone cannot answer.",
+  "description": "A lightweight grouping boundary over a collection of instances. Containers answer scoping questions — which instances belong together — that the Relation graph alone cannot answer. At dataModelRevision 11 (RFC-051) a Container is stored as a directory: this schema describes its head, containers/<containerId>/container.json, which MUST NOT carry memberInstanceIds; the entries are stored-container-entry.json files, and memberInstanceIds remains the logical form adapters present.",
   "type": "object",
   "required": ["containerId", "title"],
   "additionalProperties": false,
