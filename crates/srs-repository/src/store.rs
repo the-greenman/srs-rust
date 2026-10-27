@@ -1473,12 +1473,22 @@ struct PackageMetadata {
     lifecycles: Vec<String>,
 }
 
+/// Who a relation type definition competes with in the loader (RFC-006 V5 step 1): a
+/// live definition holds its `key`, so two with one key must coalesce or conflict; a
+/// retired one holds nothing and is told apart by its `id`.
+type RtHolder = (String, Option<String>);
+
+fn rt_holder(def: &RelationTypeDefinition) -> RtHolder {
+    let id = (!def.resolves_for_reads()).then(|| def.id.clone());
+    (def.key.clone(), id)
+}
+
 #[allow(clippy::type_complexity)]
 fn load_package_from_dir(
     vfs: &dyn Vfs,
     prefix: &str,
     err_root: &std::path::Path,
-    rt_by_type: &mut HashMap<String, (RelationTypeDefinition, PathBuf)>,
+    rt_by_type: &mut HashMap<RtHolder, (RelationTypeDefinition, PathBuf)>,
 ) -> Result<
     (
         Vec<Field>,
@@ -1542,7 +1552,7 @@ fn load_package_from_dir(
                 source,
             }
         })?;
-        if let Some((existing, existing_path)) = rt_by_type.get(&def.key) {
+        if let Some((existing, existing_path)) = rt_by_type.get(&rt_holder(&def)) {
             if existing != &def {
                 return Err(RepositoryError::RelationTypeDefinitionConflict {
                     relation_type: def.key.clone(),
@@ -1551,7 +1561,7 @@ fn load_package_from_dir(
                 });
             }
         } else {
-            rt_by_type.insert(def.key.clone(), (def, full_path));
+            rt_by_type.insert(rt_holder(&def), (def, full_path));
         }
     }
 
@@ -1876,7 +1886,7 @@ impl RepositoryStore for FileStore {
                 source: e,
             })?;
 
-        let mut rt_by_type: HashMap<String, (RelationTypeDefinition, PathBuf)> = HashMap::new();
+        let mut rt_by_type: HashMap<RtHolder, (RelationTypeDefinition, PathBuf)> = HashMap::new();
         let (
             mut fields,
             mut record_types,
