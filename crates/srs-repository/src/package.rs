@@ -90,9 +90,16 @@ impl Package {
 
     /// Resolve a relation type definition by its relationType string.
     pub fn resolve_relation_type(&self, relation_type: &str) -> Option<&RelationTypeDefinition> {
-        self.relation_type_definitions
+        // RFC-006 V5: a retired definition does not hold its key, so a live one wins.
+        let mut same_key = self
+            .relation_type_definitions
             .iter()
-            .find(|rt| rt.key == relation_type)
+            .filter(|rt| rt.key == relation_type);
+        let first = same_key.next()?;
+        if first.resolves_for_reads() {
+            return Some(first);
+        }
+        same_key.find(|rt| rt.resolves_for_reads()).or(Some(first))
     }
 
     /// Get all relation type definitions as a slice.

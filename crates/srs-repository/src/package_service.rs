@@ -966,12 +966,18 @@ fn ensure_relation_type_key_free(
     store: &dyn RepositoryStore,
     def: &RelationTypeDefinition,
 ) -> Result<(), RepositoryError> {
+    // RFC-006 V5 step 1: a retired definition holds no key, and a retired
+    // definition being written holds none either.
+    if !def.resolves_for_reads() {
+        return Ok(());
+    }
     let package = store.load_package()?;
     // Only locally installed definitions hold a key: a local definition may shadow an
     // embedded core one (merge_core_into_package), which is not a conflict.
     let holder = package.relation_type_definitions.iter().find(|d| {
         d.key == def.key
             && d.id != def.id
+            && d.resolves_for_reads()
             && matches!(find_relation_type_path(store, &d.id), Ok(Some(_)))
     });
     if let Some(existing) = holder {
@@ -2929,6 +2935,90 @@ mod tests {
         let mut retired = def;
         retired.status = Some(RelationTypeStatus::Retired);
         update_relation_type(&store, retired).unwrap();
+    }
+
+    // srs-rust#1476: RFC-006 V5 step 1 — a retired definition does not hold its key.
+    fn retire_then_reuse_key<S: RepositoryStore>(store: &S) {
+        let old = retire_test_def("aaaaaaaa-old", "com.test/reused");
+        create_relation_type(store, old.clone(), None).unwrap();
+        let mut retired = old;
+        retired.status = Some(RelationTypeStatus::Retired);
+        update_relation_type(store, retired).unwrap();
+
+        let mut fresh = retire_test_def("bbbbbbbb-new", "com.test/reused");
+        fresh.label = "Reused".to_string();
+        create_relation_type(store, fresh, None).unwrap_or_else(|e| panic!("reuse refused: {e:?}"));
+
+        let package = store.load_package().expect("repository still loads");
+        let resolved = package.resolve_relation_type("com.test/reused").unwrap();
+        assert_eq!(resolved.id, "bbbbbbbb-new", "the live definition resolves");
+        assert_eq!(
+            package
+                .relation_type_definitions
+                .iter()
+                .filter(|d| d.key == "com.test/reused")
+                .count(),
+            2,
+            "the retired definition stays listed"
+        );
+    }
+
+    #[test]
+    fn retired_relation_type_key_can_be_reused_memory() {
+        retire_then_reuse_key(&MemoryStore::default());
+    }
+
+    #[test]
+    fn retired_relation_type_key_can_be_reused_file() {
+        let temp = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(temp.path().join(".srs")).unwrap();
+        std::fs::write(
+            temp.path().join("manifest.json"),
+            r#"{"dataModelRevision":2}"#,
+        )
+        .unwrap();
+        std::fs::create_dir_all(temp.path().join("package")).unwrap();
+        std::fs::write(
+            temp.path().join("package/package.json"),
+            serde_json::json!({
+                "id": "pkg",
+                "namespace": "com.test",
+                "name": "test",
+                "version": "1.0.0",
+                "fields": [],
+                "types": []
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let store = crate::validation::fixture_ladder::store(temp.path());
+        retire_then_reuse_key(&store);
+        // Reload from disk: the loader, not just the write path, accepts it.
+        let reloaded = crate::validation::fixture_ladder::store(temp.path());
+        reloaded
+            .load_package()
+            .expect("loader accepts retired + live");
+    }
+
+    #[test]
+    fn two_live_relation_types_with_one_key_still_conflict() {
+        let store = MemoryStore::default();
+        create_relation_type(
+            &store,
+            retire_test_def("aaaaaaaa-live", "com.test/dup"),
+            None,
+        )
+        .unwrap();
+        let err = create_relation_type(
+            &store,
+            retire_test_def("bbbbbbbb-live", "com.test/dup"),
+            None,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            RepositoryError::RelationTypeDefinitionConflict { .. }
+        ));
     }
 
     #[test]

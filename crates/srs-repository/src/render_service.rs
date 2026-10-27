@@ -3489,11 +3489,15 @@ fn collect_relation_rows(
     let mut rows: Vec<ProjectedRelationRow> = Vec::new();
 
     for entry in &rp.include {
-        let matching_rtds: Vec<_> = package
+        let mut matching_rtds: Vec<_> = package
             .relation_types()
             .iter()
             .filter(|rt| rt.key == entry.relation_type)
             .collect();
+        // RFC-006 V5: a retired definition does not hold its key.
+        if matching_rtds.iter().any(|rt| rt.resolves_for_reads()) {
+            matching_rtds.retain(|rt| rt.resolves_for_reads());
+        }
 
         let rtd = match matching_rtds.len() {
             0 => {
