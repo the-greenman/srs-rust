@@ -1049,13 +1049,15 @@ pub fn create_relation_type(
     })
 }
 
-/// Most relation ids named in a `relation-type-retire-in-use` refusal.
+/// Most relation ids named in a `relation-type-retire-in-use` or `relation-type-rekey-in-use` refusal.
 const RETIRE_IN_USE_ID_CAP: usize = 10;
 
 /// Update an existing relation type definition.
 /// Re-writes the definition JSON file in place.
 /// Returns `RelationTypeRetireInUse` when the update moves the definition to `retired`
-/// while Relations still use its key (RFC-006 V5, RFC-005 E1; srs-rust#1475).
+/// while Relations still use its key (RFC-006 V5, RFC-005 E1; srs-rust#1475), and
+/// `RelationTypeRekeyInUse` when it changes `key` while Relations use the stored key
+/// (srs-rust#1485).
 pub fn update_relation_type(
     store: &dyn RepositoryStore,
     def: RelationTypeDefinition,
@@ -1081,6 +1083,25 @@ pub fn update_relation_type(
     })?;
 
     ensure_relation_type_key_free(store, &def)?;
+
+    let stored_key = store
+        .load_instance_json(&relative_path)
+        .ok()
+        .and_then(|cur| cur["key"].as_str().map(str::to_string));
+    if let Some(old_key) = stored_key.filter(|k| *k != def.key) {
+        let mut refs = find_relations_of_type(store, &old_key)?;
+        if !refs.is_empty() {
+            let count = refs.len();
+            refs.truncate(RETIRE_IN_USE_ID_CAP);
+            return Err(RepositoryError::RelationTypeRekeyInUse {
+                id: def.id.clone(),
+                old_key,
+                new_key: def.key.clone(),
+                count,
+                used_by: refs,
+            });
+        }
+    }
 
     if matches!(def.status, Some(RelationTypeStatus::Retired)) {
         let was_retired = store
@@ -2924,6 +2945,65 @@ mod tests {
             d.status = Some(status);
             update_relation_type(&store, d).unwrap();
         }
+    }
+
+    // srs-rust#1485: RFC-005 E1 / RFC-006 V5.
+    #[test]
+    fn relation_type_rekey_refused_while_relations_use_the_old_key() {
+        let store = MemoryStore::default();
+        let def = retire_test_def("rt-rk-001", "rekey-link");
+        create_relation_type(&store, def.clone(), None).unwrap();
+        let rel_json = serde_json::json!({
+            "relations": [{
+                "relationId": "eeeeeeee-0000-4000-8000-000000000051",
+                "relationType": "rekey-link",
+                "sourceInstanceId": "source-001",
+                "targetInstanceId": "target-001"
+            }]
+        });
+        crate::store::write_relations_standalone_for_test(&store, &rel_json);
+
+        let (path, _) = find_relation_type_path(&store, "rt-rk-001")
+            .unwrap()
+            .unwrap();
+        let before = store.load_instance_json(&path).unwrap();
+
+        let mut rekeyed = def.clone();
+        rekeyed.key = "rekey-link-renamed".to_string();
+        match update_relation_type(&store, rekeyed) {
+            Err(RepositoryError::RelationTypeRekeyInUse {
+                id,
+                old_key,
+                new_key,
+                count,
+                used_by,
+            }) => {
+                assert_eq!(id, "rt-rk-001");
+                assert_eq!(old_key, "rekey-link");
+                assert_eq!(new_key, "rekey-link-renamed");
+                assert_eq!(count, 1);
+                assert_eq!(used_by, vec!["eeeeeeee-0000-4000-8000-000000000051"]);
+            }
+            other => panic!("expected RelationTypeRekeyInUse, got {:?}", other),
+        }
+        // Nothing written.
+        assert_eq!(store.load_instance_json(&path).unwrap(), before);
+
+        // A same-key update is unaffected.
+        let mut same = def;
+        same.description = "edited".to_string();
+        update_relation_type(&store, same).unwrap();
+    }
+
+    #[test]
+    fn relation_type_rekey_allowed_when_no_relations_use_the_old_key() {
+        let store = MemoryStore::default();
+        let def = retire_test_def("rt-rk-002", "unused-rekey-link");
+        create_relation_type(&store, def.clone(), None).unwrap();
+        let mut rekeyed = def;
+        rekeyed.key = "unused-rekey-link-renamed".to_string();
+        let r = update_relation_type(&store, rekeyed).unwrap();
+        assert_eq!(r.relation_type_definition.key, "unused-rekey-link-renamed");
     }
 
     #[test]
