@@ -19,7 +19,7 @@ code into the prose instead (`SCREAMING_SNAKE:` prefixes, `"{code}: {message}"`)
 1. **One core shape.** `srs-repository` owns `ErrorReport { code, message, details? }`.
    `RepositoryError::report()` builds it; adapters carry it unchanged and never compute a code.
    srs-cli keeps a schemars mirror (`ErrorReportPayload`) only to emit the payload golden
-   (schemars stays out of the library crates, ADR-011); a round-trip test pins the two together.
+   (schemars 0.8 stays in srs-cli; the only schemars in a library crate is the optional `mcp-schema` feature of ADR-037, ADR-011); a round-trip test pins the two together.
 2. **Codes are an explicit contract.** `RepositoryError::code()` is an exhaustive match with one
    kebab-case code per variant. It is not derived from the Rust variant name, so renaming a variant
    never changes the wire. RFC/ADR-named codes pass through verbatim: RFC-046 `actor-*`, ADR-050
