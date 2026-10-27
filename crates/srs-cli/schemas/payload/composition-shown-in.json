@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CompositionsShownInPayload",
+  "description": "Payload for `composition shown-in <id>`: the Compositions that show a container or an instance, resolved without rendering (type-bound `rootTypeRefs` and fixed-container `container-subset` sections).",
+  "type": "object",
+  "required": [
+    "compositions",
+    "targetId",
+    "targetKind"
+  ],
+  "properties": {
+    "compositions": {
+      "type": "array",
+      "items": true
+    },
+    "targetId": {
+      "type": "string"
+    },
+    "targetKind": {
+      "description": "`container` or `instance`.",
+      "type": "string"
+    }
+  }
+}
