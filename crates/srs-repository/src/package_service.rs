@@ -958,6 +958,39 @@ pub fn create_relation_type_normalized(
     create_relation_type(store, def, selector)
 }
 
+/// Refuse a definition whose `key` another installed definition already holds
+/// (RFC-005 resolution rule: same key coalesces only when `id`, `version` and content are
+/// equal; anything else is an installation conflict the loader would reject after the
+/// write, srs-rust#1474). Uses the same effective package set and error as the loader.
+fn ensure_relation_type_key_free(
+    store: &dyn RepositoryStore,
+    def: &RelationTypeDefinition,
+) -> Result<(), RepositoryError> {
+    let package = store.load_package()?;
+    // Only locally installed definitions hold a key: a local definition may shadow an
+    // embedded core one (merge_core_into_package), which is not a conflict.
+    let holder = package.relation_type_definitions.iter().find(|d| {
+        d.key == def.key
+            && d.id != def.id
+            && matches!(find_relation_type_path(store, &d.id), Ok(Some(_)))
+    });
+    if let Some(existing) = holder {
+        let path_of = |id: &str| -> std::path::PathBuf {
+            find_relation_type_path(store, id)
+                .ok()
+                .flatten()
+                .map(|(p, _)| std::path::PathBuf::from(p))
+                .unwrap_or_default()
+        };
+        return Err(RepositoryError::RelationTypeDefinitionConflict {
+            relation_type: def.key.clone(),
+            path_a: path_of(&existing.id),
+            path_b: path_of(&def.id),
+        });
+    }
+    Ok(())
+}
+
 /// Create a new relation type definition in a specific package boundary.
 /// Pass `selector = None` for the primary package; `Some(path)` for a sub-package.
 /// Writes the definition JSON file and updates the boundary index.
@@ -999,6 +1032,8 @@ pub fn create_relation_type(
         }
     })?;
 
+    ensure_relation_type_key_free(store, &def)?;
+
     store.ensure_relation_types_dir(&format!("{boundary_path}/relation-types"))?;
     store.save_relation_type_definition(&full_path, &def)?;
     store.add_definition_to_boundary(&selector, DefinitionKind::RelationType, &rel_filename)?;
@@ -1038,6 +1073,8 @@ pub fn update_relation_type(
             source,
         }
     })?;
+
+    ensure_relation_type_key_free(store, &def)?;
 
     if matches!(def.status, Some(RelationTypeStatus::Retired)) {
         let was_retired = store
@@ -3032,7 +3069,18 @@ mod tests {
         // filename from key-slug + id[..8]) so the two definitions do not collide
         // on the same file.
         create_relation_type(&store, make_def("aaa1-shared-key-def"), None).unwrap();
-        create_relation_type(&store, make_def("bbb2-shared-key-def"), None).unwrap();
+        // The second definition is installed below the service (as a hand-merged
+        // repository would hold it): `create_relation_type` now refuses a held key
+        // (srs-rust#1474).
+        let second = make_def("bbb2-shared-key-def");
+        let rel_filename =
+            definition_rel_path(DefinitionKind::RelationType, &second.key, &second.id);
+        store
+            .save_relation_type_definition(&format!("package/{rel_filename}"), &second)
+            .unwrap();
+        store
+            .add_definition_to_boundary(&None, DefinitionKind::RelationType, &rel_filename)
+            .unwrap();
 
         let rel_json = serde_json::json!({
             "relations": [{
@@ -3331,6 +3379,69 @@ mod tests {
             result.relation_type_definition.description,
             "updated description"
         );
+    }
+
+    fn rt_def_for_key(id: &str, key: &str) -> RelationTypeDefinition {
+        use srs_core::types::relation_type_definition::RelationTypeCategory;
+        RelationTypeDefinition {
+            schema: Some(RELATION_TYPE_SCHEMA_ID.to_string()),
+            id: id.to_string(),
+            version: 1,
+            key: key.to_string(),
+            namespace: "com.example".to_string(),
+            label: "L".to_string(),
+            description: "d".to_string(),
+            category: RelationTypeCategory::Dependency,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            status: None,
+            canonical_direction: None,
+            inverse_type: None,
+            irreflexive: None,
+            require_same_type: None,
+            updated_at: None,
+            meta: None,
+        }
+    }
+
+    /// srs-rust#1474: a key another definition holds is refused before anything is written.
+    #[test]
+    fn create_relation_type_refuses_key_held_by_another_definition() {
+        let store = MemoryStore::default();
+        create_relation_type(&store, rt_def_for_key("rt-a", "com.example/k"), None).unwrap();
+        let before = store.all_data().len();
+
+        let err = create_relation_type(&store, rt_def_for_key("rt-b", "com.example/k"), None)
+            .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::RelationTypeDefinitionConflict { .. }),
+            "got {err:?}"
+        );
+        assert_eq!(store.all_data().len(), before, "nothing written on refusal");
+        store.load_package().expect("repository still loads");
+    }
+
+    /// Re-creating the identical definition (same id) coalesces rather than conflicts.
+    #[test]
+    fn create_relation_type_same_id_same_key_is_not_a_conflict() {
+        let store = MemoryStore::default();
+        create_relation_type(&store, rt_def_for_key("rt-a", "com.example/k"), None).unwrap();
+        create_relation_type(&store, rt_def_for_key("rt-a", "com.example/k"), None).unwrap();
+    }
+
+    /// srs-rust#1474: an update that renames onto a held key is refused.
+    #[test]
+    fn update_relation_type_refuses_key_held_by_another_definition() {
+        let store = MemoryStore::default();
+        create_relation_type(&store, rt_def_for_key("rt-a", "com.example/a"), None).unwrap();
+        create_relation_type(&store, rt_def_for_key("rt-b", "com.example/b"), None).unwrap();
+
+        let err =
+            update_relation_type(&store, rt_def_for_key("rt-b", "com.example/a")).unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::RelationTypeDefinitionConflict { .. }),
+            "got {err:?}"
+        );
+        store.load_package().expect("repository still loads");
     }
 
     #[test]
