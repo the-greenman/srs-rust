@@ -3585,6 +3585,101 @@ fn relation_get_returns_relation_by_id() {
 }
 
 #[test]
+fn note_delete_refuses_inbound_relations_unless_cascade() {
+    // srs-rust#1486: `note delete` gives Tier 0 the `record delete` contract.
+    let temp = create_temp_repo();
+    write_manifest_fixture(
+        temp.path(),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "srsVersion": "2.0-draft",
+            "dataModelRevision": 2,
+            "repositoryId": "test-repo",
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(package_dir.join("relation-types")).unwrap();
+    write_json(
+        &package_dir.join("relation-types/derived-from.json"),
+        serde_json::json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
+            "id": "rt-derived-001",
+            "version": 1,
+            "key": "derived-from",
+            "namespace": "com.test",
+            "label": "Derived from",
+            "description": "Source derives from target.",
+            "category": "provenance",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "status": "active"
+        }),
+    );
+    write_json(
+        &package_dir.join("package.json"),
+        serde_json::json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+            "id": "test-pkg",
+            "namespace": "com.test",
+            "name": "test",
+            "version": "1.0.0",
+            "title": "test",
+            "description": "",
+            "status": "active",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "fields": [],
+            "types": [],
+            "relationTypes": ["relation-types/derived-from.json"]
+        }),
+    );
+
+    let notes_dir = temp.path().join("records/notes");
+    std::fs::create_dir_all(&notes_dir).unwrap();
+    for id in ["vignette", "derived"] {
+        std::fs::write(
+            notes_dir.join(format!("{id}.json")),
+            serde_json::json!({"instanceId": id, "sections": []}).to_string(),
+        )
+        .unwrap();
+    }
+    let relation = serde_json::json!({
+        "relationId": "dcf00001-0000-4000-a000-000000000002",
+        "relationType": "derived-from",
+        "sourceInstanceId": "derived",
+        "targetInstanceId": "vignette",
+        "createdAt": "2026-01-01T00:00:00Z"
+    })
+    .to_string();
+    let created = run_srs_stdin_in_dir(temp.path(), &["relation", "create"], &relation);
+    assert_eq!(created["ok"], true, "relation create: {created}");
+
+    // Refused: nothing is deleted.
+    let refused = run_srs_in_dir(temp.path(), &["note", "delete", "vignette"]);
+    assert_eq!(
+        refused["ok"], false,
+        "inbound relation must refuse: {refused}"
+    );
+    assert!(notes_dir.join("vignette.json").exists());
+    assert!(temp
+        .path()
+        .join("relations/dcf00001-0000-4000-a000-000000000002.json")
+        .exists());
+
+    // --cascade deletes and reports the removed relation.
+    let done = run_srs_in_dir(temp.path(), &["note", "delete", "vignette", "--cascade"]);
+    assert_eq!(done["ok"], true, "cascade delete: {done}");
+    assert_eq!(done["payload"]["instanceId"], "vignette");
+    let cascaded = done["payload"]["cascadedRelations"].as_array().unwrap();
+    assert_eq!(cascaded.len(), 1);
+    assert_eq!(
+        cascaded[0]["relationId"],
+        "dcf00001-0000-4000-a000-000000000002"
+    );
+    assert!(!notes_dir.join("vignette.json").exists());
+}
+
+#[test]
 fn relation_create_writes_standalone_object() {
     let temp = create_temp_repo();
 

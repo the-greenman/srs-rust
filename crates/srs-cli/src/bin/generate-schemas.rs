@@ -33,7 +33,7 @@ fn main() {
     write_schema!("note-get", NotePayload);
     write_schema!("note-create", NotePayload);
     write_schema!("note-update", NotePayload);
-    write_schema!("note-delete", DeletedPayload);
+    write_schema!("note-delete", NoteDeletePayload);
     write_schema!("note-tag-add", NoteTagAddPayload);
     write_schema!("note-tag-remove", NoteTagRemovePayload);
     write_schema!("note-tag-list", NoteTagListPayload);

@@ -9539,7 +9539,7 @@ mod tests {
         );
 
         let store = crate::store::FileStore::new(temp.path());
-        crate::services::delete_note(&store, &b).unwrap();
+        crate::services::delete_note(&store, &b, true).unwrap();
 
         let report = validate_repository(&store).unwrap();
         assert!(
