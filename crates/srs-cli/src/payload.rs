@@ -66,9 +66,10 @@ use std::path::PathBuf;
 const ENTITY_SCHEMA_BASE: &str = "https://srs.semanticops.com/schema/2.0/";
 
 fn entity_ref(file: &str) -> schemars::schema::Schema {
-    let mut obj = schemars::schema::SchemaObject::default();
-    obj.reference = Some(format!("{ENTITY_SCHEMA_BASE}{file}.json"));
-    schemars::schema::Schema::Object(obj)
+    schemars::schema::Schema::Object(schemars::schema::SchemaObject {
+        reference: Some(format!("{ENTITY_SCHEMA_BASE}{file}.json")),
+        ..Default::default()
+    })
 }
 
 fn entity_list(file: &str) -> schemars::schema::Schema {
