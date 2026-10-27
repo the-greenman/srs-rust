@@ -167,6 +167,7 @@ fn main() {
         "composition-list-for-container",
         CompositionsForContainerPayload
     );
+    write_schema!("composition-shown-in", CompositionsShownInPayload);
 
     // Theme payloads
     write_schema!("theme-list", ThemeListPayload);
