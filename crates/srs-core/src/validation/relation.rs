@@ -109,6 +109,17 @@ pub fn validate_relation(
     }
 }
 
+/// RFC-006 V5 step 1: a retired definition does not hold its key, so when a live
+/// definition shares the key the retired ones are set aside before resolution. A key
+/// with only retired definitions keeps them, so E1 still reports it as retired.
+fn drop_retired_when_live_exists(matching: &mut Vec<&RelationTypeDefinition>) {
+    let retired =
+        |d: &&RelationTypeDefinition| matches!(d.status, Some(RelationTypeStatus::Retired));
+    if matching.iter().any(|d| !retired(d)) {
+        matching.retain(|d| !retired(d));
+    }
+}
+
 /// Resolves the relationType against the definition list, emitting E1 errors as needed.
 /// Returns the resolved definition if it was found and usable.
 fn resolve_definition<'a>(
@@ -117,11 +128,12 @@ fn resolve_definition<'a>(
     is_write: bool,
     errors: &mut Vec<RelationValidationError>,
 ) -> Option<&'a RelationTypeDefinition> {
-    let matching: Vec<&RelationTypeDefinition> = ctx
+    let mut matching: Vec<&RelationTypeDefinition> = ctx
         .definitions
         .iter()
         .filter(|d| d.key == relation.relation_type)
         .collect();
+    drop_retired_when_live_exists(&mut matching);
 
     match matching.len() {
         0 => {
@@ -208,10 +220,11 @@ pub fn validate_relation_type_for_write(
     definitions: &[RelationTypeDefinition],
     relation_type: &str,
 ) -> Result<(), RelationValidationError> {
-    let matching: Vec<&RelationTypeDefinition> = definitions
+    let mut matching: Vec<&RelationTypeDefinition> = definitions
         .iter()
         .filter(|d| d.key == relation_type)
         .collect();
+    drop_retired_when_live_exists(&mut matching);
 
     let mk_err = |code: RelationValidationCode, message: String| RelationValidationError {
         relation_id: String::new(),
@@ -330,6 +343,18 @@ mod tests {
             updated_at: None,
             meta: None,
         }
+    }
+
+    /// srs-rust#1476, RFC-006 V5 step 1: a retired definition does not hold its key.
+    #[test]
+    fn retired_definition_does_not_shadow_live_one_for_write() {
+        let mut retired = make_def("reused");
+        retired.status = Some(RelationTypeStatus::Retired);
+        let mut live = make_def("reused");
+        live.id = "11111111-d1e2-4f3a-8b4c-5d6e7f8a9b0c".to_string();
+        assert!(validate_relation_type_for_write(&[retired.clone(), live], "reused").is_ok());
+        let err = validate_relation_type_for_write(&[retired], "reused").unwrap_err();
+        assert_eq!(err.code, RelationValidationCode::E1RetiredRelationType);
     }
 
     fn make_relation(rel_type: &str, src: &str, tgt: &str) -> Relation {
