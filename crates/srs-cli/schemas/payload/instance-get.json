@@ -4,7 +4,9 @@
   "description": "Payload for `instance get` — any instance read through one entry point, tagged by tier.\n\n`kind` is `\"note\"` (carries `note`) or `\"record\"` (carries `instanceId`, `displayLabel`, `record`, the same shape as `record get`).",
   "type": "object",
   "required": [
-    "kind"
+    "kind",
+    "note",
+    "record"
   ],
   "properties": {
     "displayLabel": {
@@ -22,7 +24,25 @@
     "kind": {
       "type": "string"
     },
-    "note": true,
-    "record": true
+    "note": {
+      "anyOf": [
+        {
+          "$ref": "https://srs.semanticops.com/schema/2.0/note.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "record": {
+      "anyOf": [
+        {
+          "$ref": "https://srs.semanticops.com/schema/2.0/record.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
   }
 }

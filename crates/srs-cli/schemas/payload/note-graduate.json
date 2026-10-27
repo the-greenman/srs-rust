@@ -7,7 +7,11 @@
     "record"
   ],
   "properties": {
-    "note": true,
-    "record": true
+    "note": {
+      "$ref": "https://srs.semanticops.com/schema/2.0/note.json"
+    },
+    "record": {
+      "$ref": "https://srs.semanticops.com/schema/2.0/record.json"
+    }
   }
 }

@@ -7,6 +7,8 @@
     "relationTypeDefinition"
   ],
   "properties": {
-    "relationTypeDefinition": true
+    "relationTypeDefinition": {
+      "$ref": "https://srs.semanticops.com/schema/2.0/relation-type.json"
+    }
   }
 }

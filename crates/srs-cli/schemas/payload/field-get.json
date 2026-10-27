@@ -6,6 +6,8 @@
     "field"
   ],
   "properties": {
-    "field": true
+    "field": {
+      "$ref": "https://srs.semanticops.com/schema/2.0/field.json"
+    }
   }
 }

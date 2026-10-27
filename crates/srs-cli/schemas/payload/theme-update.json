@@ -6,6 +6,8 @@
     "theme"
   ],
   "properties": {
-    "theme": true
+    "theme": {
+      "$ref": "https://srs.semanticops.com/schema/2.0/theme.json"
+    }
   }
 }
