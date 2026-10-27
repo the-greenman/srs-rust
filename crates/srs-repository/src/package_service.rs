@@ -587,18 +587,109 @@ pub fn create_field_in_package(
 }
 
 /// Update an existing field definition.
-/// Re-writes the field JSON file.
+/// Re-writes the field JSON file. Refused when it would leave records invalid
+/// (`definition-change-breaks-records`, srs-rust#1484).
 pub fn update_field(
     store: &dyn RepositoryStore,
     field: Field,
+) -> Result<UpdateFieldResult, RepositoryError> {
+    update_field_inner(store, field, true)
+}
+
+/// `update_field` without the records check, for the data-model migrations, which rewrite
+/// definitions on a repository whose records are migrated in a later step (and which may not
+/// load as a catalog yet).
+pub(crate) fn update_field_for_migration(
+    store: &dyn RepositoryStore,
+    field: Field,
+) -> Result<UpdateFieldResult, RepositoryError> {
+    update_field_inner(store, field, false)
+}
+
+fn update_field_inner(
+    store: &dyn RepositoryStore,
+    field: Field,
+    check_records: bool,
 ) -> Result<UpdateFieldResult, RepositoryError> {
     ensure_field_type_conforms(&field)?;
     let (relative_path, _owner) =
         find_field_path(store, &field.id)?.ok_or_else(|| RepositoryError::FieldNotFound {
             field_id: field.id.clone(),
         })?;
+    if check_records {
+        refuse_if_records_stop_conforming(store, "field", &field.id, |package| {
+            for f in package.fields.iter_mut().filter(|f| f.id == field.id) {
+                *f = field.clone();
+            }
+        })?;
+    }
     store.update_field_file(&relative_path, &field)?;
     Ok(UpdateFieldResult { field })
+}
+
+/// Most record ids named in a `definition-change-breaks-records` refusal.
+const BREAKS_RECORDS_ID_CAP: usize = 10;
+
+/// Refuse a field or type write that would leave records invalid (srs-rust#1484, RFC-039
+/// [R1]). `apply` rewrites the candidate definition inside a copy of the loaded package;
+/// every record is checked against the copy with the validator `repo validate` uses, and
+/// the write is refused when a record that conforms today would not afterwards. Records
+/// already invalid are not blamed on the change, and a record whose type the candidate no
+/// longer carries is left to `refuse_if_version_orphaned`.
+fn refuse_if_records_stop_conforming(
+    store: &dyn RepositoryStore,
+    entity_type: &str,
+    id: &str,
+    apply: impl FnOnce(&mut crate::package::Package),
+) -> Result<(), RepositoryError> {
+    let records = crate::record_store::list_all_records(store)?;
+    if records.is_empty() {
+        return Ok(());
+    }
+    let before = store.load_package()?;
+    let mut after = before.clone();
+    apply(&mut after);
+
+    let diagnostics_under = |package: &crate::package::Package,
+                             record: &srs_core::types::record::Record| {
+        let record_type = package.resolve_type(&record.type_id, record.type_version)?;
+        let effective = package.resolved_effective_fields(record_type).ok()?;
+        Some(srs_core::validation::record::validate_record_all(
+            record,
+            record_type,
+            &effective,
+            package,
+        ))
+    };
+
+    let mut broken: Vec<(String, String)> = Vec::new();
+    for record in &records {
+        let (Some(was), Some(now)) = (
+            diagnostics_under(&before, record),
+            diagnostics_under(&after, record),
+        ) else {
+            continue;
+        };
+        if was.is_empty() && !now.is_empty() {
+            broken.push((record.instance_id.clone(), now[0].to_string()));
+        }
+    }
+    let Some((_, first_diagnostic)) = broken.first().cloned() else {
+        return Ok(());
+    };
+    let count = broken.len();
+    let used_by = broken
+        .into_iter()
+        .take(BREAKS_RECORDS_ID_CAP)
+        .map(|(record_id, _)| record_id)
+        .collect();
+    Err(RepositoryError::DefinitionChangeBreaksRecords {
+        entity_type: entity_type.to_string(),
+        id: id.to_string(),
+        count,
+        used_by,
+        first_diagnostic,
+    })
 }
 
 /// Returns the IDs of any Types whose `fields` carry a `FieldAssignment` for `field_id`.
@@ -817,6 +908,23 @@ pub fn update_type(
     store: &dyn RepositoryStore,
     record_type: RecordType,
 ) -> Result<UpdateTypeResult, RepositoryError> {
+    update_type_inner(store, record_type, true)
+}
+
+/// `update_type` without the records check, for the data-model migrations (see
+/// [`update_field_for_migration`]).
+pub(crate) fn update_type_for_migration(
+    store: &dyn RepositoryStore,
+    record_type: RecordType,
+) -> Result<UpdateTypeResult, RepositoryError> {
+    update_type_inner(store, record_type, false)
+}
+
+fn update_type_inner(
+    store: &dyn RepositoryStore,
+    record_type: RecordType,
+    check_records: bool,
+) -> Result<UpdateTypeResult, RepositoryError> {
     let (relative_path, _owner) =
         find_type_path(store, &record_type.id)?.ok_or_else(|| RepositoryError::TypeNotFound {
             type_id: record_type.id.clone(),
@@ -842,6 +950,12 @@ pub fn update_type(
         source: e,
     })?;
     validate_definition_write_schema(TYPE_SCHEMA_ID, &raw, std::path::Path::new(&relative_path))?;
+    if check_records {
+        refuse_if_records_stop_conforming(store, "type", &record_type.id, |package| {
+            package.record_types.retain(|t| t.id != record_type.id);
+            package.record_types.push(record_type.clone());
+        })?;
+    }
     store.update_type_file(&relative_path, &record_type)?;
     Ok(UpdateTypeResult { record_type })
 }
@@ -3838,5 +3952,127 @@ mod tests {
             !result.skipped_definitions.is_empty(),
             "skipped_definitions should note that divergence was skipped"
         );
+    }
+
+    // ── srs-rust#1484: field/type updates that would invalidate records ──────────
+
+    const FID: &str = "00000000-0000-0000-0000-0000000000f1";
+    const TID: &str = "00000000-0000-0000-0000-0000000000a1";
+    const RID: &str = "00000000-0000-0000-0000-0000000000c1";
+
+    fn assign(field_id: &str, order: u32) -> srs_core::types::record_type::FieldAssignment {
+        srs_core::types::record_type::FieldAssignment {
+            field_id: field_id.to_string(),
+            order,
+            required: false,
+            display_label: None,
+            description: None,
+        }
+    }
+
+    /// A store with field `title` (string), a type assigning it, and one record valued "x".
+    fn store_with_record() -> MemoryStore {
+        use srs_core::types::record::{FieldValues, Record};
+        let mut rt = make_type(TID, "doc");
+        rt.fields = vec![assign(FID, 0)];
+        let store = MemoryStore::with_field_and_type(make_field(FID, "title"), rt);
+        let mut values = serde_json::Map::new();
+        values.insert("title".to_string(), serde_json::json!("x"));
+        store
+            .save_record(&Record {
+                instance_id: RID.to_string(),
+                type_id: TID.to_string(),
+                type_version: 1,
+                type_namespace: "com.test".to_string(),
+                type_name: "doc".to_string(),
+                field_values: FieldValues(values),
+                field_meta: None,
+                lifecycle_state: None,
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                created_by: None,
+                extra: std::collections::BTreeMap::new(),
+            })
+            .unwrap();
+        store
+    }
+
+    fn assert_breaks<T: std::fmt::Debug>(result: Result<T, RepositoryError>, entity: &str) {
+        match result {
+            Err(RepositoryError::DefinitionChangeBreaksRecords {
+                entity_type,
+                id,
+                count,
+                used_by,
+                first_diagnostic,
+            }) => {
+                assert_eq!(entity_type, entity);
+                assert_eq!(id, if entity == "field" { FID } else { TID });
+                assert_eq!(count, 1);
+                assert_eq!(used_by, vec![RID.to_string()]);
+                assert!(!first_diagnostic.is_empty());
+            }
+            other => panic!("expected DefinitionChangeBreaksRecords, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn update_field_retype_refused_when_a_record_value_would_not_conform() {
+        let store = store_with_record();
+        let mut f = make_field(FID, "title");
+        f.field_type = FieldType::integer();
+        assert_breaks(update_field(&store, f), "field");
+        assert_eq!(
+            store
+                .load_package()
+                .unwrap()
+                .resolve_field(FID)
+                .unwrap()
+                .field_type,
+            FieldType::string(),
+            "nothing is written on refusal"
+        );
+    }
+
+    #[test]
+    fn update_field_rename_refused_when_records_carry_the_old_key() {
+        let store = store_with_record();
+        assert_breaks(update_field(&store, make_field(FID, "heading")), "field");
+    }
+
+    #[test]
+    fn update_type_dropping_a_used_assignment_refused() {
+        let store = store_with_record();
+        let mut rt = make_type(TID, "doc");
+        rt.fields = vec![];
+        assert_breaks(update_type(&store, rt), "type");
+        let pkg = store.load_package().unwrap();
+        assert_eq!(pkg.resolve_type(TID, 1).unwrap().fields.len(), 1);
+    }
+
+    #[test]
+    fn definition_updates_that_keep_records_valid_are_accepted() {
+        let store = store_with_record();
+        // description-only edit of the field
+        let mut f = make_field(FID, "title");
+        f.description = "reworded".to_string();
+        update_field(&store, f).unwrap();
+        // adding an optional field to the type
+        let other = "00000000-0000-0000-0000-0000000000f2";
+        create_field(&store, make_field(other, "subtitle")).unwrap();
+        let mut rt = make_type(TID, "doc");
+        rt.fields = vec![assign(FID, 0), assign(other, 1)];
+        update_type(&store, rt).unwrap();
+    }
+
+    #[test]
+    fn update_field_retype_accepted_when_no_record_uses_it() {
+        let mut rt = make_type(TID, "doc");
+        rt.fields = vec![assign(FID, 0)];
+        let store = MemoryStore::with_field_and_type(make_field(FID, "title"), rt);
+        let mut f = make_field(FID, "title");
+        f.field_type = FieldType::integer();
+        update_field(&store, f).unwrap();
     }
 }
