@@ -28,6 +28,7 @@ use crate::package_types::{validate_package_selector, DefinitionKind, PackageSel
 use crate::store::{inject_definition_schema, RepositoryStore};
 use crate::validation::validate_definition_write_schema;
 use crate::writer::new_instance_id;
+use srs_core::types::view::SectionSource;
 use srs_core::types::view::{Composition, ExactTypeRef, View};
 use srs_core::validation::view::{validate_composition, validate_view};
 use srs_schema::{COMPOSITION_SCHEMA_ID, VIEW_SCHEMA_ID};
@@ -439,6 +440,77 @@ pub fn compositions_for_container_summary(
             source_package: None,
         })
         .collect())
+}
+
+/// What [`compositions_showing`] was asked about, and which Compositions show it.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompositionsShowing {
+    pub target_id: String,
+    /// `container` when `target_id` names a container, otherwise `instance`.
+    pub target_kind: String,
+    pub compositions: Vec<CompositionSummary>,
+}
+
+/// The Compositions that show `target_id`, without rendering any of them. `target_id` is a
+/// container or an instance. A Composition shows a container when either
+/// - its `rootTypeRefs` match the container's typing anchor ([`compositions_for_container`]), or
+/// - one of its `container-subset` sections names that container in `containerId` (a fixed
+///   container, which `compositions_for_container` cannot reach when `rootTypeRefs` is absent).
+///
+/// An instance is shown by every Composition that shows a container listing it as a member
+/// (RFC-034 effective membership). Results are de-duplicated and keep package order.
+pub fn compositions_showing(
+    store: &dyn RepositoryStore,
+    target_id: &str,
+) -> Result<CompositionsShowing, RepositoryError> {
+    let is_container = store
+        .list_container_summaries()?
+        .iter()
+        .any(|(id, _)| id == target_id);
+    let container_ids: Vec<String> = if is_container {
+        vec![target_id.to_string()]
+    } else {
+        container_service::containers_for_instance(store, target_id)?
+            .into_iter()
+            .map(|c| c.container_id)
+            .collect()
+    };
+
+    let all = list_compositions(store)?;
+    let mut shown = std::collections::HashSet::new();
+    for container_id in &container_ids {
+        // A container whose anchor cannot be resolved still has its fixed-container sections.
+        if let Ok(typed) = compositions_for_container(store, container_id) {
+            shown.extend(typed.into_iter().map(|c| c.id));
+        }
+        for c in &all {
+            let fixed = c.sections.iter().any(|s| {
+                matches!(
+                    &s.source,
+                    SectionSource::ContainerSubset { container_id: Some(id), .. } if id == container_id
+                )
+            });
+            if fixed {
+                shown.insert(c.id.clone());
+            }
+        }
+    }
+
+    let compositions = list_compositions_summary(store, &CompositionListFilter::default())?
+        .into_iter()
+        .filter(|c| shown.contains(&c.id))
+        .collect();
+    Ok(CompositionsShowing {
+        target_id: target_id.to_string(),
+        target_kind: if is_container {
+            "container"
+        } else {
+            "instance"
+        }
+        .to_string(),
+        compositions,
+    })
 }
 
 // ── View CRUD ─────────────────────────────────────────────────────────────────
