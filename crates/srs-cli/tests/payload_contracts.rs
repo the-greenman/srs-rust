@@ -48,6 +48,44 @@ fn note_list() {
 }
 
 #[test]
+fn output_envelope() {
+    check::<OutputEnvelopePayload>("output-envelope");
+}
+
+#[test]
+fn output_envelope_wire_shape() {
+    let ok = OutputEnvelopePayload {
+        ok: true,
+        command: "record get".into(),
+        version: "0.1.0".into(),
+        payload: Some(serde_json::json!({"a": 1})),
+        diagnostics: None,
+        errors: None,
+    };
+    assert_eq!(
+        serde_json::to_value(&ok).unwrap(),
+        serde_json::json!({"ok": true, "command": "record get", "version": "0.1.0", "payload": {"a": 1}})
+    );
+    let err = OutputEnvelopePayload {
+        ok: false,
+        command: "record get".into(),
+        version: "0.1.0".into(),
+        payload: None,
+        diagnostics: Some(vec!["boom".into()]),
+        errors: Some(vec![ErrorReportPayload {
+            code: "unclassified".into(),
+            message: "boom".into(),
+            details: None,
+        }]),
+    };
+    assert_eq!(
+        serde_json::to_value(&err).unwrap(),
+        serde_json::json!({"ok": false, "command": "record get", "version": "0.1.0",
+            "diagnostics": ["boom"], "errors": [{"code": "unclassified", "message": "boom"}]})
+    );
+}
+
+#[test]
 fn instance_get() {
     check::<InstanceGetPayload>("instance-get");
 }

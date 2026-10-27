@@ -6,6 +6,8 @@
     "container"
   ],
   "properties": {
-    "container": true
+    "container": {
+      "$ref": "https://srs.semanticops.com/schema/2.0/container.json"
+    }
   }
 }

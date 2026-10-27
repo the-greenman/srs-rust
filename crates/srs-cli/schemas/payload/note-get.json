@@ -6,6 +6,8 @@
     "note"
   ],
   "properties": {
-    "note": true
+    "note": {
+      "$ref": "https://srs.semanticops.com/schema/2.0/note.json"
+    }
   }
 }

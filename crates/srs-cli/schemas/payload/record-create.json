@@ -6,6 +6,8 @@
     "record"
   ],
   "properties": {
-    "record": true
+    "record": {
+      "$ref": "https://srs.semanticops.com/schema/2.0/record.json"
+    }
   }
 }

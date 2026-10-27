@@ -5,12 +5,34 @@
   "type": "object",
   "required": [
     "record",
+    "relation",
+    "successor",
     "warnings"
   ],
   "properties": {
-    "record": true,
-    "relation": true,
-    "successor": true,
+    "record": {
+      "$ref": "https://srs.semanticops.com/schema/2.0/record.json"
+    },
+    "relation": {
+      "anyOf": [
+        {
+          "$ref": "https://srs.semanticops.com/schema/2.0/relation.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "successor": {
+      "anyOf": [
+        {
+          "$ref": "https://srs.semanticops.com/schema/2.0/record.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "warnings": {
       "type": "array",
       "items": {
