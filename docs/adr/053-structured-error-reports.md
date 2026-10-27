@@ -19,7 +19,7 @@ code into the prose instead (`SCREAMING_SNAKE:` prefixes, `"{code}: {message}"`)
 1. **One core shape.** `srs-repository` owns `ErrorReport { code, message, details? }`.
    `RepositoryError::report()` builds it; adapters carry it unchanged and never compute a code.
    srs-cli keeps a schemars mirror (`ErrorReportPayload`) only to emit the payload golden
-   (schemars stays out of the library crates, ADR-011); a round-trip test pins the two together.
+   (schemars 0.8 stays in srs-cli; the only schemars in a library crate is the optional `mcp-schema` feature of ADR-037, ADR-011); a round-trip test pins the two together.
 2. **Codes are an explicit contract.** `RepositoryError::code()` is an exhaustive match with one
    kebab-case code per variant. It is not derived from the Rust variant name, so renaming a variant
    never changes the wire. RFC/ADR-named codes pass through verbatim: RFC-046 `actor-*`, ADR-050
@@ -28,8 +28,28 @@ code into the prose instead (`SCREAMING_SNAKE:` prefixes, `"{code}: {message}"`)
 3. **Display is presentation.** No `#[error]` string carries a code prefix.
 4. **Details are derived, open.** `RepositoryError` derives `Serialize` (untagged, camelCase
    fields, non-serializable sources skipped). `details` is that object, so a new variant cannot
-   forget its fields. The schema types `details` as `object`. A per-code typed union is a
-   deferred follow-up.
+   forget its fields. The schema types `details` as `object`, except for the codes a client
+   acts on (next paragraph).
+
+   **Narrow typed union (decision 01cfb06e, option (d)).** `details` is typed for the error
+   codes a client acts on, by declared mirror structs in srs-cli, each pinned to
+   `RepositoryError` by a round-trip test of the same pattern `ErrorReportPayload` already uses
+   (ADR-048 rule 4: a mirror exists only with its parity gate). Every other code keeps the open
+   `details` object. The wire is unchanged: the envelope stays `{code, message, details?}` and
+   the published schema only narrows. The first codes are those named by srs-web#512 (lifecycle
+   not defined), srs-vscode#131 (in-use delete, `usedBy`) and srs-rust#1247 (successor
+   candidates); further codes join as a client needs them (ADR-048 rule 6).
+
+   **Rejected: a schemars derive on `RepositoryError`.** The enum is `#[serde(untagged)]` and
+   its code comes from the exhaustive `code()` match, not from serde, so a derive yields an
+   `anyOf` of about 100 variant shapes with no code in them, many identical, and no branch tied
+   to a code. Six variants (`ManifestRootContainer`, `MigrationRefused`, `ContainerStorage`,
+   `ActorProvenance`, `InvalidPackageBundle`, `SliceRefused`) carry their code dynamically, one
+   variant to many codes. The `mcp-schema` feature is schemars 1 (draft 2020-12) while the
+   payload goldens are schemars 0.8 (draft-07). A full mirror of every variant (about 100
+   structs, most of which no client reads) was also rejected. The full union, a serde-tagged
+   `RepositoryError` with explicit per-variant renames, remains available as its own ADR if the
+   typed codes pass about ten or a consumer needs it.
 5. **Adapters:**
    - **CLI:** `ok:false` envelopes gain `errors: [ErrorReport]` aligned 1:1 with `diagnostics`,
      which stays unchanged for string consumers. `main.rs` finds the `RepositoryError` in the
@@ -57,7 +77,8 @@ code into the prose instead (`SCREAMING_SNAKE:` prefixes, `"{code}: {message}"`)
 - The CLI envelope's top-level shape grows (`errors`), which is an owner-merge contract change.
 - WASM now throws an `Error` object rather than a string, so `String(e)` gains an `Error: `
   prefix for clients that stringified it.
-- `details` is untyped in the schema until the follow-up.
+- `details` is typed in the schema only for the codes in the narrow union; every other code
+  keeps the open object, and each typed code adds a mirror struct and a round-trip test to maintain.
 
 **Neutral:**
 - `ok:true` envelope diagnostics are out of scope (#1339).
@@ -76,3 +97,7 @@ code into the prose instead (`SCREAMING_SNAKE:` prefixes, `"{code}: {message}"`)
   mirrors are involved. The srs-web and srs-vscode consumers are tracked in their own issues.
 - [x] **Decision mode:** complicated. The owner chose among the analysed options at the Stage 2
   pause (2026-10-08).
+
+## Amendment (2026-10-27, #1493) — section 4: the narrow typed union
+
+Records decision 01cfb06e (owner, session 2026-10-27 08:36): section 4 no longer lists the per-code typed union as deferred; it names the narrow mirror-struct union and the options rejected. No code changed.

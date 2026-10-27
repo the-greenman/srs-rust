@@ -54,4 +54,4 @@ A golden-file test in `crates/srs-cli/tests/payload_contracts.rs` regenerates ea
 **Neutral:**
 - The actual CLI JSON output is unchanged. This ADR formalizes the existing shapes; it does not alter them.
 - TypeScript types in `srs-vscode/src/cli/types.ts` remain hand-written. Code generation (json-schema-to-typescript) is deferred; manual types are safe because CI now validates fixtures against the golden schemas.
-- `schemars = "0.8"` is added to the workspace and to `srs-cli` only. `srs-core` and `srs-repository` do not gain a `schemars` dependency.
+- `schemars = "0.8"` is added to the workspace and to `srs-cli` only, for the payload goldens. `srs-core` has no `schemars` dependency. `srs-repository` has an optional `mcp-schema` feature on `schemars` 1 (ADR-037, srs-rust#1157), enabled only by `srs-mcp-core`; it adds no crate to any build, since every build that enables it already carries schemars 1.x through `srs-mcp-core`. It is not the workspace's 0.8 and plays no part in the payload goldens (srs-rust#1494, decision 01cfb06e).
