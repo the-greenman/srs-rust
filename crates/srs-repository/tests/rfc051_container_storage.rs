@@ -212,7 +212,7 @@ fn a_record_delete_cascade_writes_exactly_the_write_set() {
     add_member(&store, C, &a, None, None).unwrap();
     add_member(&store, C, &b, None, Some(1)).unwrap();
     let before = files(tmp.path(), C);
-    srs_repository::services::delete_note(&store, &a).unwrap();
+    srs_repository::services::delete_note(&store, &a, true).unwrap();
     let after = files(tmp.path(), C);
     assert_eq!(
         changed(&before, &after),

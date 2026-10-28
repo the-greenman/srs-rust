@@ -1,7 +1,7 @@
 use crate::commands::{with_store, CliContext, NoteCommand, NoteTagCommand};
 use crate::output;
 use crate::payload::{
-    DeletedPayload, NoteFoundationsPayload, NoteGraduatePayload, NoteListEntry, NoteListPayload,
+    NoteDeletePayload, NoteFoundationsPayload, NoteGraduatePayload, NoteListEntry, NoteListPayload,
     NotePayload, NoteTagAddPayload, NoteTagListPayload, NoteTagMapPayload, NoteTagRemovePayload,
 };
 use anyhow::Result;
@@ -24,7 +24,11 @@ pub fn dispatch(ctx: CliContext, cmd: NoteCommand) -> Result<String> {
         NoteCommand::Get { id, json: _ } => cmd_note_get(ctx, id),
         NoteCommand::Create { json: _ } => cmd_note_create(ctx),
         NoteCommand::Update { id, json: _ } => cmd_note_update(ctx, id),
-        NoteCommand::Delete { id, json: _ } => cmd_note_delete(ctx, id),
+        NoteCommand::Delete {
+            id,
+            cascade,
+            json: _,
+        } => cmd_note_delete(ctx, id, cascade),
         NoteCommand::Tag(tag_cmd) => cmd_note_tag_dispatch(ctx, tag_cmd),
         NoteCommand::Foundations { json: _ } => cmd_note_foundations(ctx),
         NoteCommand::Graduate {
@@ -150,17 +154,28 @@ fn cmd_note_update(ctx: CliContext, id: String) -> Result<String> {
     }
 }
 
-fn cmd_note_delete(ctx: CliContext, id: String) -> Result<String> {
+fn cmd_note_delete(ctx: CliContext, id: String, cascade: bool) -> Result<String> {
     let container_id = ctx.container_id.clone();
     match with_store(&ctx, |store| {
         Ok(delete_note_in_context(
             store,
-            DeleteNoteInput { id, container_id },
+            DeleteNoteInput {
+                id,
+                container_id,
+                cascade_inbound: cascade,
+            },
         )?)
     }) {
-        Ok(DeleteNoteResult { instance_id }) => {
-            output::serialize("note delete", DeletedPayload { instance_id })
-        }
+        Ok(DeleteNoteResult {
+            instance_id,
+            cascaded_relations,
+        }) => output::serialize(
+            "note delete",
+            NoteDeletePayload {
+                instance_id,
+                cascaded_relations,
+            },
+        ),
         Err(e) => Ok(output::any_err("note delete", &e)),
     }
 }
