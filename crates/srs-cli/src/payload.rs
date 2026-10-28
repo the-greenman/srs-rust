@@ -2212,7 +2212,8 @@ pub struct RepoValidatePayload {
     /// Diagnostic entries serialized from `ValidationDiagnostic` objects.
     /// Each entry contains `severity` (`error`, `warning` or `info`; `info` is
     /// counted in neither summary total), `path`, `schemaId?`, and `message`, plus `advisory: true` on advice-only
-    /// diagnostics (the severity is unchanged).
+    /// diagnostics (the severity is unchanged) and `code?`, the stable rule identifier where the engine
+    /// has one (the message text is unchanged).
     pub diagnostics: Vec<serde_json::Value>,
     pub summary: RepoValidateSummary,
 }
