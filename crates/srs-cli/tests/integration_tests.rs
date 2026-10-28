@@ -8389,6 +8389,83 @@ fn repo_migrations_lists_the_registered_migrations() {
     assert_eq!(status("repo-upgrade", "alreadyApplied"), true);
 }
 
+/// `repo migrations` names each entry's revision step (srs-rust#1466): a client applies the
+/// `needed` entries with a `revisionStep`, in order, before writing — no id list of its own.
+#[test]
+fn repo_migrations_flags_revision_steps_on_revision_9_and_10_repos() {
+    for (revision, pending) in [
+        (9, vec!["rfc052-root-container", "rfc051-container-entries"]),
+        (10, vec!["rfc051-container-entries"]),
+    ] {
+        let temp = create_temp_repo();
+        write_json(
+            &temp.path().join("manifest.json"),
+            serde_json::json!({
+                "dataModelRevision": 2,
+                "container": {
+                    "containerId": "00000000-0000-4000-8000-000000001466",
+                    "title": "Revision steps"
+                }
+            }),
+        );
+        std::fs::create_dir_all(temp.path().join("package")).unwrap();
+        write_json(
+            &temp.path().join("package/package.json"),
+            serde_json::json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                "id": "fixture-pkg", "namespace": "com.test", "name": "fixture",
+                "version": "1.0.0", "title": "fixture", "description": "",
+                "status": "active", "createdAt": "2026-01-01T00:00:00Z",
+                "fields": [], "types": []
+            }),
+        );
+        keep_revision(temp.path());
+        let repo = temp.path().to_str().unwrap().to_string();
+        let list = || {
+            run_srs_in_dir(temp.path(), &["--repo", &repo, "repo", "migrations"])["payload"]
+                ["migrations"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        // Climb to `revision` by the field itself.
+        while let Some(next) = list().into_iter().find(|m| {
+            m["status"]["needed"] == true
+                && m["revisionStep"]["to"]
+                    .as_u64()
+                    .is_some_and(|to| to <= revision)
+        }) {
+            let id = next["id"].as_str().unwrap();
+            let r = run_srs_in_dir(
+                temp.path(),
+                &["--repo", &repo, "repo", "apply-migration", "--id", id],
+            );
+            assert_eq!(r["ok"], true, "{id}: {r:?}");
+        }
+
+        let migrations = list();
+        let step =
+            |id: &str| migrations.iter().find(|m| m["id"] == id).unwrap()["revisionStep"].clone();
+        assert_eq!(
+            step("rfc052-root-container"),
+            serde_json::json!({"from": 9, "to": 10})
+        );
+        assert_eq!(
+            step("rfc051-container-entries"),
+            serde_json::json!({"from": 10, "to": 11})
+        );
+        for structural in ["migrate-identity", "repo-upgrade", "rfc038-storage"] {
+            assert!(step(structural).is_null(), "{structural} is structural");
+        }
+        let needed: Vec<&str> = migrations
+            .iter()
+            .filter(|m| m["status"]["needed"] == true && !m["revisionStep"].is_null())
+            .map(|m| m["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(needed, pending, "revision {revision}");
+    }
+}
+
 #[test]
 fn legacy_rev1_array_field_values_record_is_rejected_with_r9_diagnostic() {
     // A dataModelRevision-1 record file (array-of-pairs fieldValues) must be
