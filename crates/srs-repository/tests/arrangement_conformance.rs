@@ -6,9 +6,10 @@
 //! `scenarios.json` against this implementation. The fixture is consumed as external test data,
 //! never vendored (CLAUDE.md).
 //!
-//! Each scenario works on a fresh temp copy of `fixture-repo/` and is dispatched on its shape
-//! through the real services (`container_service`, `render_service`,
-//! `repository_navigation_service`). An unhandled shape or expectation key fails loudly; it is
+//! Each scenario works on a fresh temp copy of `fixture-repo/` (plus any `given.files` written
+//! over it) and is dispatched on its shape through the real services (`container_service`,
+//! `render_service`, `repository_navigation_service`, `validation`). An unhandled shape or
+//! expectation key fails loudly; it is
 //! never skipped. A failing scenario is a finding (engine or fixture), never "fixed" by editing
 //! `scenarios.json`, which is spec-repo-owned: list it in [`EXPECTED_FAILURES`] with its issue.
 //!
@@ -18,10 +19,11 @@
 use serde_json::Value;
 use srs_core::arrangement;
 use srs_core::types::container::ContainerEntry;
-use srs_repository::container_service::{self, ContainerPatch};
+use srs_repository::container_service::{self, ArrangementResult, ContainerPatch};
 use srs_repository::render_service::{render_composition, RenderCompositionOptions};
 use srs_repository::repository_navigation_service::repository_navigation;
-use srs_repository::store::FileStore;
+use srs_repository::store::{FileStore, RepositoryStore};
+use srs_repository::validation::validate_repository;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
@@ -122,6 +124,30 @@ fn markdown_headings(rendered: &str) -> Vec<(usize, String)> {
         .collect()
 }
 
+/// Check `expectedMembers` / `expectedPromoted` / `expectedRemoved` in `exp` against `res`.
+fn check_arrangement(exp: &Value, res: &ArrangementResult) -> Result<(), String> {
+    if let Some(expected) = exp.get("expectedMembers") {
+        if &entries_json(&res.members) != expected {
+            return Err(format!(
+                "members: expected {expected}, got {}",
+                entries_json(&res.members)
+            ));
+        }
+    }
+    for (key, actual) in [
+        ("expectedPromoted", &res.promoted),
+        ("expectedRemoved", &res.removed),
+    ] {
+        if let Some(expected) = exp.get(key) {
+            let expected: Vec<String> = serde_json::from_value(expected.clone()).unwrap();
+            if &expected != actual {
+                return Err(format!("{key}: expected {expected:?}, got {actual:?}"));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Run one scenario against a fresh copy of the fixture. `Err` is a failure detail.
 fn run_scenario(sc: &Value, fixture_repo: &Path) -> Result<(), String> {
     let tmp = tempfile::tempdir().unwrap();
@@ -131,6 +157,7 @@ fn run_scenario(sc: &Value, fixture_repo: &Path) -> Result<(), String> {
 
     // Reject any key we do not know how to evaluate: a skipped expectation is a false pass.
     const KNOWN: &[&str] = &[
+        "given",
         "operation",
         "container",
         "rootContainerId",
@@ -139,16 +166,39 @@ fn run_scenario(sc: &Value, fixture_repo: &Path) -> Result<(), String> {
         "expectedDirectMembers",
         "expectedParents",
         "expectedHeadings",
+        "expectedRecords",
         "expectedSections",
+        "expectedSectionContainers",
+        "expectedDiagnostics",
         "expectedOutcome",
         "expectedCode",
         "expectedMembers",
         "expectedPromoted",
         "expectedRemoved",
+        "expectedAnchorInstanceId",
+        "expectedValidateCode",
+        "expectedSecondRun",
     ];
     for key in sc.as_object().unwrap().keys() {
         if !DESCRIPTIVE_KEYS.contains(&key.as_str()) && !KNOWN.contains(&key.as_str()) {
             return Err(format!("unhandled scenario key '{key}'"));
+        }
+    }
+
+    // `given.files`: repository-relative paths written over the fixture copy before the scenario.
+    if let Some(given) = sc.get("given") {
+        for key in given.as_object().ok_or("given is not an object")?.keys() {
+            if key != "files" {
+                return Err(format!("unhandled given key '{key}'"));
+            }
+        }
+        for (rel, content) in given["files"]
+            .as_object()
+            .ok_or("given.files is not an object")?
+        {
+            let path = repo.join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, serde_json::to_string_pretty(content).unwrap()).unwrap();
         }
     }
 
@@ -234,17 +284,56 @@ fn run_scenario(sc: &Value, fixture_repo: &Path) -> Result<(), String> {
             }
             stack.push((node.depth, node.instance_id.clone()));
         }
-        let expected = sc
-            .get("expectedSections")
-            .ok_or("navigation without expectedSections")?;
-        return if &Value::Array(actual.clone()) == expected {
-            Ok(())
-        } else {
-            Err(format!(
-                "sections: expected {expected}, got {}",
-                Value::Array(actual)
-            ))
-        };
+        if ![
+            "expectedSections",
+            "expectedSectionContainers",
+            "expectedDiagnostics",
+        ]
+        .iter()
+        .any(|k| sc.get(k).is_some())
+        {
+            return Err("navigation without an expectation".into());
+        }
+        if let Some(expected) = sc.get("expectedSections") {
+            if &Value::Array(actual.clone()) != expected {
+                return Err(format!(
+                    "sections: expected {expected}, got {}",
+                    Value::Array(actual)
+                ));
+            }
+        }
+        // [R19]: each listed instance's section container (null = none).
+        if let Some(expected) = sc.get("expectedSectionContainers") {
+            for (id, want) in expected
+                .as_object()
+                .ok_or("expectedSectionContainers is not an object")?
+            {
+                let node = nav
+                    .sections
+                    .iter()
+                    .find(|n| &n.instance_id == id)
+                    .ok_or_else(|| format!("section container: {id} is not in navigation"))?;
+                let got = node
+                    .section_container_id
+                    .clone()
+                    .map_or(Value::Null, Value::String);
+                if &got != want {
+                    return Err(format!(
+                        "section container of {id}: expected {want}, got {got}"
+                    ));
+                }
+            }
+        }
+        if let Some(expected) = sc.get("expectedDiagnostics") {
+            let expected: Vec<String> = serde_json::from_value(expected.clone()).unwrap();
+            if expected != nav.diagnostics {
+                return Err(format!(
+                    "diagnostics: expected {expected:?}, got {:?}",
+                    nav.diagnostics
+                ));
+            }
+        }
+        return Ok(());
     }
 
     // Render.
@@ -270,6 +359,39 @@ fn run_scenario(sc: &Value, fixture_repo: &Path) -> Result<(), String> {
             };
         }
         let r = result.map_err(|e| e.to_string())?;
+        // [R11] json: the records in outline order, each `{instanceId, title, depth?}`.
+        if let Some(expected) = sc.get("expectedRecords") {
+            let projection = serde_json::to_value(
+                r.projection
+                    .as_ref()
+                    .ok_or("json render returned no projection")?,
+            )
+            .unwrap();
+            let actual: Vec<Value> = projection["sections"]
+                .as_array()
+                .ok_or("json render has no sections")?
+                .iter()
+                .flat_map(|s| s["records"].as_array().cloned().unwrap_or_default())
+                .map(|rec| {
+                    let mut o = serde_json::json!({
+                        "instanceId": rec["instanceId"],
+                        "title": rec["fields"]["title"],
+                    });
+                    if let Some(d) = rec.get("depth") {
+                        o["depth"] = d.clone();
+                    }
+                    o
+                })
+                .collect();
+            return if &Value::Array(actual.clone()) == expected {
+                Ok(())
+            } else {
+                Err(format!(
+                    "records: expected {expected}, got {}",
+                    Value::Array(actual)
+                ))
+            };
+        }
         let expected = sc
             .get("expectedHeadings")
             .and_then(Value::as_array)
@@ -317,33 +439,45 @@ fn run_scenario(sc: &Value, fixture_repo: &Path) -> Result<(), String> {
         }
         "members-remove" => {
             match container_service::remove_member(&store, container_id, s(op, "instanceId")) {
-                Ok(res) => {
-                    if let Some(expected) = sc.get("expectedMembers") {
-                        if &entries_json(&res.members) != expected {
-                            return Err(format!(
-                                "members: expected {expected}, got {}",
-                                entries_json(&res.members)
-                            ));
-                        }
-                    }
-                    for (key, actual) in [
-                        ("expectedPromoted", &res.promoted),
-                        ("expectedRemoved", &res.removed),
-                    ] {
-                        if let Some(expected) = sc.get(key) {
-                            let expected: Vec<String> =
-                                serde_json::from_value(expected.clone()).unwrap();
-                            if &expected != actual {
-                                return Err(format!(
-                                    "{key}: expected {expected:?}, got {actual:?}"
-                                ));
-                            }
-                        }
-                    }
-                    Ok(())
-                }
+                Ok(res) => check_arrangement(sc, &res),
                 Err(e) => Err(e.to_string()),
             }
+        }
+        // [R20]: repair removes unresolved entries by [R7], leaves the pointers alone, and is
+        // idempotent.
+        "members-repair" => {
+            let res = container_service::repair_members(&store, container_id)
+                .map_err(|e| e.to_string())?;
+            check_arrangement(sc, &res)?;
+            if let Some(expected) = sc.get("expectedAnchorInstanceId") {
+                let anchor = store
+                    .load_container_unchecked(container_id)
+                    .map_err(|e| e.to_string())?
+                    .anchor_instance_id
+                    .map_or(Value::Null, Value::String);
+                if &anchor != expected {
+                    return Err(format!("anchor: expected {expected}, got {anchor}"));
+                }
+            }
+            if let Some(code) = sc.get("expectedValidateCode").and_then(Value::as_str) {
+                let report = validate_repository(&store).map_err(|e| e.to_string())?;
+                if !report
+                    .diagnostics
+                    .iter()
+                    .any(|d| d.code.as_deref() == Some(code))
+                {
+                    return Err(format!(
+                        "validate: expected a '{code}' diagnostic, got {:?}",
+                        report.diagnostics
+                    ));
+                }
+            }
+            if let Some(second) = sc.get("expectedSecondRun") {
+                let res = container_service::repair_members(&store, container_id)
+                    .map_err(|e| e.to_string())?;
+                check_arrangement(second, &res).map_err(|e| format!("second run: {e}"))?;
+            }
+            Ok(())
         }
         other => return Err(format!("unhandled container operation '{other}'")),
     };
