@@ -362,6 +362,16 @@ pub struct RecordDeletePayload {
     pub cascaded_relations: Vec<RelationSummary>,
 }
 
+/// `note delete` (srs-rust#1486): the same contract as `record delete`, so a
+/// caller sees every Relation the delete cascaded away.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteDeletePayload {
+    pub instance_id: String,
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub cascaded_relations: Vec<RelationSummary>,
+}
+
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteTagAddPayload {

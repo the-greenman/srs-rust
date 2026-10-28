@@ -84,6 +84,9 @@ pub fn extract_note_container_id(
 pub struct DeleteNoteInput {
     pub id: String,
     pub container_id: Option<String>,
+    /// Delete even though Relations target the note, removing them with it.
+    /// `false` refuses such a note (srs-rust#1486, as `record delete` does, #1025).
+    pub cascade_inbound: bool,
 }
 
 /// Result of listing notes
@@ -150,6 +153,9 @@ pub struct UpdateNoteResult {
 #[derive(Debug, Clone)]
 pub struct DeleteNoteResult {
     pub instance_id: String,
+    /// Every Relation this delete removed as its [R22] cascade, inbound and
+    /// outbound alike (srs-rust#1486; the same contract as `DeleteRecordResult`).
+    pub cascaded_relations: Vec<crate::relation_service::RelationSummary>,
 }
 
 /// Summary of a tag across all tier-0 notes (note-level only)
@@ -300,7 +306,7 @@ pub fn create_note_in_context(
         {
             // Best-effort rollback — same caveats as ADR-024.
             // TODO: fault-injection test for this error arm pending a FailStore test double (see ADR-024).
-            let _ = delete_note(store, &result.note.instance_id);
+            let _ = delete_note(store, &result.note.instance_id, true);
             return Err(e);
         }
     }
@@ -328,7 +334,7 @@ pub fn delete_note_in_context(
         }
     }
 
-    delete_note(store, &input.id)
+    delete_note(store, &input.id, input.cascade_inbound)
 }
 
 /// Service: Update a note after validating that the ID in the body matches
@@ -713,6 +719,13 @@ pub fn update_note_content(
 /// removal. See `record_store::delete_record` for the full ordering rationale —
 /// the two delete paths share it.
 ///
+/// **Inbound-relations gate (srs-rust#1486).** As `record_store::delete_record`
+/// (#1025): before any write, a note that is the **target** of Relations (the
+/// provenance direction, e.g. records `derived-from` a vignette) is refused with
+/// [`RepositoryError::RecordHasInboundRelations`] unless `cascade_inbound` is
+/// `true`. With it, every removed Relation (both directions) comes back in
+/// [`DeleteNoteResult::cascaded_relations`].
+///
 /// No manifest *index* is written: Phase 3 removed the service-layer
 /// `instance_index` writes that ADR-007's index-first ordering used to govern.
 /// No manifest write is reachable from here: a root-container membership is removed
@@ -720,9 +733,21 @@ pub fn update_note_content(
 pub fn delete_note(
     store: &dyn RepositoryStore,
     id: &str,
+    cascade_inbound: bool,
 ) -> Result<DeleteNoteResult, RepositoryError> {
     match store.find_instance(id)? {
         Some(r) if r.tier == 0 => {
+            if !cascade_inbound {
+                let inbound = crate::relation_service::inbound_relations_to(store, id)?;
+                if !inbound.is_empty() {
+                    return Err(RepositoryError::RecordHasInboundRelations {
+                        instance_id: id.to_string(),
+                        count: inbound.len(),
+                        relations: inbound,
+                    });
+                }
+            }
+
             // Change F: container membership is an *explicit container-membership
             // operation*, outside [R22]'s routine-write prohibition. Removed
             // before the instance so the repository stays loadable in every
@@ -732,16 +757,20 @@ pub fn delete_note(
 
             store.begin_batch();
             let write_result = crate::relation_service::delete_relations_incident_to(store, id)
-                .and_then(|_| store.delete_instance(id));
-            match write_result {
-                Ok(()) => store.commit_batch()?,
+                .and_then(|relations| store.delete_instance(id).map(|()| relations));
+            let cascaded_relations = match write_result {
+                Ok(relations) => {
+                    store.commit_batch()?;
+                    relations
+                }
                 Err(e) => {
                     let _ = store.abort_batch();
                     return Err(e);
                 }
-            }
+            };
             Ok(DeleteNoteResult {
                 instance_id: id.to_string(),
+                cascaded_relations,
             })
         }
         _ => Err(RepositoryError::NoteNotFound {
@@ -1271,7 +1300,7 @@ mod tests {
         let note = make_note("11111111-1111-1111-8111-111111111111", "Test Note");
         let store = store_with_note(&note, "records/notes/test-note.json");
 
-        let result = delete_note(&store, "11111111-1111-1111-8111-111111111111").unwrap();
+        let result = delete_note(&store, "11111111-1111-1111-8111-111111111111", false).unwrap();
         assert_eq!(result.instance_id, "11111111-1111-1111-8111-111111111111");
 
         // No longer discoverable ([R22]: membership is tree-derived).
@@ -1286,7 +1315,7 @@ mod tests {
         let note = make_note("11111111-1111-1111-8111-111111111111", "Test Note");
         let store = store_with_note(&note, "records/notes/test-note.json");
 
-        delete_note(&store, "11111111-1111-1111-8111-111111111111").unwrap();
+        delete_note(&store, "11111111-1111-1111-8111-111111111111", false).unwrap();
 
         assert!(
             store
@@ -1351,7 +1380,38 @@ mod tests {
             })
             .unwrap();
 
-        delete_note(&store, "11111111-1111-1111-8111-111111111111").unwrap();
+        // srs-rust#1486: a target of inbound Relations is refused by default and
+        // the tree is untouched.
+        match delete_note(&store, "11111111-1111-1111-8111-111111111111", false).unwrap_err() {
+            RepositoryError::RecordHasInboundRelations { count, .. } => assert_eq!(count, 1),
+            other => panic!("expected RecordHasInboundRelations, got {other:?}"),
+        }
+        assert!(store
+            .find_instance("11111111-1111-1111-8111-111111111111")
+            .unwrap()
+            .is_some());
+        assert_eq!(
+            crate::relation_service::load_relations(&store)
+                .unwrap()
+                .len(),
+            3
+        );
+
+        let result = delete_note(&store, "11111111-1111-1111-8111-111111111111", true).unwrap();
+        let mut cascaded: Vec<&str> = result
+            .cascaded_relations
+            .iter()
+            .map(|r| r.relation_id.as_str())
+            .collect();
+        cascaded.sort();
+        assert_eq!(
+            cascaded,
+            vec![
+                "dd000001-0000-4000-a000-000000000001",
+                "eeeeeeee-0000-4000-8000-000000000041"
+            ],
+            "cascade reports both directions"
+        );
 
         let remaining = crate::relation_service::load_relations(&store).unwrap();
         assert_eq!(
@@ -1871,7 +1931,7 @@ mod tests {
             "one more discoverable instance after create_note"
         );
 
-        delete_note(&store, &result.note.instance_id).expect("delete_note should succeed");
+        delete_note(&store, &result.note.instance_id, false).expect("delete_note should succeed");
 
         let after_delete_len = store.catalog().unwrap().instances.len();
         assert_eq!(
@@ -2073,7 +2133,7 @@ mod tests {
         let instance_id = &note.instance_id;
 
         store.arm_fail_at(FailPoint::DeleteInstanceFile);
-        let result = delete_note(&store, instance_id);
+        let result = delete_note(&store, instance_id, false);
         assert!(
             result.is_err(),
             "delete_note must fail when the file delete fails"
