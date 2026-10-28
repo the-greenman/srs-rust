@@ -27,6 +27,10 @@ pub struct ValidationDiagnostic {
     pub relative_path: String,
     pub schema_id: Option<String>,
     pub message: String,
+    /// The stable rule identifier, when the engine computes one (srs-rust#1264).
+    /// Additive: `message` keeps the code prefix as before; the prefix is
+    /// removed in srs-rust#1496.
+    pub code: Option<String>,
 }
 
 /// Message prefixes of the diagnostics that are advice only (SHOULD-level),
@@ -50,19 +54,25 @@ impl ValidationDiagnostic {
 
 impl serde::Serialize for ValidationDiagnostic {
     /// `{ severity, path, schemaId, message }` as before, plus `advisory: true`
-    /// only on advisory diagnostics (absent otherwise, so existing clients and
-    /// payloads are unchanged).
+    /// only on advisory diagnostics and `code` only where the engine has a
+    /// stable rule code (absent otherwise, so existing clients and payloads
+    /// are unchanged).
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
         let advisory = self.is_advisory();
-        let mut st =
-            serializer.serialize_struct("ValidationDiagnostic", 4 + usize::from(advisory))?;
+        let mut st = serializer.serialize_struct(
+            "ValidationDiagnostic",
+            4 + usize::from(advisory) + usize::from(self.code.is_some()),
+        )?;
         st.serialize_field("severity", &self.severity)?;
         st.serialize_field("path", &self.relative_path)?;
         st.serialize_field("schemaId", &self.schema_id)?;
         st.serialize_field("message", &self.message)?;
         if advisory {
             st.serialize_field("advisory", &true)?;
+        }
+        if let Some(code) = &self.code {
+            st.serialize_field("code", code)?;
         }
         st.end()
     }
@@ -160,6 +170,7 @@ fn created_by_revision_diagnostic(
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
     (declared < RFC046_ACTOR_PROVENANCE_REVISION).then(|| ValidationDiagnostic {
+        code: None,
         severity: DiagnosticSeverity::Error,
         relative_path: rel_path.to_string(),
         schema_id: None,
@@ -204,6 +215,7 @@ fn data_model_revision_diagnostics(manifest_value: &Value) -> Vec<ValidationDiag
         )
     };
     vec![ValidationDiagnostic {
+        code: None,
         severity,
         relative_path: "manifest.json".to_string(),
         schema_id: None,
@@ -287,6 +299,7 @@ pub fn validate_repository(
     // srs-rust#1444: a document the pre-load transformer migrated says so, once.
     if let Some(n) = store.migration_notice() {
         diagnostics.push(ValidationDiagnostic {
+            code: Some("migrated-in-memory".to_string()),
             severity: DiagnosticSeverity::Info,
             relative_path: "manifest.json".to_string(),
             schema_id: None,
@@ -323,6 +336,7 @@ pub fn validate_repository(
             declared_revision,
         ) {
             diagnostics.push(ValidationDiagnostic {
+                code: None,
                 severity: DiagnosticSeverity::Error,
                 relative_path: "manifest.json".to_string(),
                 schema_id: None,
@@ -339,6 +353,7 @@ pub fn validate_repository(
     let cat = crate::catalog::build(store)?;
     for d in &cat.diagnostics {
         diagnostics.push(ValidationDiagnostic {
+            code: Some(d.code.to_string()),
             severity: d.severity,
             relative_path: d.locators.join(", "),
             schema_id: None,
@@ -353,6 +368,7 @@ pub fn validate_repository(
         let mut findings = shape_diagnostics(store, &cat.package_roots);
         findings.extend(check_repository(store)?);
         diagnostics.extend(findings.into_iter().map(|f| ValidationDiagnostic {
+            code: Some(f.code.to_string()),
             severity: f.severity,
             relative_path: f.path,
             schema_id: None,
@@ -366,6 +382,7 @@ pub fn validate_repository(
     // never fails the load; it draws `relation-type-core-key-shadow` once.
     for f in crate::core_package::relation_type_shadow_diagnostics(store, &cat.package_roots) {
         diagnostics.push(ValidationDiagnostic {
+            code: Some("relation-type-core-key-shadow".to_string()),
             severity: DiagnosticSeverity::Warning,
             relative_path: f.path,
             schema_id: None,
@@ -391,6 +408,7 @@ pub fn validate_repository(
     match manifest.root_container_id() {
         None => {
             diagnostics.push(ValidationDiagnostic {
+ code: None,
                 severity: DiagnosticSeverity::Error,
                 relative_path: "manifest.json".to_string(),
                 schema_id: None,
@@ -407,6 +425,7 @@ pub fn validate_repository(
                     Ok(c) => c,
                     Err(e) => {
                         diagnostics.push(ValidationDiagnostic {
+                            code: None,
                             severity: DiagnosticSeverity::Error,
                             relative_path: "manifest.json".to_string(),
                             schema_id: None,
@@ -424,6 +443,7 @@ pub fn validate_repository(
                 if let Err(e) = srs_core::validation::container::validate_container(full_container)
                 {
                     diagnostics.push(ValidationDiagnostic {
+                        code: None,
                         severity: DiagnosticSeverity::Error,
                         relative_path: "manifest.json".to_string(),
                         schema_id: None,
@@ -437,10 +457,11 @@ pub fn validate_repository(
                 // the loop below; running them here keeps the root's `manifest.json` locator.
                 let known_ids: HashSet<&str> =
                     cat.instances.iter().map(|e| e.id.as_str()).collect();
-                for (severity, message) in
+                for (severity, code, message) in
                     container_arrangement_diagnostics(full_container, true, &known_ids)
                 {
                     diagnostics.push(ValidationDiagnostic {
+                        code: code.map(str::to_string),
                         severity,
                         relative_path: "manifest.json".to_string(),
                         schema_id: None,
@@ -479,6 +500,7 @@ pub fn validate_repository(
                                 }
                                 if !section_container_roots.contains(member_id) {
                                     diagnostics.push(ValidationDiagnostic {
+ code: None,
                                         severity: slice_expected_severity,
                                         relative_path: "manifest.json".to_string(),
                                         schema_id: None,
@@ -507,6 +529,7 @@ pub fn validate_repository(
                 if let Some(cat_entry) = cat.instances.iter().find(|e| e.id == *identity_id) {
                     if cat_entry.tier == Some(0) {
                         diagnostics.push(ValidationDiagnostic {
+                            code: None,
                             severity: slice_expected_severity,
                             relative_path: "manifest.json".to_string(),
                             schema_id: None,
@@ -529,6 +552,7 @@ pub fn validate_repository(
                                     val.get("typeName").and_then(|v| v.as_str()).unwrap_or("");
                                 if !(type_ns == "com.semanticops.core" && type_name == "purpose") {
                                     diagnostics.push(ValidationDiagnostic {
+                                        code: None,
                                         severity: slice_expected_severity,
                                         relative_path: "manifest.json".to_string(),
                                         schema_id: None,
@@ -542,6 +566,7 @@ pub fn validate_repository(
                             }
                             Err(e) => {
                                 diagnostics.push(ValidationDiagnostic {
+                                    code: None,
                                     severity: DiagnosticSeverity::Warning,
                                     relative_path: "manifest.json".to_string(),
                                     schema_id: None,
@@ -555,6 +580,7 @@ pub fn validate_repository(
                         }
                     } else {
                         diagnostics.push(ValidationDiagnostic {
+ code: None,
                             severity: slice_expected_severity,
                             relative_path: "manifest.json".to_string(),
                             schema_id: None,
@@ -605,6 +631,7 @@ pub fn validate_repository(
             Ok(v) => v,
             Err(e) => {
                 diagnostics.push(ValidationDiagnostic {
+                    code: None,
                     severity: DiagnosticSeverity::Error,
                     relative_path: rel_path,
                     schema_id: None,
@@ -631,6 +658,7 @@ pub fn validate_repository(
         if let (Some(tier_id), Some(decl)) = (tier_schema_id, declared) {
             if tier_id != decl {
                 diagnostics.push(ValidationDiagnostic {
+                    code: None,
                     severity: DiagnosticSeverity::Error,
                     relative_path: rel_path.clone(),
                     schema_id: Some(decl.to_string()),
@@ -650,6 +678,7 @@ pub fn validate_repository(
         if let Some(schema_id) = schema_id_to_validate {
             if let Err(e) = reg.validate_by_id(schema_id, &value) {
                 diagnostics.push(ValidationDiagnostic {
+                    code: None,
                     severity: DiagnosticSeverity::Error,
                     relative_path: rel_path.clone(),
                     schema_id: Some(schema_id.to_string()),
@@ -658,6 +687,7 @@ pub fn validate_repository(
             }
         } else {
             diagnostics.push(ValidationDiagnostic {
+                code: None,
                 severity: DiagnosticSeverity::Warning,
                 relative_path: rel_path.clone(),
                 schema_id: None,
@@ -680,6 +710,7 @@ pub fn validate_repository(
                     &rel_path,
                 ) {
                     diagnostics.push(ValidationDiagnostic {
+                        code: None,
                         severity: DiagnosticSeverity::Error,
                         relative_path: rel_path.clone(),
                         schema_id: None,
@@ -705,6 +736,7 @@ pub fn validate_repository(
                             // type-level checking below with zero diagnostics
                             // (srs-rust#854).
                             diagnostics.push(ValidationDiagnostic {
+ code: Some("SRS038-R13-DANGLING-REFERENCE".to_string()),
                                 severity: DiagnosticSeverity::Error,
                                 relative_path: rel_path.clone(),
                                 schema_id: None,
@@ -729,6 +761,7 @@ pub fn validate_repository(
                                         package,
                                     ) {
                                         diagnostics.push(ValidationDiagnostic {
+                                            code: None,
                                             severity: DiagnosticSeverity::Error,
                                             relative_path: rel_path.clone(),
                                             schema_id: None,
@@ -738,6 +771,7 @@ pub fn validate_repository(
                                 }
                                 Err(err) => {
                                     diagnostics.push(ValidationDiagnostic {
+                                        code: None,
                                         severity: DiagnosticSeverity::Error,
                                         relative_path: rel_path.clone(),
                                         schema_id: None,
@@ -768,6 +802,7 @@ pub fn validate_repository(
                                     // legal data, not a diagnostic (srs-rust#702).
                                     if !resolved && !any_open {
                                         diagnostics.push(ValidationDiagnostic {
+ code: None,
                                             severity: DiagnosticSeverity::Error,
                                             relative_path: rel_path.clone(),
                                             schema_id: None,
@@ -802,6 +837,7 @@ pub fn validate_repository(
                                     });
                                     if !valid {
                                         diagnostics.push(ValidationDiagnostic {
+ code: None,
                                             severity: DiagnosticSeverity::Error,
                                             relative_path: rel_path.clone(),
                                             schema_id: None,
@@ -844,6 +880,14 @@ pub fn validate_repository(
                                             });
                                             if !satisfied {
                                                 diagnostics.push(ValidationDiagnostic {
+                                                    code: Some(
+                                                        if req.is_advisory() {
+                                                            "lifecycle-advisory-relation-unsatisfied"
+                                                        } else {
+                                                            "LIFECYCLE_RELATION_UNSATISFIED"
+                                                        }
+                                                        .to_string(),
+                                                    ),
                                                     severity: DiagnosticSeverity::Warning,
                                                     relative_path: rel_path.clone(),
                                                     schema_id: None,
@@ -879,6 +923,7 @@ pub fn validate_repository(
                                         validate_cross_field_rules(&record, rules, &ftype_map);
                                     for err in cfr_errors {
                                         diagnostics.push(ValidationDiagnostic {
+                                            code: None,
                                             severity: DiagnosticSeverity::Error,
                                             relative_path: rel_path.clone(),
                                             schema_id: None,
@@ -974,6 +1019,7 @@ pub fn validate_repository(
                         }
                     }
                     Err(err) => diagnostics.push(ValidationDiagnostic {
+                        code: None,
                         severity: DiagnosticSeverity::Error,
                         relative_path: rel_path.clone(),
                         schema_id: None,
@@ -983,6 +1029,7 @@ pub fn validate_repository(
                     }),
                 },
                 None => diagnostics.push(ValidationDiagnostic {
+                    code: None,
                     severity: DiagnosticSeverity::Error,
                     relative_path: rel_path.clone(),
                     schema_id: None,
@@ -1012,6 +1059,7 @@ pub fn validate_repository(
                 match attaches_doc_id_map.get(source_id) {
                     None => {
                         diagnostics.push(ValidationDiagnostic {
+ code: None,
                             severity: DiagnosticSeverity::Error,
                             relative_path: rel_path.clone(),
                             schema_id: None,
@@ -1024,6 +1072,7 @@ pub fn validate_repository(
                     }
                     Some(false) => {
                         diagnostics.push(ValidationDiagnostic {
+                            code: None,
                             severity: DiagnosticSeverity::Warning,
                             relative_path: rel_path.clone(),
                             schema_id: None,
@@ -1049,6 +1098,7 @@ pub fn validate_repository(
     for (rel_path, record_id, key, target, expected_type, expected_version) in &reference_values {
         match instance_types.get(target) {
             None => diagnostics.push(ValidationDiagnostic {
+                code: None,
                 severity: DiagnosticSeverity::Error,
                 relative_path: rel_path.clone(),
                 schema_id: None,
@@ -1060,6 +1110,7 @@ pub fn validate_repository(
             }),
             Some((tid, tver)) if tid != expected_type || tver != expected_version => {
                 diagnostics.push(ValidationDiagnostic {
+                    code: None,
                     severity: DiagnosticSeverity::Error,
                     relative_path: rel_path.clone(),
                     schema_id: None,
@@ -1086,6 +1137,7 @@ pub fn validate_repository(
         let count = occurrences.len();
         for (path, _id) in occurrences {
             diagnostics.push(ValidationDiagnostic {
+                code: None,
                 severity: DiagnosticSeverity::Error,
                 relative_path: path.clone(),
                 schema_id: None,
@@ -1107,6 +1159,7 @@ pub fn validate_repository(
         let count = policy_records.len();
         for (path, _record) in &policy_records {
             diagnostics.push(ValidationDiagnostic {
+                code: None,
                 severity: DiagnosticSeverity::Error,
                 relative_path: path.clone(),
                 schema_id: None,
@@ -1156,6 +1209,7 @@ pub fn validate_repository(
                                 Ok(mimes) => Some(mimes),
                                 Err(_) => {
                                     diagnostics.push(ValidationDiagnostic {
+ code: None,
                                         severity: DiagnosticSeverity::Warning,
                                         relative_path: policy_path.clone(),
                                         schema_id: None,
@@ -1207,6 +1261,7 @@ pub fn validate_repository(
                     Err(ref e) if e.is_not_found() => continue,
                     Err(_) => {
                         diagnostics.push(ValidationDiagnostic {
+                            code: None,
                             severity: DiagnosticSeverity::Warning,
                             relative_path: content_repo_rel.clone(),
                             schema_id: None,
@@ -1223,6 +1278,7 @@ pub fn validate_repository(
                 if let Some(limit) = max_per_file_bytes {
                     if size > limit {
                         diagnostics.push(ValidationDiagnostic {
+                            code: None,
                             severity: DiagnosticSeverity::Warning,
                             relative_path: content_repo_rel.clone(),
                             schema_id: None,
@@ -1239,6 +1295,7 @@ pub fn validate_repository(
                 if let Some(limit) = max_doc_bytes {
                     if size > limit {
                         diagnostics.push(ValidationDiagnostic {
+                            code: None,
                             severity: DiagnosticSeverity::Warning,
                             relative_path: content_repo_rel.clone(),
                             schema_id: None,
@@ -1258,6 +1315,7 @@ pub fn validate_repository(
                     if let Some(actual_mime) = mime_map.get(&entry.content_path) {
                         if !allowed.contains(actual_mime) {
                             diagnostics.push(ValidationDiagnostic {
+                                code: None,
                                 severity: DiagnosticSeverity::Warning,
                                 relative_path: content_repo_rel.clone(),
                                 schema_id: None,
@@ -1276,6 +1334,7 @@ pub fn validate_repository(
             if let Some(limit) = max_total_bytes {
                 if total_bytes > limit {
                     diagnostics.push(ValidationDiagnostic {
+                        code: None,
                         severity: DiagnosticSeverity::Warning,
                         relative_path: src_docs_base.to_string(),
                         schema_id: None,
@@ -1362,6 +1421,7 @@ pub fn validate_repository(
                         &path,
                     ) {
                         diagnostics.push(ValidationDiagnostic {
+                            code: None,
                             severity: DiagnosticSeverity::Error,
                             relative_path: path.clone(),
                             schema_id: None,
@@ -1391,6 +1451,7 @@ pub fn validate_repository(
                 _ => "relations".to_string(),
             };
             diagnostics.push(ValidationDiagnostic {
+                code: None,
                 severity: DiagnosticSeverity::Error,
                 relative_path,
                 schema_id: None,
@@ -1407,6 +1468,7 @@ pub fn validate_repository(
     if let Some((relations_path, _)) = &relations_source {
         if !store.rfc038_exempt() {
             diagnostics.push(ValidationDiagnostic {
+ code: Some("SRS038-R11-COLLECTION-RETIRED".to_string()),
                 severity: DiagnosticSeverity::Error,
                 relative_path: relations_path.clone(),
                 schema_id: None,
@@ -1434,6 +1496,7 @@ pub fn validate_repository(
             Ok(pkg) => pkg,
             Err(err) => {
                 diagnostics.push(ValidationDiagnostic {
+                    code: None,
                     severity: DiagnosticSeverity::Error,
                     relative_path: "package/package.json".to_string(),
                     schema_id: None,
@@ -1470,6 +1533,7 @@ pub fn validate_repository(
             Ok(c) => c,
             Err(e) => {
                 diagnostics.push(ValidationDiagnostic {
+                    code: None,
                     severity: DiagnosticSeverity::Error,
                     relative_path: relations_path.clone(),
                     schema_id: None,
@@ -1505,6 +1569,7 @@ pub fn validate_repository(
             if let Err(errs) = validate_relation(relation, &ctx, false) {
                 for e in errs {
                     diagnostics.push(ValidationDiagnostic {
+                        code: None,
                         severity: DiagnosticSeverity::Error,
                         relative_path: relations_path.clone(),
                         schema_id: None,
@@ -1547,6 +1612,7 @@ pub fn validate_repository(
                         if let Err(errs) = validate_relation(relation, &ctx, false) {
                             for e in errs {
                                 diagnostics.push(ValidationDiagnostic {
+                                    code: None,
                                     severity: DiagnosticSeverity::Error,
                                     relative_path: rel_path.clone(),
                                     schema_id: None,
@@ -1558,6 +1624,7 @@ pub fn validate_repository(
                         // standalone object — name both locators.
                         if collection_relation_ids.contains(&relation.relation_id) {
                             diagnostics.push(ValidationDiagnostic {
+ code: None,
                             severity: DiagnosticSeverity::Error,
                             relative_path: rel_path.clone(),
                             schema_id: None,
@@ -1573,6 +1640,7 @@ pub fn validate_repository(
                 }
                 Err(err) => {
                     diagnostics.push(ValidationDiagnostic {
+                        code: None,
                         severity: DiagnosticSeverity::Error,
                         relative_path: "package/package.json".to_string(),
                         schema_id: None,
@@ -1584,6 +1652,7 @@ pub fn validate_repository(
         Ok(_) => {}
         Err(err) => {
             diagnostics.push(ValidationDiagnostic {
+                code: None,
                 severity: DiagnosticSeverity::Error,
                 relative_path: "relations".to_string(),
                 schema_id: None,
@@ -1608,6 +1677,7 @@ pub fn validate_repository(
             crate::relation_graph::relation_set_diagnostics(&all_relations, &container_ids)
         {
             diagnostics.push(ValidationDiagnostic {
+                code: None,
                 severity: if is_error {
                     DiagnosticSeverity::Error
                 } else {
@@ -1633,10 +1703,11 @@ pub fn validate_repository(
             let Some(container) = load_container_for_diagnostics(store, centry) else {
                 continue;
             };
-            for (severity, message) in
+            for (severity, code, message) in
                 container_arrangement_diagnostics(&container, false, &known_ids)
             {
                 diagnostics.push(ValidationDiagnostic {
+                    code: code.map(str::to_string),
                     severity,
                     relative_path: format!("container {}", container.container_id),
                     schema_id: None,
@@ -1656,6 +1727,7 @@ pub fn validate_repository(
             .collect();
         for message in crate::container_service::child_container_diagnostics(&containers) {
             diagnostics.push(ValidationDiagnostic {
+                code: None,
                 severity: DiagnosticSeverity::Error,
                 relative_path: "containers".to_string(),
                 schema_id: None,
@@ -1683,6 +1755,7 @@ pub fn validate_repository(
                     for r in refs {
                         if pkg.resolve_type(&r.type_id, r.type_version).is_none() {
                             diagnostics.push(ValidationDiagnostic {
+ code: None,
                                 severity: absence,
                                 relative_path: "package/package.json".to_string(),
                                 schema_id: None,
@@ -1731,6 +1804,7 @@ pub fn validate_repository(
                     for cid in referenced {
                         if !resolves(cid) {
                             diagnostics.push(ValidationDiagnostic {
+ code: None,
                                 severity: absence,
                                 relative_path: "package/package.json".to_string(),
                                 schema_id: None,
@@ -1756,6 +1830,7 @@ pub fn validate_repository(
                         for entry in &rp.include {
                             if !seen_types.insert(entry.relation_type.as_str()) {
                                 diagnostics.push(ValidationDiagnostic {
+ code: None,
                                     severity: DiagnosticSeverity::Warning,
                                     relative_path: "package/package.json".to_string(),
                                     schema_id: None,
@@ -1768,6 +1843,7 @@ pub fn validate_repository(
                             match pkg.resolve_relation_type(&entry.relation_type) {
                                 None => {
                                     diagnostics.push(ValidationDiagnostic {
+ code: None,
                                         severity: DiagnosticSeverity::Warning,
                                         relative_path: "package/package.json".to_string(),
                                         schema_id: None,
@@ -1779,6 +1855,7 @@ pub fn validate_repository(
                                 }
                                 Some(rtd) if rtd.status == Some(RelationTypeStatus::Retired) => {
                                     diagnostics.push(ValidationDiagnostic {
+ code: None,
                                         severity: DiagnosticSeverity::Warning,
                                         relative_path: "package/package.json".to_string(),
                                         schema_id: None,
@@ -1842,6 +1919,7 @@ pub fn validate_repository(
                 };
                 if ctype != &rt.name {
                     diagnostics.push(ValidationDiagnostic {
+ code: None,
                         severity: DiagnosticSeverity::Warning,
                         relative_path: format!("container {container_id}"),
                         schema_id: None,
@@ -1868,6 +1946,7 @@ pub fn validate_repository(
                     Ok(v) => v,
                     Err(e) => {
                         diagnostics.push(ValidationDiagnostic {
+                            code: None,
                             severity: DiagnosticSeverity::Error,
                             relative_path: full_path.clone(),
                             schema_id: None,
@@ -1892,6 +1971,7 @@ pub fn validate_repository(
                                 BlueprintDiagnosticSeverity::Warning => DiagnosticSeverity::Warning,
                             };
                             diagnostics.push(ValidationDiagnostic {
+                                code: None,
                                 severity,
                                 relative_path: full_path.clone(),
                                 schema_id: None,
@@ -1901,6 +1981,7 @@ pub fn validate_repository(
                     }
                     Err(e) => {
                         diagnostics.push(ValidationDiagnostic {
+                            code: None,
                             severity: DiagnosticSeverity::Error,
                             relative_path: full_path.clone(),
                             schema_id: None,
@@ -1917,6 +1998,7 @@ pub fn validate_repository(
                     Ok(v) => v,
                     Err(e) => {
                         diagnostics.push(ValidationDiagnostic {
+                            code: None,
                             severity: DiagnosticSeverity::Error,
                             relative_path: full_path.clone(),
                             schema_id: None,
@@ -1933,6 +2015,7 @@ pub fn validate_repository(
                                 ProtocolDiagnosticSeverity::Warning => DiagnosticSeverity::Warning,
                             };
                             diagnostics.push(ValidationDiagnostic {
+                                code: None,
                                 severity,
                                 relative_path: full_path.clone(),
                                 schema_id: None,
@@ -1942,6 +2025,7 @@ pub fn validate_repository(
                     }
                     Err(e) => {
                         diagnostics.push(ValidationDiagnostic {
+                            code: None,
                             severity: DiagnosticSeverity::Error,
                             relative_path: full_path.clone(),
                             schema_id: None,
@@ -1988,6 +2072,7 @@ fn validate_identity_field_invariants(
                 Ok(fields) => {
                     if !fields.iter().any(|fa| fa.field_id == field_id) {
                         diagnostics.push(ValidationDiagnostic {
+ code: None,
                             severity: DiagnosticSeverity::Error,
                             relative_path: "package/package.json".to_string(),
                             schema_id: None,
@@ -2000,6 +2085,7 @@ fn validate_identity_field_invariants(
                 }
                 Err(e) => {
                     diagnostics.push(ValidationDiagnostic {
+ code: None,
                         severity: DiagnosticSeverity::Error,
                         relative_path: "package/package.json".to_string(),
                         schema_id: None,
@@ -2013,6 +2099,7 @@ fn validate_identity_field_invariants(
             Ok(None) => {}
             Err(e) => {
                 diagnostics.push(ValidationDiagnostic {
+ code: None,
                     severity: DiagnosticSeverity::Error,
                     relative_path: "package/package.json".to_string(),
                     schema_id: None,
@@ -2049,6 +2136,7 @@ fn validate_field_type_conformance(
     for field in &pkg.fields {
         for d in validate_field_v3(field) {
             diagnostics.push(ValidationDiagnostic {
+                code: None,
                 severity: DiagnosticSeverity::Error,
                 relative_path: "package/package.json".to_string(),
                 schema_id: None,
@@ -2072,6 +2160,7 @@ fn validate_cross_field_rule_configuration(
     for rt in pkg.record_types() {
         for err in validate_cross_field_rules_for_type(rt, &pkg.fields) {
             diagnostics.push(ValidationDiagnostic {
+                code: None,
                 severity: DiagnosticSeverity::Error,
                 relative_path: "package/package.json".to_string(),
                 schema_id: None,
@@ -2150,6 +2239,7 @@ fn validate_title_field_id_eligibility(
             if candidate_types.is_empty() {
                 if !crate::render_service::title_field_id_is_eligible(field_id, None, pkg) {
                     diagnostics.push(ValidationDiagnostic {
+ code: None,
                         severity: DiagnosticSeverity::Warning,
                         relative_path: "package/package.json".to_string(),
                         schema_id: None,
@@ -2165,6 +2255,7 @@ fn validate_title_field_id_eligibility(
             for rt in candidate_types {
                 if !crate::render_service::title_field_id_is_eligible(field_id, Some(rt), pkg) {
                     diagnostics.push(ValidationDiagnostic {
+ code: None,
                         severity: DiagnosticSeverity::Warning,
                         relative_path: "package/package.json".to_string(),
                         schema_id: None,
@@ -2196,6 +2287,7 @@ fn validate_vocabulary_invariants(
             match pkg.vocabularies.iter().find(|v| &v.id == ref_id) {
                 None => {
                     diagnostics.push(ValidationDiagnostic {
+ code: None,
                         severity: DiagnosticSeverity::Error,
                         relative_path: "package/package.json".to_string(),
                         schema_id: None,
@@ -2211,6 +2303,7 @@ fn validate_vocabulary_invariants(
                         && vocab.mode == srs_core::types::vocabulary::VocabularyMode::Open =>
                 {
                     diagnostics.push(ValidationDiagnostic {
+ code: None,
                         severity: DiagnosticSeverity::Error,
                         relative_path: "package/package.json".to_string(),
                         schema_id: None,
@@ -2231,6 +2324,7 @@ fn validate_vocabulary_invariants(
         for term in vocab.effective_terms() {
             if !seen.insert(term.key.as_str()) {
                 diagnostics.push(ValidationDiagnostic {
+                    code: None,
                     severity: DiagnosticSeverity::Error,
                     relative_path: "package/package.json".to_string(),
                     schema_id: None,
@@ -2244,6 +2338,7 @@ fn validate_vocabulary_invariants(
                 for alias in aliases {
                     if !seen.insert(alias.as_str()) {
                         diagnostics.push(ValidationDiagnostic {
+                            code: None,
                             severity: DiagnosticSeverity::Error,
                             relative_path: "package/package.json".to_string(),
                             schema_id: None,
@@ -2270,6 +2365,7 @@ fn validate_vocabulary_invariants(
                 }
                 if !seen.insert(ef.name.as_str()) {
                     diagnostics.push(ValidationDiagnostic {
+                        code: None,
                         severity: DiagnosticSeverity::Error,
                         relative_path: "package/package.json".to_string(),
                         schema_id: None,
@@ -2295,6 +2391,7 @@ fn validate_vocabulary_invariants(
         // V7: mutual exclusion
         if rt.lifecycle.is_some() && rt.lifecycle_ref.is_some() {
             diagnostics.push(ValidationDiagnostic {
+ code: None,
                 severity: DiagnosticSeverity::Error,
                 relative_path: "package/package.json".to_string(),
                 schema_id: None,
@@ -2311,6 +2408,7 @@ fn validate_vocabulary_invariants(
         if let Some(ref_id) = &rt.lifecycle_ref {
             if !pkg.lifecycles.iter().any(|lc| &lc.id == ref_id) {
                 diagnostics.push(ValidationDiagnostic {
+ code: None,
                     severity: DiagnosticSeverity::Error,
                     relative_path: "package/package.json".to_string(),
                     schema_id: None,
@@ -2331,6 +2429,7 @@ fn validate_vocabulary_invariants(
                     LifecycleDiagnosticSeverity::Error => DiagnosticSeverity::Error,
                 };
                 diagnostics.push(ValidationDiagnostic {
+                    code: None,
                     severity,
                     relative_path: "package/package.json".to_string(),
                     schema_id: None,
@@ -2346,6 +2445,7 @@ fn validate_vocabulary_invariants(
                 .collect();
             if initial_states.len() == 1 && initial_states[0].key != inline_lc.initial_state {
                 diagnostics.push(ValidationDiagnostic {
+ code: None,
                     severity: DiagnosticSeverity::Error,
                     relative_path: "package/package.json".to_string(),
                     schema_id: None,
@@ -2365,6 +2465,7 @@ fn validate_vocabulary_invariants(
                 LifecycleDiagnosticSeverity::Error => DiagnosticSeverity::Error,
             };
             diagnostics.push(ValidationDiagnostic {
+                code: None,
                 severity,
                 relative_path: "package/package.json".to_string(),
                 schema_id: None,
@@ -2382,6 +2483,7 @@ fn validate_vocabulary_invariants(
             let initial_key = &initial_states[0].key;
             if initial_key != &lc.initial_state {
                 diagnostics.push(ValidationDiagnostic {
+ code: None,
                     severity: DiagnosticSeverity::Error,
                     relative_path: "package/package.json".to_string(),
                     schema_id: None,
@@ -2400,6 +2502,7 @@ fn validate_vocabulary_invariants(
 /// `ext:slices` (R4); plus one info diagnostic counting the cut edges (Change E 1).
 fn slice_block_diagnostics(manifest: &Value, slice: &Value) -> Vec<ValidationDiagnostic> {
     let at = |severity, message: String| ValidationDiagnostic {
+        code: None,
         severity,
         relative_path: "manifest.json".to_string(),
         schema_id: None,
@@ -2488,6 +2591,7 @@ fn validate_value_against_schema(
             && message.contains("compositions")
         {
             diags.push(ValidationDiagnostic {
+ code: None,
                 severity: DiagnosticSeverity::Warning,
                 relative_path: rel_path.to_string(),
                 schema_id: Some(schema_id.to_string()),
@@ -2496,6 +2600,7 @@ fn validate_value_against_schema(
             return Some(diags);
         }
         diags.push(ValidationDiagnostic {
+            code: None,
             severity: DiagnosticSeverity::Error,
             relative_path: rel_path.to_string(),
             schema_id: Some(schema_id.to_string()),
@@ -2537,7 +2642,7 @@ fn container_arrangement_diagnostics(
     container: &srs_core::types::container::Container,
     is_root: bool,
     known_ids: &HashSet<&str>,
-) -> Vec<(DiagnosticSeverity, String)> {
+) -> Vec<(DiagnosticSeverity, Option<&'static str>, String)> {
     use srs_core::arrangement;
     let cid = &container.container_id;
     let entries = container.member_instance_ids.as_deref().unwrap_or(&[]);
@@ -2545,12 +2650,14 @@ fn container_arrangement_diagnostics(
     if container.extra.contains_key("rootInstanceIds") {
         out.push((
             DiagnosticSeverity::Error,
+            None,
             format!("container '{cid}': rootInstanceIds is removed at dataModelRevision 8 (RFC-043 [R4]); run `srs repo apply-migration --id rfc043-container-entries`"),
         ));
     }
     if entries.iter().any(|e| &e.instance_id == cid) {
         out.push((
             DiagnosticSeverity::Error,
+            None,
             format!("container '{cid}': containerId must not appear in memberInstanceIds"),
         ));
     }
@@ -2558,12 +2665,17 @@ fn container_arrangement_diagnostics(
         .then_some(container.identity_instance_id.as_deref())
         .flatten();
     for v in arrangement::check_entries(entries, root_identity) {
-        out.push((DiagnosticSeverity::Error, format!("container '{cid}': {v}")));
+        out.push((
+            DiagnosticSeverity::Error,
+            Some(v.code),
+            format!("container '{cid}': {v}"),
+        ));
     }
     for e in entries {
         if !known_ids.contains(e.instance_id.as_str()) {
             out.push((
                 DiagnosticSeverity::Error,
+                Some(arrangement::CODE_UNRESOLVED),
                 format!(
                     "{}: container '{cid}' memberInstanceId '{}' not found in the instance set (repair with `srs container members repair`)",
                     arrangement::CODE_UNRESOLVED, e.instance_id
@@ -2587,6 +2699,7 @@ fn container_arrangement_diagnostics(
             if !container.has_member(id) {
                 out.push((
                     DiagnosticSeverity::Error,
+                    Some(crate::container_store::codes::POINTER_UNRESOLVED),
                     format!(
                         "{}: {rule}: container '{cid}' {name} '{id}' is not an entry of memberInstanceIds",
                         crate::container_store::codes::POINTER_UNRESOLVED
@@ -3209,6 +3322,11 @@ mod tests {
             "expected a dangling-reference error naming the unresolvable typeId, got: {:?}",
             report.diagnostics
         );
+        // srs-rust#1264: the code the engine computed rides beside the text, and
+        // the text is unchanged (the prefix is removed in srs-rust#1496).
+        let err_d = err.unwrap();
+        assert_eq!(err_d.code.as_deref(), Some("SRS038-R13-DANGLING-REFERENCE"));
+        assert!(err_d.message.starts_with("SRS038-R13-DANGLING-REFERENCE: "));
         // srs-rust#1046: the typeId itself is unresolvable (that's the point of the
         // diagnostic) but the Record still carries denormalized typeNamespace/typeName
         // hints (`minimal_record_json` sets "com.test"/"test-type") — the message must
@@ -7117,7 +7235,7 @@ mod tests {
         let codes = |c: &Container, root: bool| -> Vec<String> {
             container_arrangement_diagnostics(c, root, &known)
                 .into_iter()
-                .map(|(_, m)| m)
+                .map(|(_, _, m)| m)
                 .collect()
         };
         let c = mk(vec![
@@ -7141,6 +7259,68 @@ mod tests {
         }
         // The identity rule is root-container only.
         assert!(!codes(&c, false).join("\n").contains("arrangement-identity"));
+    }
+
+    /// srs-rust#1264: each arrangement diagnostic that names a code carries it as `code`,
+    /// and the one without a code (a retired key) carries none.
+    #[test]
+    fn container_arrangement_diagnostics_carry_their_code() {
+        use srs_core::types::container::{Container, ContainerEntry};
+        let known: HashSet<&str> = ["a"].into_iter().collect();
+        let mut c = Container {
+            container_id: "c".into(),
+            title: "T".into(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            identity_instance_id: None,
+            anchor_instance_id: Some("zz".into()),
+            member_instance_ids: Some(vec![ContainerEntry::new("a"), ContainerEntry::new("ghost")]),
+            child_container_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: Default::default(),
+        };
+        c.extra
+            .insert("rootInstanceIds".into(), serde_json::json!([]));
+        for (_, code, message) in container_arrangement_diagnostics(&c, false, &known) {
+            match code {
+                Some(code) => assert!(
+                    message.contains(code),
+                    "code {code} not in its message: {message}"
+                ),
+                None => assert!(message.contains("rootInstanceIds is removed"), "{message}"),
+            }
+        }
+        let got: Vec<_> = container_arrangement_diagnostics(&c, false, &known)
+            .into_iter()
+            .filter_map(|(_, code, _)| code)
+            .collect();
+        assert_eq!(
+            got,
+            vec!["arrangement-unresolved", "container-pointer-unresolved"]
+        );
+    }
+
+    /// srs-rust#1264: `code` serializes only when present, so payloads without a code
+    /// are byte-identical to before.
+    #[test]
+    fn diagnostic_code_serializes_only_when_present() {
+        let mut d = ValidationDiagnostic {
+            code: None,
+            severity: DiagnosticSeverity::Error,
+            relative_path: "x.json".to_string(),
+            schema_id: None,
+            message: "plain".to_string(),
+        };
+        assert!(serde_json::to_value(&d).unwrap().get("code").is_none());
+        d.code = Some("some-code".to_string());
+        let v = serde_json::to_value(&d).unwrap();
+        assert_eq!(v["code"], "some-code");
+        assert_eq!(v["message"], "plain");
     }
 
     // ---- RFC-013 root container invariant tests ----
@@ -7655,6 +7835,7 @@ mod tests {
     #[test]
     fn non_advisory_diagnostic_serializes_without_advisory_marker() {
         let d = ValidationDiagnostic {
+            code: None,
             severity: DiagnosticSeverity::Warning,
             relative_path: "x.json".to_string(),
             schema_id: None,
@@ -7663,6 +7844,7 @@ mod tests {
         assert!(!d.is_advisory());
         assert!(serde_json::to_value(&d).unwrap().get("advisory").is_none());
         let e = ValidationDiagnostic {
+            code: None,
             severity: DiagnosticSeverity::Error,
             relative_path: "x.json".to_string(),
             schema_id: None,
