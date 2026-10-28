@@ -322,6 +322,99 @@ fn package_install_cli_bundle_roundtrip() {
     assert_eq!(validate["payload"]["summary"]["errors"], 0, "{validate}");
 }
 
+/// srs-rust#1473: `type create` of version 2 writes beside version 1, so a record bound to
+/// v1 stays valid, both versions are listed, and a bundle carries both into another repo.
+#[test]
+fn type_create_new_version_beside_old_and_bundle_roundtrip() {
+    let (ws, a, b) = two_repos();
+    let dir = ws.path();
+    let item = "11111111-0003-4333-8444-555555555555";
+
+    let rec = run_srs_stdin(
+        dir,
+        &[
+            "--repo",
+            &a,
+            "record",
+            "create",
+            "--type",
+            "com.cli.install/item",
+        ],
+        r#"{"fieldValues": {"label": "bound to v1"}}"#,
+    );
+    assert_eq!(rec["ok"], true, "{rec}");
+
+    let v2 = serde_json::json!({
+        "id": item,
+        "namespace": "com.cli.install",
+        "name": "item",
+        "version": 2,
+        "description": "An item, version 2.",
+        "createdAt": "2026-10-28T00:00:00Z",
+        "fields": [
+            {"fieldId": "11111111-0001-4333-8444-555555555555", "order": 0, "required": true}
+        ]
+    });
+    let created = run_srs_stdin(
+        dir,
+        &["--repo", &a, "type", "create", "--package", SELECTOR],
+        &v2.to_string(),
+    );
+    assert_eq!(created["ok"], true, "{created}");
+    assert!(Path::new(&a)
+        .join(SELECTOR)
+        .join("types/item-11111111-v2.json")
+        .exists());
+
+    let versions = |repo: &str| -> Vec<u64> {
+        let list = run_srs(dir, &["--repo", repo, "type", "list"]);
+        let mut v: Vec<u64> = list["payload"]["types"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|t| t["id"] == item)
+            .map(|t| t["version"].as_u64().unwrap())
+            .collect();
+        v.sort_unstable();
+        v
+    };
+    assert_eq!(versions(&a), vec![1, 2]);
+    let validate = run_srs(dir, &["--repo", &a, "repo", "validate"]);
+    assert_eq!(validate["payload"]["summary"]["errors"], 0, "{validate}");
+
+    let out = dir
+        .join("two-versions.srspkg")
+        .to_string_lossy()
+        .into_owned();
+    export(dir, &a, &out);
+    let installed = run_srs(dir, &["--repo", &b, "package", "install", "--bundle", &out]);
+    assert_eq!(installed["ok"], true, "{installed}");
+    assert_eq!(versions(&b), vec![1, 2]);
+    let validate = run_srs(dir, &["--repo", &b, "repo", "validate"]);
+    assert_eq!(validate["payload"]["summary"]["errors"], 0, "{validate}");
+}
+
+fn run_srs_stdin(dir: &Path, args: &[&str], stdin: &str) -> Value {
+    use std::io::Write;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_srs"))
+        .env_remove("SRS_ACTOR")
+        .args(args)
+        .current_dir(dir)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to execute srs command");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    serde_json::from_slice(&output.stdout).expect("Failed to parse JSON output")
+}
+
 #[test]
 fn package_install_cli_rejects_source_dir_with_bundle() {
     let (ws, _a, b) = two_repos();
