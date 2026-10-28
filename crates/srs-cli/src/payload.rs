@@ -2923,6 +2923,16 @@ pub struct MigrationSummaryPayload {
     pub title: String,
     pub description: String,
     pub status: MigrationStatusPayload,
+    /// The data-model revision step this entry implements, or `null` for a structural entry.
+    /// A `needed` entry with a step must be applied (in registry order) before writing.
+    pub revision_step: Option<RevisionStepPayload>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RevisionStepPayload {
+    pub from: u64,
+    pub to: u64,
 }
 
 impl From<srs_repository::migration_registry_service::MigrationSummary>
@@ -2934,6 +2944,10 @@ impl From<srs_repository::migration_registry_service::MigrationSummary>
             title: m.title,
             description: m.description,
             status: MigrationStatusPayload::from(m.status),
+            revision_step: m.revision_step.map(|s| RevisionStepPayload {
+                from: s.from,
+                to: s.to,
+            }),
         }
     }
 }

@@ -17,6 +17,18 @@ pub struct MigrationSummary {
     pub title: String,
     pub description: String,
     pub status: MigrationStatus,
+    /// The data-model revision step this entry implements (`from` -> `to`), or `None` for a
+    /// structural entry. A `needed` entry with a step must run before a client writes
+    /// (RFC-052 [R7]); clients filter on it rather than keep their own id list (srs-rust#1466).
+    pub revision_step: Option<MigrationRevisionStep>,
+}
+
+/// The revision step a registry entry implements, as reported by [`list_migrations`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MigrationRevisionStep {
+    pub from: u64,
+    pub to: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -795,6 +807,10 @@ pub fn list_migrations(
                 title: m.title.to_string(),
                 description: m.description.to_string(),
                 status,
+                revision_step: m.revision_step.as_ref().map(|s| MigrationRevisionStep {
+                    from: s.from,
+                    to: s.to,
+                }),
             })
         })
         .collect()
