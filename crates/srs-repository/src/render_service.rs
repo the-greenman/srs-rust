@@ -246,6 +246,46 @@ fn section_is_arranged(section: &DocumentSection) -> bool {
         .is_some_and(|o| o.source == Some(srs_core::types::view::OrderingSource::Arranged))
 }
 
+/// srs-rust#1502: a `container-subset` section's `typeFilter` (RFC-008) binds the
+/// `contains` recursion as well as the direct members. [`dedupe_contains_roots`] drops
+/// an entry that another entry `contains` *before* the filter is tested, on the
+/// premise that the recursion renders it — so without this the recursion rendered
+/// filtered-out entries anyway. A child that fails the filter is dropped by the
+/// promoting removal (RFC-043 [R7]): its own `contains` children take its place.
+/// Sections with no (or an empty) filter get their children back untouched.
+fn retain_type_filtered_children(
+    store: &dyn RepositoryStore,
+    package: &Package,
+    section: &DocumentSection,
+    children: Vec<LoadedInstance>,
+    relations: &[Relation],
+) -> Result<Vec<LoadedInstance>, RepositoryError> {
+    let Some(filter) = relation_graph::section_ordering_inputs(&section.source) else {
+        return Ok(children);
+    };
+    let mut kept = Vec::with_capacity(children.len());
+    for child in children {
+        if relation_graph::passes_type_filter(&child, filter, package) {
+            kept.push(child);
+        } else {
+            let grandchildren = relation_graph::children_by_relation_type(
+                child.instance_id(),
+                "contains",
+                relations,
+                store,
+            )?;
+            kept.extend(retain_type_filtered_children(
+                store,
+                package,
+                section,
+                grandchildren,
+                relations,
+            )?);
+        }
+    }
+    Ok(kept)
+}
+
 /// One entry in a `container-subset` section's [R20]-ordered rendering
 /// sequence: either a plain direct member (record or Tier-0 note), or a
 /// nested section descending into a declared child container ([R21]).
@@ -962,12 +1002,13 @@ fn project_contains_children_json(
     if section.title_field_id.is_none() {
         return Ok(Vec::new());
     }
-    let mut children = relation_graph::children_by_relation_type(
+    let children = relation_graph::children_by_relation_type(
         &record.instance_id,
         "contains",
         relations,
         store,
     )?;
+    let mut children = retain_type_filtered_children(store, package, section, children, relations)?;
     // srs-rust#1130: see the matching comment in `render_record_at_level` —
     // the same single-anchor-container gap applies to the JSON projection's
     // parallel recursion, and the same one-level-only scoping.
@@ -3217,12 +3258,14 @@ fn render_record_at_level(
         // H6 clamp binds it uniformly — "closes a gap that predates nested
         // sections rather than one this revision creates."
         let child_level = clamp_heading_level(heading_level + 1, ctx.format, diagnostics);
-        let mut subsections = relation_graph::children_by_relation_type(
+        let subsections = relation_graph::children_by_relation_type(
             &record.instance_id,
             "contains",
             relations,
             store,
         )?;
+        let mut subsections =
+            retain_type_filtered_children(store, ctx.package, section, subsections, relations)?;
         // srs-rust#1130: for a single-anchor container (e.g. a Part), `direct(C)`
         // collapses to just the anchor (`filter_contains_roots`), so the anchor's
         // own `contains` children — the concepts a Part's arrangement
@@ -10098,6 +10141,26 @@ mod tests {
             fields: vec![heading_field, body_field, caption_field],
             record_types: vec![text_type, table_type],
             relation_type_definitions: vec![
+                // srs-rust#1502: `contains`, for the typeFilter-through-recursion tests.
+                srs_core::types::relation_type_definition::RelationTypeDefinition {
+                    schema: None,
+                    id: "00000000-0000-4000-8000-000000000rt2".to_string(),
+                    namespace: "com.test".to_string(),
+                    key: "contains".to_string(),
+                    label: "Contains".to_string(),
+                    description: "Containment relation".to_string(),
+                    category:
+                        srs_core::types::relation_type_definition::RelationTypeCategory::Composition,
+                    canonical_direction: None,
+                    irreflexive: Some(true),
+                    inverse_type: None,
+                    version: 1,
+                    created_at: "2026-01-01T00:00:00Z".to_string(),
+                    require_same_type: None,
+                    status: None,
+                    updated_at: None,
+                    meta: None,
+                },
                 srs_core::types::relation_type_definition::RelationTypeDefinition {
                     schema: None,
                     id: "00000000-0000-4000-8000-000000000rt1".to_string(),
@@ -10286,6 +10349,78 @@ mod tests {
             "table record should be filtered out; got:\n{}",
             result.rendered
         );
+    }
+
+    /// srs-rust#1502: a member that another member `contains` is left to the `contains`
+    /// recursion, so the typeFilter must bind there too. Introduction (text) contains
+    /// Summary Table (table, also a member), which contains Promoted (text, not a member).
+    /// Filtering to text drops the table by the promoting removal: Promoted takes its place.
+    #[test]
+    fn type_filter_binds_contains_recursion_with_promoting_removal() {
+        use crate::record_store::create_record;
+        use crate::relation_service;
+        let view = rfc008_doc_view(Some(vec!["com.test/section.text".to_string()]), None, None);
+        let (store, text_id, table_id) = make_rfc008_store(view);
+        let promoted = create_record(
+            &store,
+            "t-text",
+            1,
+            {
+                let mut fv = srs_core::types::record::FieldValues::new();
+                fv.insert("heading", serde_json::json!("Promoted"));
+                fv.insert("body", serde_json::json!("Under the filtered table."));
+                fv
+            },
+            None,
+            None,
+        )
+        .unwrap();
+        for (source, target) in [(&text_id, &table_id), (&table_id, &promoted.instance_id)] {
+            relation_service::create_relation_auto(
+                &store,
+                Relation {
+                    created_by: None,
+                    relation_id: String::new(),
+                    relation_type: "contains".to_string(),
+                    source_instance_id: source.clone(),
+                    target_instance_id: target.clone(),
+                    created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                    notes: None,
+                    source_refs: None,
+                    meta: None,
+                },
+            )
+            .unwrap();
+        }
+
+        for format in [None, Some("json")] {
+            let result = render_composition(RenderCompositionOptions {
+                store: &store,
+                view_id: "dv-rfc008",
+                format,
+                theme_variant: None,
+                container_id: None,
+                instance_id_filter: None,
+                exclude_instance_ids: &[],
+            })
+            .expect("render should succeed");
+            let out = match &result.projection {
+                Some(p) => serde_json::to_string(p).unwrap(),
+                None => result.rendered.clone(),
+            };
+            assert!(
+                out.contains("Introduction"),
+                "{format:?}: text member renders; got:\n{out}"
+            );
+            assert!(
+                !out.contains("Summary Table"),
+                "{format:?}: the table, filtered out, must not render through recursion; got:\n{out}"
+            );
+            assert!(
+                out.contains("Promoted"),
+                "{format:?}: the filtered table's child is promoted, not lost; got:\n{out}"
+            );
+        }
     }
 
     #[test]
