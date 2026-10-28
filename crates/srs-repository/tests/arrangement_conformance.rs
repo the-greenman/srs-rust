@@ -17,13 +17,16 @@
 //! this test's concern.
 
 use serde_json::Value;
-use srs_core::arrangement;
+use srs_core::arrangement::{self, Placement, RelativeMove};
 use srs_core::types::container::ContainerEntry;
 use srs_repository::container_service::{self, ArrangementResult, ContainerPatch};
+use srs_repository::error::RepositoryError;
+use srs_repository::relation_service::{list_relations, ListRelationsFilter};
 use srs_repository::render_service::{render_composition, RenderCompositionOptions};
 use srs_repository::repository_navigation_service::repository_navigation;
 use srs_repository::store::{FileStore, RepositoryStore};
 use srs_repository::validation::validate_repository;
+use srs_repository::view_service::create_composition_normalized;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
@@ -112,6 +115,54 @@ fn entries_json(entries: &[ContainerEntry]) -> Value {
     serde_json::to_value(entries).unwrap()
 }
 
+/// A refusal as the surfaces report it: the stable code first, then the message, so an
+/// `expectedCode` matches on either.
+fn refusal(e: RepositoryError) -> String {
+    format!("{}: {e}", e.code())
+}
+
+/// The repository's validation diagnostics, for comparing two states.
+fn validation_snapshot(store: &FileStore) -> Result<Vec<String>, String> {
+    let report = validate_repository(store).map_err(|e| e.to_string())?;
+    let mut d: Vec<String> = report
+        .diagnostics
+        .iter()
+        .map(|d| format!("{d:?}"))
+        .collect();
+    d.sort();
+    Ok(d)
+}
+
+/// An operation outcome judged against `expectedOutcome` / `expectedCode`.
+fn judge(sc: &Value, outcome: Result<(), String>) -> Result<(), String> {
+    match sc.get("expectedOutcome").and_then(Value::as_str) {
+        Some("refused") => match outcome {
+            Ok(()) => Err("expected the operation to be refused, but it succeeded".into()),
+            Err(msg) => {
+                // `expectedCode` may carry a parenthesised alternative for a different surface
+                // ("instance not found (arrangement-unresolved on a stored container)"): the
+                // primary code is the text before the parenthesis.
+                match sc.get("expectedCode").and_then(Value::as_str) {
+                    Some(code) => {
+                        let primary = code.split(" (").next().unwrap_or(code);
+                        let found = msg.contains(primary)
+                            || (primary == "instance not found"
+                                && msg.to_lowercase().contains("not found"));
+                        if found {
+                            Ok(())
+                        } else {
+                            Err(format!("refused, but not with '{primary}': {msg}"))
+                        }
+                    }
+                    None => Ok(()),
+                }
+            }
+        },
+        None => outcome,
+        Some(other) => Err(format!("unhandled expectedOutcome '{other}'")),
+    }
+}
+
 /// `# ` prefixed lines of rendered markdown, as `(level, title)`.
 fn markdown_headings(rendered: &str) -> Vec<(usize, String)> {
     rendered
@@ -178,6 +229,10 @@ fn run_scenario(sc: &Value, fixture_repo: &Path) -> Result<(), String> {
         "expectedAnchorInstanceId",
         "expectedValidateCode",
         "expectedSecondRun",
+        "expectedSectionOrder",
+        "ignoredRelations",
+        "expectedValidateUnchanged",
+        "expectedDiagnosticContains",
     ];
     for key in sc.as_object().unwrap().keys() {
         if !DESCRIPTIVE_KEYS.contains(&key.as_str()) && !KNOWN.contains(&key.as_str()) {
@@ -286,6 +341,7 @@ fn run_scenario(sc: &Value, fixture_repo: &Path) -> Result<(), String> {
         }
         if ![
             "expectedSections",
+            "expectedSectionOrder",
             "expectedSectionContainers",
             "expectedDiagnostics",
         ]
@@ -300,6 +356,44 @@ fn run_scenario(sc: &Value, fixture_repo: &Path) -> Result<(), String> {
                     "sections: expected {expected}, got {}",
                     Value::Array(actual)
                 ));
+            }
+        }
+        // [R12]: the root container's entries in order, as `{instanceId, depth?}` (depth omitted
+        // at 0), whatever `precedes` relations say. `ignoredRelations` must exist in the fixture,
+        // so the scenario cannot pass because the disagreeing relation was never there.
+        if let Some(expected) = sc.get("expectedSectionOrder") {
+            let order: Vec<Value> = nav
+                .sections
+                .iter()
+                .map(|n| {
+                    let mut o = serde_json::json!({"instanceId": n.instance_id});
+                    if n.depth > 0 {
+                        o["depth"] = n.depth.into();
+                    }
+                    o
+                })
+                .collect();
+            if &Value::Array(order.clone()) != expected {
+                return Err(format!(
+                    "section order: expected {expected}, got {}",
+                    Value::Array(order)
+                ));
+            }
+        }
+        if let Some(ignored) = sc.get("ignoredRelations") {
+            let present = list_relations(&store, ListRelationsFilter::default())
+                .map_err(|e| e.to_string())?;
+            for rel in ignored
+                .as_array()
+                .ok_or("ignoredRelations is not an array")?
+            {
+                if !present.iter().any(|r| {
+                    r.relation_type == s(rel, "relationType")
+                        && r.source_id == s(rel, "sourceInstanceId")
+                        && r.target_id == s(rel, "targetInstanceId")
+                }) {
+                    return Err(format!("ignoredRelations: {rel} is not in the fixture"));
+                }
             }
         }
         // [R19]: each listed instance's section container (null = none).
@@ -359,6 +453,14 @@ fn run_scenario(sc: &Value, fixture_repo: &Path) -> Result<(), String> {
             };
         }
         let r = result.map_err(|e| e.to_string())?;
+        if let Some(needle) = sc.get("expectedDiagnosticContains").and_then(Value::as_str) {
+            if !r.diagnostics.iter().any(|d| d.contains(needle)) {
+                return Err(format!(
+                    "no render diagnostic contains '{needle}': {:?}",
+                    r.diagnostics
+                ));
+            }
+        }
         // [R11] json: the records in outline order, each `{instanceId, title, depth?}`.
         if let Some(expected) = sc.get("expectedRecords") {
             let projection = serde_json::to_value(
@@ -417,31 +519,108 @@ fn run_scenario(sc: &Value, fixture_repo: &Path) -> Result<(), String> {
         };
     }
 
+    // Composition creation: refused where the rule is enforced, at the validator.
+    if op.get("composition").and_then(Value::as_str) == Some("create") {
+        let outcome = create_composition_normalized(&store, op["definition"].clone(), None)
+            .map(|_| ())
+            .map_err(refusal);
+        return judge(sc, outcome);
+    }
+
     // Container writes.
+    let validate_before =
+        if sc.get("expectedValidateUnchanged").and_then(Value::as_bool) == Some(true) {
+            Some(validation_snapshot(&store)?)
+        } else {
+            None
+        };
     let container_id = s(op, "containerId");
+    // `before` / `after` / `into` name the entry to place against; `position` / `depth` are absolute.
+    let relative = [
+        ("before", Placement::Before),
+        ("after", Placement::After),
+        ("into", Placement::Into),
+    ]
+    .into_iter()
+    .find_map(|(k, placement)| {
+        op.get(k)
+            .and_then(Value::as_str)
+            .map(|target| (target.to_string(), placement))
+    });
+    let position = op
+        .get("position")
+        .and_then(Value::as_u64)
+        .map(|p| p as usize);
+    let depth = op.get("depth").and_then(Value::as_u64).map(|d| d as u32);
     let outcome: Result<(), String> = match s(op, "container") {
         "update" => {
-            let entries = parse_entries(&op["memberInstanceIds"]).map_err(|e| e.to_string());
-            match entries {
+            // A raw `patch` is parsed as the CLI parses it: an unknown key is `invalid-input`.
+            let patch = match op.get("patch") {
+                Some(p) => serde_json::from_value::<ContainerPatch>(p.clone())
+                    .map_err(|e| format!("invalid-input: {e}")),
                 // An entry carrying another property cannot even be parsed: refused at the type.
-                Err(e) => Err(e),
-                Ok(entries) => container_service::update_container(
-                    &store,
-                    container_id,
-                    ContainerPatch {
+                None => parse_entries(&op["memberInstanceIds"])
+                    .map(|entries| ContainerPatch {
                         member_instance_ids: Some(entries),
                         ..Default::default()
-                    },
-                )
-                .map(|_| ())
-                .map_err(|e| e.to_string()),
-            }
+                    })
+                    .map_err(|e| e.to_string()),
+            };
+            patch.and_then(|patch| {
+                container_service::update_container(&store, container_id, patch)
+                    .map_err(refusal)?;
+                if let Some(expected) = sc.get("expectedMembers") {
+                    let members = container_service::get_arrangement(&store, container_id)
+                        .map_err(refusal)?;
+                    if &entries_json(&members) != expected {
+                        return Err(format!(
+                            "members: expected {expected}, got {}",
+                            entries_json(&members)
+                        ));
+                    }
+                }
+                Ok(())
+            })
         }
         "members-remove" => {
             match container_service::remove_member(&store, container_id, s(op, "instanceId")) {
                 Ok(res) => check_arrangement(sc, &res),
-                Err(e) => Err(e.to_string()),
+                Err(e) => Err(refusal(e)),
             }
+        }
+        // [R7]: a move carries the entry's run; `after` / `before` / `into` place it against an
+        // entry, `depth` / `position` set it absolutely.
+        "members-move" => {
+            let id = s(op, "instanceId");
+            match &relative {
+                Some((target, placement)) => container_service::move_member_relative(
+                    &store,
+                    container_id,
+                    id,
+                    &RelativeMove::Place {
+                        target: target.clone(),
+                        placement: *placement,
+                    },
+                ),
+                None => container_service::move_member(&store, container_id, id, position, depth),
+            }
+            .map_err(refusal)
+            .and_then(|res| check_arrangement(sc, &res))
+        }
+        "members-add" => {
+            let id = s(op, "instanceId");
+            match &relative {
+                Some((target, placement)) => container_service::add_member_relative(
+                    &store,
+                    container_id,
+                    id,
+                    target,
+                    *placement,
+                ),
+                None => container_service::add_member(&store, container_id, id, position, depth),
+            }
+            .map_err(refusal)
+            .and_then(|res| check_arrangement(sc, &res))
         }
         // [R20]: repair removes unresolved entries by [R7], leaves the pointers alone, and is
         // idempotent.
@@ -482,32 +661,17 @@ fn run_scenario(sc: &Value, fixture_repo: &Path) -> Result<(), String> {
         other => return Err(format!("unhandled container operation '{other}'")),
     };
 
-    match sc.get("expectedOutcome").and_then(Value::as_str) {
-        Some("refused") => match outcome {
-            Ok(()) => Err("expected the operation to be refused, but it succeeded".into()),
-            Err(msg) => {
-                // `expectedCode` may carry a parenthesised alternative for a different surface
-                // ("instance not found (arrangement-unresolved on a stored container)"): the
-                // primary code is the text before the parenthesis.
-                match sc.get("expectedCode").and_then(Value::as_str) {
-                    Some(code) => {
-                        let primary = code.split(" (").next().unwrap_or(code);
-                        let found = msg.contains(primary)
-                            || (primary == "instance not found"
-                                && msg.to_lowercase().contains("not found"));
-                        if found {
-                            Ok(())
-                        } else {
-                            Err(format!("refused, but not with '{primary}': {msg}"))
-                        }
-                    }
-                    None => Ok(()),
-                }
-            }
-        },
-        None => outcome,
-        Some(other) => Err(format!("unhandled expectedOutcome '{other}'")),
+    // [R13]: the operation leaves `repo validate` exactly as it was.
+    if let (Some(before), Ok(())) = (&validate_before, &outcome) {
+        let after = validation_snapshot(&store)?;
+        if before != &after {
+            return Err(format!(
+                "validate changed: before {before:?}, after {after:?}"
+            ));
+        }
     }
+
+    judge(sc, outcome)
 }
 
 #[test]
