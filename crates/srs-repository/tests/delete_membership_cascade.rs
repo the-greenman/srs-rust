@@ -164,7 +164,7 @@ fn run_cascade_suite(store: &dyn RepositoryStore) {
     assert_loads_clean(store, "after deleting a container member (record)");
 
     // Tier 0 — the same cascade, via the other instance-delete path.
-    services::delete_note(store, NOTE_ID).unwrap();
+    services::delete_note(store, NOTE_ID, true).unwrap();
     assert_loads_clean(store, "after deleting a container member (note)");
 
     let root = srs_repository::container_service::resolve_root_container(

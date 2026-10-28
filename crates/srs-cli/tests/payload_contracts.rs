@@ -97,7 +97,7 @@ fn note_get() {
 
 #[test]
 fn note_delete() {
-    check::<DeletedPayload>("note-delete");
+    check::<NoteDeletePayload>("note-delete");
 }
 
 #[test]

@@ -659,6 +659,11 @@ pub enum NoteCommand {
     Delete {
         /// Note instance ID
         id: String,
+        /// Delete the note even though Relations target it (e.g. records
+        /// `derived-from` it), removing them with it. Without this flag such a
+        /// note is refused rather than silently severing them (srs-rust#1486).
+        #[arg(long)]
+        cascade: bool,
         /// Deprecated: JSON output is now the default (no-op)
         #[arg(long, hide = true)]
         json: bool,

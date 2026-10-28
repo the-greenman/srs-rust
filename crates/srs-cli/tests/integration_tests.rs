@@ -3585,6 +3585,101 @@ fn relation_get_returns_relation_by_id() {
 }
 
 #[test]
+fn note_delete_refuses_inbound_relations_unless_cascade() {
+    // srs-rust#1486: `note delete` gives Tier 0 the `record delete` contract.
+    let temp = create_temp_repo();
+    write_manifest_fixture(
+        temp.path(),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "srsVersion": "2.0-draft",
+            "dataModelRevision": 2,
+            "repositoryId": "test-repo",
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(package_dir.join("relation-types")).unwrap();
+    write_json(
+        &package_dir.join("relation-types/derived-from.json"),
+        serde_json::json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
+            "id": "rt-derived-001",
+            "version": 1,
+            "key": "derived-from",
+            "namespace": "com.test",
+            "label": "Derived from",
+            "description": "Source derives from target.",
+            "category": "provenance",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "status": "active"
+        }),
+    );
+    write_json(
+        &package_dir.join("package.json"),
+        serde_json::json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+            "id": "test-pkg",
+            "namespace": "com.test",
+            "name": "test",
+            "version": "1.0.0",
+            "title": "test",
+            "description": "",
+            "status": "active",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "fields": [],
+            "types": [],
+            "relationTypes": ["relation-types/derived-from.json"]
+        }),
+    );
+
+    let notes_dir = temp.path().join("records/notes");
+    std::fs::create_dir_all(&notes_dir).unwrap();
+    for id in ["vignette", "derived"] {
+        std::fs::write(
+            notes_dir.join(format!("{id}.json")),
+            serde_json::json!({"instanceId": id, "sections": []}).to_string(),
+        )
+        .unwrap();
+    }
+    let relation = serde_json::json!({
+        "relationId": "dcf00001-0000-4000-a000-000000000002",
+        "relationType": "derived-from",
+        "sourceInstanceId": "derived",
+        "targetInstanceId": "vignette",
+        "createdAt": "2026-01-01T00:00:00Z"
+    })
+    .to_string();
+    let created = run_srs_stdin_in_dir(temp.path(), &["relation", "create"], &relation);
+    assert_eq!(created["ok"], true, "relation create: {created}");
+
+    // Refused: nothing is deleted.
+    let refused = run_srs_in_dir(temp.path(), &["note", "delete", "vignette"]);
+    assert_eq!(
+        refused["ok"], false,
+        "inbound relation must refuse: {refused}"
+    );
+    assert!(notes_dir.join("vignette.json").exists());
+    assert!(temp
+        .path()
+        .join("relations/dcf00001-0000-4000-a000-000000000002.json")
+        .exists());
+
+    // --cascade deletes and reports the removed relation.
+    let done = run_srs_in_dir(temp.path(), &["note", "delete", "vignette", "--cascade"]);
+    assert_eq!(done["ok"], true, "cascade delete: {done}");
+    assert_eq!(done["payload"]["instanceId"], "vignette");
+    let cascaded = done["payload"]["cascadedRelations"].as_array().unwrap();
+    assert_eq!(cascaded.len(), 1);
+    assert_eq!(
+        cascaded[0]["relationId"],
+        "dcf00001-0000-4000-a000-000000000002"
+    );
+    assert!(!notes_dir.join("vignette.json").exists());
+}
+
+#[test]
 fn relation_create_writes_standalone_object() {
     let temp = create_temp_repo();
 
@@ -8387,6 +8482,83 @@ fn repo_migrations_lists_the_registered_migrations() {
     assert_eq!(status("rfc038-storage", "alreadyApplied"), true);
     assert_eq!(status("migrate-identity", "notApplicable"), true);
     assert_eq!(status("repo-upgrade", "alreadyApplied"), true);
+}
+
+/// `repo migrations` names each entry's revision step (srs-rust#1466): a client applies the
+/// `needed` entries with a `revisionStep`, in order, before writing — no id list of its own.
+#[test]
+fn repo_migrations_flags_revision_steps_on_revision_9_and_10_repos() {
+    for (revision, pending) in [
+        (9, vec!["rfc052-root-container", "rfc051-container-entries"]),
+        (10, vec!["rfc051-container-entries"]),
+    ] {
+        let temp = create_temp_repo();
+        write_json(
+            &temp.path().join("manifest.json"),
+            serde_json::json!({
+                "dataModelRevision": 2,
+                "container": {
+                    "containerId": "00000000-0000-4000-8000-000000001466",
+                    "title": "Revision steps"
+                }
+            }),
+        );
+        std::fs::create_dir_all(temp.path().join("package")).unwrap();
+        write_json(
+            &temp.path().join("package/package.json"),
+            serde_json::json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                "id": "fixture-pkg", "namespace": "com.test", "name": "fixture",
+                "version": "1.0.0", "title": "fixture", "description": "",
+                "status": "active", "createdAt": "2026-01-01T00:00:00Z",
+                "fields": [], "types": []
+            }),
+        );
+        keep_revision(temp.path());
+        let repo = temp.path().to_str().unwrap().to_string();
+        let list = || {
+            run_srs_in_dir(temp.path(), &["--repo", &repo, "repo", "migrations"])["payload"]
+                ["migrations"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        // Climb to `revision` by the field itself.
+        while let Some(next) = list().into_iter().find(|m| {
+            m["status"]["needed"] == true
+                && m["revisionStep"]["to"]
+                    .as_u64()
+                    .is_some_and(|to| to <= revision)
+        }) {
+            let id = next["id"].as_str().unwrap();
+            let r = run_srs_in_dir(
+                temp.path(),
+                &["--repo", &repo, "repo", "apply-migration", "--id", id],
+            );
+            assert_eq!(r["ok"], true, "{id}: {r:?}");
+        }
+
+        let migrations = list();
+        let step =
+            |id: &str| migrations.iter().find(|m| m["id"] == id).unwrap()["revisionStep"].clone();
+        assert_eq!(
+            step("rfc052-root-container"),
+            serde_json::json!({"from": 9, "to": 10})
+        );
+        assert_eq!(
+            step("rfc051-container-entries"),
+            serde_json::json!({"from": 10, "to": 11})
+        );
+        for structural in ["migrate-identity", "repo-upgrade", "rfc038-storage"] {
+            assert!(step(structural).is_null(), "{structural} is structural");
+        }
+        let needed: Vec<&str> = migrations
+            .iter()
+            .filter(|m| m["status"]["needed"] == true && !m["revisionStep"].is_null())
+            .map(|m| m["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(needed, pending, "revision {revision}");
+    }
 }
 
 #[test]

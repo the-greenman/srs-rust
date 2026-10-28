@@ -362,6 +362,16 @@ pub struct RecordDeletePayload {
     pub cascaded_relations: Vec<RelationSummary>,
 }
 
+/// `note delete` (srs-rust#1486): the same contract as `record delete`, so a
+/// caller sees every Relation the delete cascaded away.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteDeletePayload {
+    pub instance_id: String,
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub cascaded_relations: Vec<RelationSummary>,
+}
+
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteTagAddPayload {
@@ -2913,6 +2923,16 @@ pub struct MigrationSummaryPayload {
     pub title: String,
     pub description: String,
     pub status: MigrationStatusPayload,
+    /// The data-model revision step this entry implements, or `null` for a structural entry.
+    /// A `needed` entry with a step must be applied (in registry order) before writing.
+    pub revision_step: Option<RevisionStepPayload>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RevisionStepPayload {
+    pub from: u64,
+    pub to: u64,
 }
 
 impl From<srs_repository::migration_registry_service::MigrationSummary>
@@ -2924,6 +2944,10 @@ impl From<srs_repository::migration_registry_service::MigrationSummary>
             title: m.title,
             description: m.description,
             status: MigrationStatusPayload::from(m.status),
+            revision_step: m.revision_step.map(|s| RevisionStepPayload {
+                from: s.from,
+                to: s.to,
+            }),
         }
     }
 }
