@@ -218,3 +218,153 @@ fn apply_migration_via_registry_migrate_identity() {
     let id_after = after.iter().find(|m| m.id == "migrate-identity").unwrap();
     assert_eq!(id_after.status, MigrationStatus::AlreadyApplied);
 }
+
+// ── Revision steps in the listing (srs-rust#1466) ─────────────────────────────
+
+/// A repository with a Tier-0 identity note, brought through the registry to `revision`
+/// (and no further) and returned as the file tree `load_tree` receives.
+fn tree_at_revision(revision: u64) -> std::collections::BTreeMap<String, Vec<u8>> {
+    let container_id = "550e8400-e29b-41d4-a716-446655441466";
+    let note_id = "bbbb1466-0000-4000-8000-000000000001";
+    let srsj = serde_json::json!({
+        "srsj": "2",
+        "manifest": {
+            "dataModelRevision": 2,
+            "repositoryId": container_id,
+            "srsVersion": "2.0-draft",
+            "namespace": "com.test",
+            "container": {
+                "containerId": container_id,
+                "title": "Test Repo",
+                "identityInstanceId": note_id,
+                "memberInstanceIds": [{"instanceId": note_id}]
+            },
+            "packageRef": {"mode": "local", "path": "package"}
+        },
+        "data": {
+            "package/package.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                "id": "pkg-migration-test", "title": "Test Package", "description": "",
+                "status": "active", "createdAt": "2026-01-01T00:00:00Z",
+                "namespace": "com.test", "name": "primary", "version": "1.0.0",
+                "fields": [], "types": [], "relationTypes": [],
+                "views": [], "compositions": [], "blueprints": []
+            },
+            "records/notes/test-repo-bbbb1466.json": {
+                "instanceId": note_id,
+                "title": "Test Repo",
+                "sections": [{"name": "body", "content": "We build SRS."}]
+            }
+        }
+    })
+    .to_string();
+    let store = srs_repository::srsj::open_srsj_for_migration(&srsj).unwrap();
+    while let Some(next) = migration_registry_service::list_migrations(&store)
+        .unwrap()
+        .into_iter()
+        .find(|m| {
+            m.status == MigrationStatus::Needed
+                && m.revision_step.as_ref().is_some_and(|s| s.to <= revision)
+        })
+    {
+        migration_registry_service::apply_migration(&store, &next.id).unwrap();
+    }
+    srs_repository::export_tree(&store).unwrap()
+}
+
+/// One listing entry: id, status and revision step `(from, to)`.
+type Row = (String, MigrationStatus, Option<(u64, u64)>);
+
+fn statuses(store: &srs_repository::store::FileStore) -> Vec<Row> {
+    migration_registry_service::list_migrations(store)
+        .unwrap()
+        .into_iter()
+        .map(|m| (m.id, m.status, m.revision_step.map(|s| (s.from, s.to))))
+        .collect()
+}
+
+fn needed_revision_steps(rows: &[Row]) -> Vec<&str> {
+    rows.iter()
+        .filter(|(_, s, step)| *s == MigrationStatus::Needed && step.is_some())
+        .map(|(id, ..)| id.as_str())
+        .collect()
+}
+
+#[test]
+fn available_migrations_flags_revision_steps_on_revision_9_and_10_trees() {
+    for (revision, pending) in [
+        (9, vec!["rfc052-root-container", "rfc051-container-entries"]),
+        (10, vec!["rfc051-container-entries"]),
+    ] {
+        // `available_migrations` lists from the migrator view of the `load_tree` handle.
+        let wasm = srs_repository::open_tree(tree_at_revision(revision))
+            .unwrap()
+            .with_rfc038_exemption();
+        let rows = statuses(&wasm);
+
+        // Revision-keyed entries carry their step; structural ones carry none.
+        let step = |id: &str| rows.iter().find(|r| r.0 == id).unwrap().2;
+        assert_eq!(step("field-type"), Some((0, 1)));
+        assert_eq!(step("rfc052-root-container"), Some((9, 10)));
+        assert_eq!(step("rfc051-container-entries"), Some((10, 11)));
+        for structural in [
+            "graduated-at-cleanup",
+            "revisions-sidecar-cleanup",
+            "migrate-identity",
+            "repo-upgrade",
+            "core-relation-type-reference-cleanup",
+            "rfc038-storage",
+        ] {
+            assert_eq!(step(structural), None, "{structural} is structural");
+        }
+        assert_eq!(needed_revision_steps(&rows), pending, "revision {revision}");
+
+        // Serialised as `revisionStep: {from, to} | null` for `to_js`.
+        let json =
+            serde_json::to_value(migration_registry_service::list_migrations(&wasm).unwrap())
+                .unwrap();
+        assert_eq!(
+            json[12]["revisionStep"],
+            serde_json::json!({"from": 10, "to": 11})
+        );
+        assert!(json[13]["revisionStep"].is_null());
+
+        // The same tree on disk, as `srs repo migrations` reads it: every status agrees.
+        let dir = tempfile::TempDir::new().unwrap();
+        for (path, bytes) in tree_at_revision(revision) {
+            let p = dir.path().join(path);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, bytes).unwrap();
+        }
+        let cli = srs_repository::store::FileStore::new(dir.path()).with_rfc038_exemption();
+        assert_eq!(
+            statuses(&cli),
+            rows,
+            "CLI and WASM disagree at revision {revision}"
+        );
+    }
+}
+
+/// The reported mismatch (srs-rust#1466): through the gated `load_tree` handle the revision
+/// gate refuses the structural probes, which `list_migrations` reports as a conservative
+/// `needed`. The migrator view runs them: the identity note really needs `migrate-identity`
+/// (structural, so not a load-gate entry), and `repo-upgrade` has nothing to do.
+#[test]
+fn a_gated_tree_handle_would_misreport_structural_probes_as_needed() {
+    let tree = tree_at_revision(10);
+    let status = |rows: &[Row], id: &str| rows.iter().find(|r| r.0 == id).unwrap().1.clone();
+
+    let gated = statuses(&srs_repository::open_tree(tree.clone()).unwrap());
+    assert_eq!(status(&gated, "repo-upgrade"), MigrationStatus::Needed);
+
+    let view = statuses(
+        &srs_repository::open_tree(tree)
+            .unwrap()
+            .with_rfc038_exemption(),
+    );
+    assert_eq!(
+        status(&view, "repo-upgrade"),
+        MigrationStatus::AlreadyApplied
+    );
+    assert_eq!(status(&view, "migrate-identity"), MigrationStatus::Needed);
+}

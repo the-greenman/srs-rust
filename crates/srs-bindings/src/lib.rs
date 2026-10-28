@@ -1782,11 +1782,18 @@ impl SrsRepository {
 
     /// List all known migrations with their applicability status for this repository.
     ///
-    /// Returns a JSON array of `{ id, title, description, status }` objects where
-    /// `status` is a string: `needed`, `alreadyApplied` or `notApplicable`.
+    /// Returns a JSON array of `{ id, title, description, status, revisionStep }` objects
+    /// where `status` is a string: `needed`, `alreadyApplied` or `notApplicable`, and
+    /// `revisionStep` is `{ from, to }` for an entry that brings the data to the next
+    /// `dataModelRevision` (must run, in array order, before writing) or `null` for a
+    /// structural entry (srs-rust#1466).
+    ///
+    /// Probes run on the migrator view of this handle, as `srs repo migrations` does: on a
+    /// gated handle (a below-current `load_tree`) the revision gate would otherwise refuse
+    /// every manifest/catalog probe and report it as a conservative `needed`.
     pub fn available_migrations(&self) -> Result<JsValue, JsValue> {
-        let result =
-            migration_registry_service::list_migrations(&self.store).map_err(|e| js_err(&e))?;
+        let store = self.store.clone().with_rfc038_exemption();
+        let result = migration_registry_service::list_migrations(&store).map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
