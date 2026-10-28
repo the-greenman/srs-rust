@@ -6,6 +6,8 @@
     "relation"
   ],
   "properties": {
-    "relation": true
+    "relation": {
+      "$ref": "https://srs.semanticops.com/schema/2.0/relation.json"
+    }
   }
 }

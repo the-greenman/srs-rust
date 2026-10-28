@@ -6,6 +6,8 @@
     "composition"
   ],
   "properties": {
-    "composition": true
+    "composition": {
+      "$ref": "https://srs.semanticops.com/schema/2.0/composition.json"
+    }
   }
 }

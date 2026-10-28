@@ -8,7 +8,9 @@
   "properties": {
     "lifecycles": {
       "type": "array",
-      "items": true
+      "items": {
+        "$ref": "https://srs.semanticops.com/schema/2.0/lifecycle.json"
+      }
     }
   }
 }

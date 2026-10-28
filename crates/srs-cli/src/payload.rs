@@ -59,6 +59,84 @@ use srs_repository::{
 };
 use std::path::PathBuf;
 
+// ── Canonical entity schemas ──────────────────────────────────────────────────
+
+/// Base of the published canonical entity schemas (`srs/docs/schema/2.0/`, mirrored in
+/// `srs-schema`). Embedded core entities `$ref` these `$id`s instead of encoding `{}`.
+const ENTITY_SCHEMA_BASE: &str = "https://srs.semanticops.com/schema/2.0/";
+
+fn entity_ref(file: &str) -> schemars::schema::Schema {
+    schemars::schema::Schema::Object(schemars::schema::SchemaObject {
+        reference: Some(format!("{ENTITY_SCHEMA_BASE}{file}.json")),
+        ..Default::default()
+    })
+}
+
+fn entity_list(file: &str) -> schemars::schema::Schema {
+    let mut obj = schemars::schema::SchemaObject {
+        instance_type: Some(schemars::schema::InstanceType::Array.into()),
+        ..Default::default()
+    };
+    obj.array().items = Some(entity_ref(file).into());
+    schemars::schema::Schema::Object(obj)
+}
+
+fn entity_opt(file: &str) -> schemars::schema::Schema {
+    let mut obj = schemars::schema::SchemaObject::default();
+    obj.subschemas().any_of = Some(vec![
+        entity_ref(file),
+        schemars::schema::Schema::Object(schemars::schema::SchemaObject {
+            instance_type: Some(schemars::schema::InstanceType::Null.into()),
+            ..Default::default()
+        }),
+    ]);
+    schemars::schema::Schema::Object(obj)
+}
+
+macro_rules! entity_schemas {
+    ($($name:ident, $list:ident, $opt:ident => $file:literal;)*) => {$(
+        fn $name(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema { entity_ref($file) }
+        #[allow(dead_code)]
+        fn $list(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema { entity_list($file) }
+        #[allow(dead_code)]
+        fn $opt(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema { entity_opt($file) }
+    )*};
+}
+
+entity_schemas! {
+    entity_note, entity_note_list, entity_note_opt => "note";
+    entity_record, entity_record_list, entity_record_opt => "record";
+    entity_relation, entity_relation_list, entity_relation_opt => "relation";
+    entity_container, entity_container_list, entity_container_opt => "container";
+    entity_term, entity_term_list, entity_term_opt => "term";
+    entity_vocabulary, entity_vocabulary_list, entity_vocabulary_opt => "vocabulary";
+    entity_lifecycle, entity_lifecycle_list, entity_lifecycle_opt => "lifecycle";
+    entity_view, entity_view_list, entity_view_opt => "view";
+    entity_composition, entity_composition_list, entity_composition_opt => "composition";
+    entity_theme, entity_theme_list, entity_theme_opt => "theme";
+    entity_relation_type, entity_relation_type_list, entity_relation_type_opt => "relation-type";
+    entity_type, entity_type_list, entity_type_opt => "type";
+    entity_field, entity_field_list, entity_field_opt => "field";
+}
+
+// ── Output envelope ───────────────────────────────────────────────────────────
+
+/// The envelope every command prints: `ok`, `command`, `version`, then `payload` on success
+/// or `diagnostics` and `errors` on failure. Mirrors `OutputDTO`; `payload` is the
+/// per-command schema named `<command>.json` beside this file.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct OutputEnvelopePayload {
+    pub ok: bool,
+    pub command: String,
+    pub version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostics: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub errors: Option<Vec<ErrorReportPayload>>,
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// A single entry in a note list — only `instanceId` and `title` are exposed.
@@ -260,7 +338,7 @@ pub struct NoteListPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct NotePayload {
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_note")]
     pub note: Note,
 }
 
@@ -297,7 +375,7 @@ pub struct NoteDeletePayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteTagAddPayload {
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_note")]
     pub note: Note,
     pub tag: String,
 }
@@ -305,7 +383,7 @@ pub struct NoteTagAddPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteTagRemovePayload {
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_note")]
     pub note: Note,
     pub tag: String,
     pub removed: bool,
@@ -344,9 +422,9 @@ pub struct NoteFoundationsPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteGraduatePayload {
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_note")]
     pub note: Note,
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_record")]
     pub record: Record,
 }
 
@@ -365,7 +443,7 @@ pub struct RecordListPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordPayload {
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_record")]
     pub record: Record,
 }
 
@@ -376,7 +454,7 @@ pub struct RecordPayload {
 pub struct RecordGetPayload {
     pub instance_id: String,
     pub display_label: String,
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_record")]
     pub record: Record,
 }
 
@@ -399,14 +477,14 @@ impl From<RecordSummary> for RecordGetPayload {
 pub struct InstanceGetPayload {
     pub kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "Option<serde_json::Value>")]
+    #[schemars(schema_with = "entity_note_opt")]
     pub note: Option<Note>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instance_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_label: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "Option<serde_json::Value>")]
+    #[schemars(schema_with = "entity_record_opt")]
     pub record: Option<Record>,
 }
 
@@ -439,9 +517,9 @@ impl From<InstanceRead> for InstanceGetPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordSuccessorPayload {
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_record")]
     pub record: Record,
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_relation")]
     pub relation: Relation,
 }
 
@@ -452,14 +530,14 @@ pub struct RecordSuccessorPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordTransitionPayload {
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_record")]
     pub record: Record,
     pub warnings: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "Option<serde_json::Value>")]
+    #[schemars(schema_with = "entity_record_opt")]
     pub successor: Option<Record>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "Option<serde_json::Value>")]
+    #[schemars(schema_with = "entity_relation_opt")]
     pub relation: Option<Relation>,
 }
 
@@ -515,7 +593,7 @@ impl From<AllowedLifecycleTransitionsResult> for RecordAllowedTransitionsPayload
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordTagAddPayload {
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_record")]
     pub record: Record,
     pub tag: String,
 }
@@ -570,7 +648,7 @@ pub struct RelationListPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RelationPayload {
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_relation")]
     pub relation: Relation,
 }
 
@@ -597,7 +675,7 @@ pub struct PrecedesChainSplicePayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RelationTypeListPayload {
-    #[schemars(with = "Vec<serde_json::Value>")]
+    #[schemars(schema_with = "entity_relation_type_list")]
     pub relation_type_definitions: Vec<RelationTypeDefinition>,
 }
 
@@ -605,7 +683,7 @@ pub struct RelationTypeListPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RelationTypePayload {
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_relation_type")]
     pub relation_type_definition: RelationTypeDefinition,
 }
 
@@ -634,7 +712,7 @@ pub struct ContainerListPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ContainerCopyPayload {
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_container")]
     pub container: Container,
     /// `[{ originalId, forkId }]` — the anchor fork (empty when the source had no anchor).
     #[schemars(with = "serde_json::Value")]
@@ -662,7 +740,7 @@ pub struct RecordForkPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ContainerPayload {
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_container")]
     pub container: Container,
 }
 
@@ -1081,14 +1159,14 @@ pub struct RecordValidatePayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TagListPayload {
-    #[schemars(with = "Vec<serde_json::Value>")]
+    #[schemars(schema_with = "entity_term_list")]
     pub terms: Vec<Term>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TagPayload {
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_term")]
     pub term: Term,
 }
 
@@ -1097,7 +1175,7 @@ pub struct TagPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct VocabularyListPayload {
-    #[schemars(with = "Vec<serde_json::Value>")]
+    #[schemars(schema_with = "entity_vocabulary_list")]
     pub vocabularies: Vec<Vocabulary>,
 }
 
@@ -1117,7 +1195,7 @@ pub enum VocabularyGetPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct VocabularyCreatePayload {
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_vocabulary")]
     pub vocabulary: Vocabulary,
 }
 
@@ -1125,9 +1203,9 @@ pub struct VocabularyCreatePayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TermCreatePayload {
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_term")]
     pub term: Term,
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_vocabulary")]
     pub vocabulary: Vocabulary,
 }
 
@@ -1136,7 +1214,7 @@ pub struct TermCreatePayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct LifecycleListPayload {
-    #[schemars(with = "Vec<serde_json::Value>")]
+    #[schemars(schema_with = "entity_lifecycle_list")]
     pub lifecycles: Vec<Lifecycle>,
 }
 
@@ -1156,7 +1234,7 @@ pub enum LifecycleGetPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct LifecycleCreatePayload {
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_lifecycle")]
     pub lifecycle: Lifecycle,
 }
 
@@ -1164,7 +1242,7 @@ pub struct LifecycleCreatePayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct LifecycleUpdatePayload {
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_lifecycle")]
     pub lifecycle: Lifecycle,
 }
 
@@ -1174,7 +1252,7 @@ pub struct LifecycleUpdatePayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TermListPayload {
-    #[schemars(with = "Vec<serde_json::Value>")]
+    #[schemars(schema_with = "entity_term_list")]
     pub terms: Vec<Term>,
 }
 
@@ -1195,7 +1273,7 @@ pub enum TermGetPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PromoteVocabularyPayload {
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_vocabulary")]
     pub vocabulary: Vocabulary,
 }
 
@@ -1215,7 +1293,7 @@ pub struct PromoteVocabularyBlockedPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct VocabularyDeriveTagSetPayload {
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_vocabulary")]
     pub vocabulary: Vocabulary,
     #[schemars(with = "Vec<serde_json::Value>")]
     pub entries: Vec<TagSetEntry>,
@@ -1232,7 +1310,7 @@ pub struct FieldListPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct FieldPayload {
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_field")]
     pub field: srs_core::types::field::Field,
 }
 
@@ -1256,7 +1334,7 @@ pub struct TypePayload {
     /// Serialized as `"type"` in JSON.
     #[serde(rename = "type")]
     #[schemars(rename = "type")]
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_type")]
     pub record_type: RecordType,
 }
 
@@ -1556,7 +1634,7 @@ pub struct ViewListPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ViewPayload {
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_view")]
     pub view: View,
 }
 
@@ -1578,7 +1656,7 @@ pub struct CompositionListPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CompositionPayload {
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_composition")]
     pub composition: Composition,
 }
 
@@ -1626,7 +1704,7 @@ pub struct ThemeListPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ThemePayload {
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(schema_with = "entity_theme")]
     pub theme: Theme,
 }
 

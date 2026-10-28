@@ -9,7 +9,9 @@
     "relations"
   ],
   "properties": {
-    "container": true,
+    "container": {
+      "$ref": "https://srs.semanticops.com/schema/2.0/container.json"
+    },
     "forks": {
       "description": "`[{ originalId, forkId }]` — the anchor fork (empty when the source had no anchor)."
     },
