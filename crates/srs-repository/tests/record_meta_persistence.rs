@@ -197,3 +197,40 @@ fn file_store_fork_carries_meta_and_tags_round_trip() {
     );
     assert_eq!(fork.tags, Some(vec!["alpha".to_string()]));
 }
+
+/// srs-rust#1484: a `field update` that would invalidate a record is refused and
+/// leaves the definition file byte-identical on disk.
+#[test]
+fn file_store_field_update_breaking_records_is_refused_and_writes_nothing() {
+    let tmp = TempDir::new().unwrap();
+    let store = FileStore::new(tmp.path());
+    create_repository(&store, &init_input()).unwrap();
+    package_service::create_field(&store, name_field()).unwrap();
+    package_service::create_type(&store, test_type()).unwrap();
+    let mut fv = FieldValues::new();
+    fv.insert("test-name", serde_json::json!("Initial"));
+    record_store::create_record(&store, "1041type-test-0001", 1, fv, None, None).expect("create");
+
+    let snapshot = |dir: &std::path::Path| -> BTreeMap<std::path::PathBuf, Vec<u8>> {
+        let mut out = BTreeMap::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(d) = stack.pop() {
+            for e in std::fs::read_dir(&d).unwrap() {
+                let p = e.unwrap().path();
+                if p.is_dir() {
+                    stack.push(p);
+                } else {
+                    out.insert(p.clone(), std::fs::read(&p).unwrap());
+                }
+            }
+        }
+        out
+    };
+    let before = snapshot(tmp.path());
+
+    let mut retyped = name_field();
+    retyped.field_type = FieldType::integer();
+    let err = package_service::update_field(&store, retyped).unwrap_err();
+    assert_eq!(err.code(), "definition-change-breaks-records");
+    assert_eq!(snapshot(tmp.path()), before, "refusal must write nothing");
+}
