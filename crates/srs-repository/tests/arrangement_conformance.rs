@@ -133,8 +133,21 @@ fn validation_snapshot(store: &FileStore) -> Result<Vec<String>, String> {
     Ok(d)
 }
 
+/// Fail loudly on a key the scenario's code path never evaluates: accepting it would be a false pass.
+fn reject_unevaluated(sc: &Value, keys: &[&str], path: &str) -> Result<(), String> {
+    for k in keys {
+        if sc.get(k).is_some() {
+            return Err(format!("'{k}' is not evaluated for a {path} scenario"));
+        }
+    }
+    Ok(())
+}
+
 /// An operation outcome judged against `expectedOutcome` / `expectedCode`.
 fn judge(sc: &Value, outcome: Result<(), String>) -> Result<(), String> {
+    if sc.get("expectedCode").is_some() && sc.get("expectedOutcome").is_none() {
+        return Err("expectedCode without expectedOutcome".into());
+    }
     match sc.get("expectedOutcome").and_then(Value::as_str) {
         Some("refused") => match outcome {
             Ok(()) => Err("expected the operation to be refused, but it succeeded".into()),
@@ -259,6 +272,7 @@ fn run_scenario(sc: &Value, fixture_repo: &Path) -> Result<(), String> {
 
     // Read-only expectations over a container.
     if let Some(expected) = sc.get("expectedDirectMembers") {
+        reject_unevaluated(sc, &["operation", "expectedOutcome"], "direct-members")?;
         let container = s(sc, "container");
         let actual: BTreeSet<String> = container_service::get_arrangement(&store, container)
             .map_err(|e| e.to_string())?
@@ -278,6 +292,7 @@ fn run_scenario(sc: &Value, fixture_repo: &Path) -> Result<(), String> {
         };
     }
     if let Some(expected) = sc.get("expectedParents") {
+        reject_unevaluated(sc, &["operation", "expectedOutcome"], "parents")?;
         let entries = container_service::get_arrangement(&store, s(sc, "container"))
             .map_err(|e| e.to_string())?;
         let actual: serde_json::Map<String, Value> = arrangement::outline(&entries)
@@ -305,6 +320,19 @@ fn run_scenario(sc: &Value, fixture_repo: &Path) -> Result<(), String> {
 
     // Navigation.
     if op.get("repo").and_then(Value::as_str) == Some("navigation") {
+        reject_unevaluated(
+            sc,
+            &[
+                "expectedOutcome",
+                "expectedCode",
+                "expectedHeadings",
+                "expectedRecords",
+                "expectedMembers",
+                "expectedDiagnosticContains",
+                "expectedValidateUnchanged",
+            ],
+            "navigation",
+        )?;
         let nav = repository_navigation(&store).map_err(|e| e.to_string())?;
         if nav.root_container_id != s(sc, "rootContainerId") {
             return Err(format!("root container: {}", nav.root_container_id));
@@ -432,6 +460,21 @@ fn run_scenario(sc: &Value, fixture_repo: &Path) -> Result<(), String> {
 
     // Render.
     if op.get("render").and_then(Value::as_str) == Some("composition") {
+        reject_unevaluated(sc, &["expectedValidateUnchanged", "expectedCode"], "render")?;
+        if let Some(o) = sc.get("expectedOutcome").and_then(Value::as_str) {
+            if o != "error-diagnostic" {
+                return Err(format!("unhandled expectedOutcome '{o}' for a render"));
+            }
+            reject_unevaluated(
+                sc,
+                &[
+                    "expectedDiagnosticContains",
+                    "expectedHeadings",
+                    "expectedRecords",
+                ],
+                "render error-diagnostic",
+            )?;
+        }
         let mut opts = RenderCompositionOptions::new(&store, s(op, "view"));
         opts.format = Some(s(op, "format"));
         opts.container_id = op.get("container").and_then(Value::as_str);
@@ -521,6 +564,11 @@ fn run_scenario(sc: &Value, fixture_repo: &Path) -> Result<(), String> {
 
     // Composition creation: refused where the rule is enforced, at the validator.
     if op.get("composition").and_then(Value::as_str) == Some("create") {
+        reject_unevaluated(
+            sc,
+            &["expectedValidateUnchanged", "expectedMembers"],
+            "composition create",
+        )?;
         let outcome = create_composition_normalized(&store, op["definition"].clone(), None)
             .map(|_| ())
             .map_err(refusal);
@@ -534,6 +582,23 @@ fn run_scenario(sc: &Value, fixture_repo: &Path) -> Result<(), String> {
         } else {
             None
         };
+    const OP_KEYS: &[&str] = &[
+        "container",
+        "containerId",
+        "instanceId",
+        "position",
+        "depth",
+        "before",
+        "after",
+        "into",
+        "memberInstanceIds",
+        "patch",
+    ];
+    for key in op.as_object().ok_or("operation is not an object")?.keys() {
+        if !OP_KEYS.contains(&key.as_str()) {
+            return Err(format!("unhandled operation key '{key}'"));
+        }
+    }
     let container_id = s(op, "containerId");
     // `before` / `after` / `into` name the entry to place against; `position` / `depth` are absolute.
     let relative = [
@@ -554,12 +619,26 @@ fn run_scenario(sc: &Value, fixture_repo: &Path) -> Result<(), String> {
     let depth = op.get("depth").and_then(Value::as_u64).map(|d| d as u32);
     let outcome: Result<(), String> = match s(op, "container") {
         "update" => {
+            reject_unevaluated(
+                sc,
+                &[
+                    "expectedPromoted",
+                    "expectedRemoved",
+                    "expectedAnchorInstanceId",
+                    "expectedValidateCode",
+                    "expectedSecondRun",
+                ],
+                "container update",
+            )?;
             // A raw `patch` is parsed as the CLI parses it: an unknown key is `invalid-input`.
             let patch = match op.get("patch") {
                 Some(p) => serde_json::from_value::<ContainerPatch>(p.clone())
                     .map_err(|e| format!("invalid-input: {e}")),
                 // An entry carrying another property cannot even be parsed: refused at the type.
-                None => parse_entries(&op["memberInstanceIds"])
+                None => op
+                    .get("memberInstanceIds")
+                    .ok_or_else(|| "update has neither patch nor memberInstanceIds".to_string())
+                    .and_then(|m| parse_entries(m).map_err(|e| e.to_string()))
                     .map(|entries| ContainerPatch {
                         member_instance_ids: Some(entries),
                         ..Default::default()
@@ -625,13 +704,12 @@ fn run_scenario(sc: &Value, fixture_repo: &Path) -> Result<(), String> {
         // [R20]: repair removes unresolved entries by [R7], leaves the pointers alone, and is
         // idempotent.
         "members-repair" => {
-            let res = container_service::repair_members(&store, container_id)
-                .map_err(|e| e.to_string())?;
+            let res = container_service::repair_members(&store, container_id).map_err(refusal)?;
             check_arrangement(sc, &res)?;
             if let Some(expected) = sc.get("expectedAnchorInstanceId") {
                 let anchor = store
                     .load_container_unchecked(container_id)
-                    .map_err(|e| e.to_string())?
+                    .map_err(refusal)?
                     .anchor_instance_id
                     .map_or(Value::Null, Value::String);
                 if &anchor != expected {
@@ -639,7 +717,7 @@ fn run_scenario(sc: &Value, fixture_repo: &Path) -> Result<(), String> {
                 }
             }
             if let Some(code) = sc.get("expectedValidateCode").and_then(Value::as_str) {
-                let report = validate_repository(&store).map_err(|e| e.to_string())?;
+                let report = validate_repository(&store).map_err(refusal)?;
                 if !report
                     .diagnostics
                     .iter()
@@ -652,8 +730,8 @@ fn run_scenario(sc: &Value, fixture_repo: &Path) -> Result<(), String> {
                 }
             }
             if let Some(second) = sc.get("expectedSecondRun") {
-                let res = container_service::repair_members(&store, container_id)
-                    .map_err(|e| e.to_string())?;
+                let res =
+                    container_service::repair_members(&store, container_id).map_err(refusal)?;
                 check_arrangement(second, &res).map_err(|e| format!("second run: {e}"))?;
             }
             Ok(())
