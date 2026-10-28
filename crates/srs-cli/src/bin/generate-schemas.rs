@@ -25,6 +25,9 @@ fn main() {
         }};
     }
 
+    // Output envelope
+    write_schema!("output-envelope", OutputEnvelopePayload);
+
     // Instance payloads
     write_schema!("instance-get", InstanceGetPayload);
 

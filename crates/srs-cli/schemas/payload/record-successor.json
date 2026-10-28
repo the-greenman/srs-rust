@@ -8,7 +8,11 @@
     "relation"
   ],
   "properties": {
-    "record": true,
-    "relation": true
+    "record": {
+      "$ref": "https://srs.semanticops.com/schema/2.0/record.json"
+    },
+    "relation": {
+      "$ref": "https://srs.semanticops.com/schema/2.0/relation.json"
+    }
   }
 }

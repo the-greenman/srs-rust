@@ -9,7 +9,9 @@
   "properties": {
     "terms": {
       "type": "array",
-      "items": true
+      "items": {
+        "$ref": "https://srs.semanticops.com/schema/2.0/term.json"
+      }
     }
   }
 }

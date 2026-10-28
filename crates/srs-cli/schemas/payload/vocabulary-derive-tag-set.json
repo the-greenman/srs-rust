@@ -12,6 +12,8 @@
       "type": "array",
       "items": true
     },
-    "vocabulary": true
+    "vocabulary": {
+      "$ref": "https://srs.semanticops.com/schema/2.0/vocabulary.json"
+    }
   }
 }
