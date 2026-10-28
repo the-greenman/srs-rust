@@ -379,7 +379,30 @@ fn type_create_new_version_beside_old_and_bundle_roundtrip() {
         v
     };
     assert_eq!(versions(&a), vec![1, 2]);
+    // srs-rust#1512: a record created by type name binds to the latest version.
+    let latest = run_srs_stdin(
+        dir,
+        &[
+            "--repo",
+            &a,
+            "record",
+            "create",
+            "--type",
+            "com.cli.install/item",
+        ],
+        r#"{"fieldValues": {"label": "bound to the latest"}}"#,
+    );
+    assert_eq!(latest["ok"], true, "{latest}");
+    assert_eq!(latest["payload"]["record"]["typeVersion"], 2, "{latest}");
     let validate = run_srs(dir, &["--repo", &a, "repo", "validate"]);
+    assert_eq!(validate["payload"]["summary"]["errors"], 0, "{validate}");
+
+    // srs-rust#1513: a `.srsj` copy keeps both versions, so v1 records still resolve.
+    let srsj = dir.join("two-versions.srsj").to_string_lossy().into_owned();
+    let copied = run_srs(dir, &["repo", "copy", "--from", &a, "--to", &srsj]);
+    assert_eq!(copied["ok"], true, "{copied}");
+    assert_eq!(versions(&srsj), vec![1, 2]);
+    let validate = run_srs(dir, &["--repo", &srsj, "repo", "validate"]);
     assert_eq!(validate["payload"]["summary"]["errors"], 0, "{validate}");
 
     let out = dir

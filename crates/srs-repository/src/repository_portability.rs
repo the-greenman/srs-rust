@@ -937,11 +937,7 @@ fn import_package_boundary(
 
     let mut field_paths = Vec::new();
     for field in &package.fields {
-        let path = format!(
-            "fields/{}-{}.json",
-            slugify(&field.name),
-            id_prefix(&field.id)?
-        );
+        let path = def_path("fields", &field.name, &field.id, u64::from(field.version))?;
         write_repo_json(
             target,
             &base_prefix,
@@ -954,11 +950,12 @@ fn import_package_boundary(
 
     let mut type_paths = Vec::new();
     for record_type in &package.record_types {
-        let path = format!(
-            "types/{}-{}.json",
-            slugify(&record_type.name),
-            id_prefix(&record_type.id)?
-        );
+        let path = def_path(
+            "types",
+            &record_type.name,
+            &record_type.id,
+            u64::from(record_type.version),
+        )?;
         write_repo_json(
             target,
             &base_prefix,
@@ -971,11 +968,12 @@ fn import_package_boundary(
 
     let mut relation_type_paths = Vec::new();
     for relation_type in &package.relation_type_definitions {
-        let path = format!(
-            "relation-types/{}-{}.json",
-            slugify(&relation_type.key),
-            id_prefix(&relation_type.id)?
-        );
+        let path = def_path(
+            "relation-types",
+            &relation_type.key,
+            &relation_type.id,
+            u64::from(relation_type.version),
+        )?;
         write_repo_json(
             target,
             &base_prefix,
@@ -988,11 +986,7 @@ fn import_package_boundary(
 
     let mut view_paths = Vec::new();
     for view in &package.views {
-        let path = format!(
-            "views/{}-{}.json",
-            slugify(&view.name),
-            id_prefix(&view.id)?
-        );
+        let path = def_path("views", &view.name, &view.id, u64::from(view.version))?;
         write_repo_json(
             target,
             &base_prefix,
@@ -1005,11 +999,12 @@ fn import_package_boundary(
 
     let mut doc_view_paths = Vec::new();
     for view in &package.compositions {
-        let path = format!(
-            "compositions/{}-{}.json",
-            slugify(&view.name),
-            id_prefix(&view.id)?
-        );
+        let path = def_path(
+            "compositions",
+            &view.name,
+            &view.id,
+            u64::from(view.version),
+        )?;
         write_repo_json(
             target,
             &base_prefix,
@@ -1022,11 +1017,12 @@ fn import_package_boundary(
 
     let mut blueprint_paths = Vec::new();
     for blueprint in &package.blueprints {
-        let path = format!(
-            "blueprints/{}-{}.json",
-            slugify(&blueprint.name),
-            id_prefix(&blueprint.id)?
-        );
+        let path = def_path(
+            "blueprints",
+            &blueprint.name,
+            &blueprint.id,
+            u64::from(blueprint.version),
+        )?;
         write_repo_json(
             target,
             &base_prefix,
@@ -1039,11 +1035,7 @@ fn import_package_boundary(
 
     let mut theme_paths = Vec::new();
     for theme in &package.themes {
-        let path = format!(
-            "themes/{}-{}.json",
-            slugify(&theme.name),
-            id_prefix(&theme.id)?
-        );
+        let path = def_path("themes", &theme.name, &theme.id, u64::from(theme.version))?;
         write_repo_json(
             target,
             &base_prefix,
@@ -1056,11 +1048,12 @@ fn import_package_boundary(
 
     let mut vocabulary_paths = Vec::new();
     for vocab in &package.vocabularies {
-        let path = format!(
-            "vocabularies/{}-{}.json",
-            slugify(&vocab.name),
-            id_prefix(&vocab.id)?
-        );
+        let path = def_path(
+            "vocabularies",
+            &vocab.name,
+            &vocab.id,
+            u64::from(vocab.version),
+        )?;
         write_repo_json(
             target,
             &base_prefix,
@@ -1073,11 +1066,7 @@ fn import_package_boundary(
 
     let mut lifecycle_paths = Vec::new();
     for lc in &package.lifecycles {
-        let path = format!(
-            "lifecycles/{}-{}.json",
-            slugify(&lc.name),
-            id_prefix(&lc.id)?
-        );
+        let path = def_path("lifecycles", &lc.name, &lc.id, u64::from(lc.version))?;
         write_repo_json(
             target,
             &base_prefix,
@@ -1090,11 +1079,12 @@ fn import_package_boundary(
 
     let mut protocol_paths = Vec::new();
     for protocol in &package.protocols {
-        let path = format!(
-            "protocols/{}-{}.json",
-            slugify(&protocol.name),
-            id_prefix(&protocol.id)?
-        );
+        let path = def_path(
+            "protocols",
+            &protocol.name,
+            &protocol.id,
+            u64::try_from(protocol.version).unwrap_or(1),
+        )?;
         write_repo_json(
             target,
             &base_prefix,
@@ -1548,6 +1538,23 @@ fn collision_safe_instance_paths(
             }
         })
         .collect()
+}
+
+/// The boundary path of one definition version: `{dir}/{slug}-{id8}.json`, and for version N > 1
+/// the `-v{N}` suffix of the one rule ([`crate::package_bundle::version_suffixed`]), so versions
+/// of a definition copied through a snapshot keep their own files (srs-rust#1513).
+fn def_path(
+    dir: &str,
+    slug_source: &str,
+    id: &str,
+    version: u64,
+) -> Result<String, RepositoryError> {
+    let path = format!("{dir}/{}-{}.json", slugify(slug_source), id_prefix(id)?);
+    Ok(if version > 1 {
+        crate::package_bundle::version_suffixed(&path, version)
+    } else {
+        path
+    })
 }
 
 fn slugify(name: &str) -> String {
