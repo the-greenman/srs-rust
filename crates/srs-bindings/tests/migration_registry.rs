@@ -323,11 +323,19 @@ fn available_migrations_flags_revision_steps_on_revision_9_and_10_trees() {
         let json =
             serde_json::to_value(migration_registry_service::list_migrations(&wasm).unwrap())
                 .unwrap();
+        let by_id = |id: &str| {
+            json.as_array()
+                .unwrap()
+                .iter()
+                .find(|m| m["id"] == id)
+                .unwrap()["revisionStep"]
+                .clone()
+        };
         assert_eq!(
-            json[12]["revisionStep"],
+            by_id("rfc051-container-entries"),
             serde_json::json!({"from": 10, "to": 11})
         );
-        assert!(json[13]["revisionStep"].is_null());
+        assert!(by_id("migrate-identity").is_null());
 
         // The same tree on disk, as `srs repo migrations` reads it: every status agrees.
         let dir = tempfile::TempDir::new().unwrap();
