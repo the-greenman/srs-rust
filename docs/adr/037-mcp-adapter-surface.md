@@ -155,3 +155,16 @@ The `text` of every JSON tool result (`tool_ok`) and JSON resource read (`json_c
 ## Amendment (2026-10-29, #861) — repo_doctor
 
 `repo_doctor` joins the `full` and `read` profiles: a no-argument, read-only report of what `doctor_service::doctor` finds (`DoctorInput { fix: false }`, the existing typed `DoctorReport`), so an MCP-only agent can see a repository it bricked and what a repair would do. There is deliberately no `fix` argument and the input schema rejects one: this is split A of the owner's 2026-10-08 direction (report first). The fix model (safety classes, a discoverable catalogue of repairs) and the `doctor` to `lint` rename are a separate design (B), and MCP repair (C) waits on it. No CLI or spec change.
+
+## Amendment (2026-10-29, #1522) — changes
+
+`changes` joins the `full` and `read` profiles: a read of what changed and whether anything needs saving (`changes_service::changes`).
+- `since: saved` (the default) compares with the host's save point. `since: cursor` compares with the calling actor's own cursor and then moves that cursor to now.
+- The result carries:
+  - `tracked`, `unsaved`, `savedAt` and `writeEpoch`;
+  - id-sorted lists of instances, relations and containers, with no full values;
+  - the core `RepoDiff` summary.
+- The baselines follow the attention pattern. They are session-only, held in memory by the store, shared by every clone and keyed by the session actor's `id`, and never written to disk.
+- There is deliberately no MCP tool to mark a save point. Only the host knows when it has persisted, so it calls `SrsRepository.mark_saved` through the WASM handle. A host that writes straight to disk never marks one, so `tracked` is false.
+- There is no CLI surface, and no spec change. A cursor that outlives the session would be srs#915's question.
+- Container changes are container-level; entry-level and field-level detail is the srs#387 contract.

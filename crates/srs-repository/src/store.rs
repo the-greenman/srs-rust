@@ -297,6 +297,17 @@ pub trait RepositoryStore {
         None
     }
 
+    /// In-memory session baselines (srs-rust#1522), shared by every clone of the store;
+    /// `None` for stores that hold no session state. See [`crate::changes_service`].
+    fn baseline_board(&self) -> Option<crate::changes_service::BaselineBoard> {
+        None
+    }
+
+    /// Monotonic write generation (srs-rust#1139); `0` for stores that do not count writes.
+    fn write_epoch(&self) -> u64 {
+        0
+    }
+
     /// What the pre-load transformer migrated in memory when this store was opened
     /// (srs-rust#1444), `None` when it opened as stored. While it is set, every write is
     /// refused with `migration-required-before-write`, so a document is never saved at
@@ -1080,6 +1091,8 @@ pub struct FileStore {
     session_actor: RefCell<Option<serde_json::Value>>,
     /// Session attention (srs-rust#1344): shared by every clone like `epoch`, never persisted.
     attention: crate::attention_service::AttentionBoard,
+    /// Session baselines (srs-rust#1522): shared by every clone like `attention`, never persisted.
+    baselines: crate::changes_service::BaselineBoard,
     /// Write recorder (ADR-049): shared by every clone like `epoch`; drained by
     /// [`RepositoryStore::drain_changes`]. Coalesced per `(target, id)`, so it is
     /// bounded by the number of distinct entities written.
@@ -1111,6 +1124,7 @@ impl Clone for FileStore {
             cache_epoch: Cell::new(self.epoch.get()),
             session_actor: RefCell::new(self.session_actor.borrow().clone()),
             attention: self.attention.clone(),
+            baselines: self.baselines.clone(),
             changes: self.changes.clone(),
             recording: self.recording.clone(),
             migration_notice: self.migration_notice.clone(),
@@ -1134,6 +1148,7 @@ impl FileStore {
             cache_epoch: Cell::new(0),
             session_actor: RefCell::new(None),
             attention: Default::default(),
+            baselines: Default::default(),
             changes: Rc::default(),
             recording: Rc::default(),
             migration_notice: Rc::default(),
@@ -1155,6 +1170,7 @@ impl FileStore {
             cache_epoch: Cell::new(0),
             session_actor: RefCell::new(None),
             attention: Default::default(),
+            baselines: Default::default(),
             changes: Rc::default(),
             recording: Rc::default(),
             migration_notice: Rc::default(),
@@ -1729,6 +1745,14 @@ impl RepositoryStore for FileStore {
 
     fn attention_board(&self) -> Option<crate::attention_service::AttentionBoard> {
         Some(self.attention.clone())
+    }
+
+    fn baseline_board(&self) -> Option<crate::changes_service::BaselineBoard> {
+        Some(self.baselines.clone())
+    }
+
+    fn write_epoch(&self) -> u64 {
+        self.epoch.get()
     }
 
     fn migration_notice(&self) -> Option<MigrationNotice> {
