@@ -941,7 +941,7 @@ mod tests {
         let store = MemoryStore::default();
         let container_id = "770e8400-e29b-41d4-a716-446655440000";
         // Embed-only root container ([R1]): a physical containers/*.json file with the
-        // same id as manifest.container would be a fatal SRS038-R12-DUPLICATE-ID.
+        // same id as manifest.container would be a fatal duplicate-id.
         let mut manifest = store.load_manifest().unwrap();
         crate::container_service::set_root_container(
             &store,

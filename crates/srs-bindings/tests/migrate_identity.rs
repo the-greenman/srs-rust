@@ -75,7 +75,7 @@ fn tier0_fixture_srsj() -> String {
                 ]
             },
             // Embed-only root ([R1]): a containers/*.json file sharing the
-            // embed's id is a fatal SRS038-R12-DUPLICATE-ID under the catalog.
+            // embed's id is a fatal duplicate-id under the catalog.
         }
     })
     .to_string()
@@ -224,7 +224,7 @@ fn sections_survive_migrate_identity() {
             "namespace": "com.test",
             // Embed-only root ([R1]): members live on the embed itself; a
             // containers/*.json file sharing this id would be a fatal
-            // SRS038-R12-DUPLICATE-ID.
+            // duplicate-id.
             "container": {
                 "containerId": SECTIONS_ROOT_CTR_ID,
                 "title": "My Governance Repo",

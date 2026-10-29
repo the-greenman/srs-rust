@@ -6645,7 +6645,7 @@ mod tests {
         let store = FileStore::new(temp.path());
 
         // minimal_relation_for_store's source/target must resolve, or
-        // build_checked flags SRS038-R13-DANGLING-REFERENCE.
+        // build_checked flags dangling-reference.
         store
             .save_record(&minimal_record_for_store(
                 "aaaa0001-0000-4000-a000-000000000001",

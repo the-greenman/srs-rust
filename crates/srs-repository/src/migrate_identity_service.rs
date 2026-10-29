@@ -349,7 +349,7 @@ mod tests {
 
         // Embed-only root container ([R1]): manifest.container is the authoritative
         // declaration. A physical containers/*.json file with the same id would be a
-        // fatal SRS038-R12-DUPLICATE-ID under the catalog's duplicate-id check.
+        // fatal duplicate-id under the catalog's duplicate-id check.
         let mut manifest = store.load_manifest().unwrap();
         let mut root = bare_container(container_id);
         root.identity_instance_id = Some(note_id.to_string());
@@ -870,7 +870,7 @@ mod tests {
         container.description = Some("We build SRS.".to_string());
         // Pre-existing section member that must survive migration. Must be a real
         // catalog-valid instance — a member id with no backing file is a fatal
-        // SRS038-R13-DANGLING-REFERENCE.
+        // dangling-reference.
         container.member_instance_ids = Some(srs_core::types::container::entries(vec![
             section_member_id.to_string(),
         ]));
