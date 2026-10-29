@@ -91,7 +91,7 @@ wasm-pack build crates/srs-bindings --target web --out-dir ../srs-web/src/lib/sr
 
 ## Install / run
 
-Prebuilt `srs` binaries are attached to each [release](https://github.com/the-greenman/srs-rust/releases) (`srs-x86_64-unknown-linux-gnu.tar.gz`). To build from source:
+Prebuilt `srs` binaries are attached to each [release](https://github.com/the-greenman/srs-rust/releases) as `srs-<target>.tar.gz` (with a `.sha256`) for `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `aarch64-apple-darwin` and `x86_64-apple-darwin`. To build from source:
 
 ```bash
 cargo install --path crates/srs-cli     # install the `srs` binary

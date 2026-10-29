@@ -17,8 +17,90 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # One leg per release target (srs-rust#1517). Each builds `srs`, packages it as the stable,
+  # build-independent asset name `srs-<target>.tar.gz` (so `/releases/latest/download/<name>`
+  # never changes between builds) plus a `.sha256`, and hands both to the `release` job via
+  # actions/artifact. The release job creates the draft with every leg's assets in ONE
+  # `gh release create`, so a draft never exists with a partial platform set, and `corpus-gate`
+  # / `promote-release` wait for every leg through `needs: release`.
+  #
+  # x86_64-apple-darwin is cross-compiled on the Apple-silicon runner: GitHub retired the
+  # macos-13 Intel image, and `srs` has no native (C) dependencies, so the Xcode SDK on
+  # macos-14 links it directly. Native legs smoke-test `srs --version`; the cross leg cannot
+  # execute its binary, so it is checked with `file` instead.
+  build:
+    name: Build srs (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            native: true
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            native: true
+          - target: aarch64-apple-darwin
+            os: macos-14
+            native: true
+          - target: x86_64-apple-darwin
+            os: macos-14
+            native: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build release binary
+        # SRS_BUILD_NUMBER is baked into the binary via `option_env!` (srs-mcp's
+        # serverInfo.version, srs-rust#858) so a stale binary is distinguishable
+        # from a current one at the protocol level. Matches the release tag's
+        # `build.${{ github.run_number }}` suffix in the `release` job.
+        env:
+          SRS_BUILD_NUMBER: ${{ github.run_number }}
+        run: cargo build --release -p srs --target ${{ matrix.target }}
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="target/${{ matrix.target }}/release/srs"
+          if [ "${{ matrix.native }}" = "true" ]; then
+            "$bin" --version
+          else
+            file "$bin"
+            file "$bin" | grep -q x86_64
+          fi
+
+      - name: Package binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="srs-${{ matrix.target }}.tar.gz"
+          tar -czf "$archive" -C "target/${{ matrix.target }}/release" srs
+          # shasum ships on every runner image (sha256sum does not on macOS); same
+          # "<hash>  <file>" line format either way.
+          shasum -a 256 "$archive" > "$archive.sha256"
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: srs-${{ matrix.target }}
+          path: |
+            srs-${{ matrix.target }}.tar.gz
+            srs-${{ matrix.target }}.tar.gz.sha256
+          retention-days: 1
+
   release:
-    name: Build and Release (linux x86_64)
+    name: Release (draft)
+    needs: build
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.package.outputs.tag }}
@@ -32,16 +114,14 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build release binary
-        # SRS_BUILD_NUMBER is baked into the binary via `option_env!` (srs-mcp's
-        # serverInfo.version, srs-rust#858) so a stale binary is distinguishable
-        # from a current one at the protocol level. Matches the release tag's
-        # `build.${{ github.run_number }}` suffix below.
-        env:
-          SRS_BUILD_NUMBER: ${{ github.run_number }}
-        run: cargo build --release -p srs
+      - name: Download built archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: srs-*
+          path: dist/srs
+          merge-multiple: true
 
-      - name: Package binary
+      - name: Release metadata
         id: package
         run: |
           set -euo pipefail
@@ -49,34 +129,14 @@ jobs:
             | jq -r '.packages[] | select(.name == "srs") | .version')
           sha_short=$(git rev-parse --short HEAD)
           tag="v${version}-build.${{ github.run_number }}"
-          # Stable, build-independent asset names so the
-          # /releases/latest/download/<name> URL never changes between builds.
-          archive="srs-x86_64-unknown-linux-gnu.tar.gz"
-          tar -czf "$archive" -C target/release srs
-          sha256sum "$archive" > "$archive.sha256"
+          ls -l dist/srs
           {
             echo "version=$version"
             echo "sha_short=$sha_short"
             echo "tag=$tag"
-            echo "archive=$archive"
+            # The archive `corpus-gate` validates (it runs on linux x86_64).
+            echo "archive=srs-x86_64-unknown-linux-gnu.tar.gz"
           } >> "$GITHUB_OUTPUT"
-
-      # Handed to `corpus-gate` directly instead of via a release download (srs-rust#877
-      # follow-up). `gh release create --draft` does not push a git tag until the release
-      # is promoted, so `gh release download <tag>` cannot resolve a draft's assets by tag
-      # ("release not found") — that is exactly what held every release in draft forever
-      # once the gate's own download step needed to succeed before promotion could run.
-      # The gate needs to validate the exact binary THIS RUN built, not depend on release
-      # visibility, so the artifact travels job-to-job via actions/artifact instead; the
-      # sha256 alongside it still lets the gate verify the transfer end to end.
-      - name: Upload built archive for the corpus gate
-        uses: actions/upload-artifact@v4
-        with:
-          name: srs-release-archive
-          path: |
-            ${{ steps.package.outputs.archive }}
-            ${{ steps.package.outputs.archive }}.sha256
-          retention-days: 1
 
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
@@ -135,8 +195,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${{ steps.package.outputs.tag }}" \
-            "${{ steps.package.outputs.archive }}" \
-            "${{ steps.package.outputs.archive }}.sha256" \
+            dist/srs/srs-*.tar.gz \
+            dist/srs/srs-*.tar.gz.sha256 \
             "${{ steps.package_wasm.outputs.archive }}" \
             "${{ steps.package_wasm.outputs.archive }}.sha256" \
             "${{ steps.package_payload_schemas.outputs.archive }}" \
@@ -147,15 +207,19 @@ jobs:
             --title "srs v${{ steps.package.outputs.version }} (build ${{ github.run_number }}, ${{ steps.package.outputs.sha_short }})" \
             --notes "Automated release of the \`srs\` CLI built from \`${{ github.sha }}\`.
 
-          **Platform:** \`x86_64-unknown-linux-gnu\`
+          **Platforms** (one \`srs-<target>.tar.gz\` each):
+          - \`x86_64-unknown-linux-gnu\`
+          - \`aarch64-unknown-linux-gnu\`
+          - \`aarch64-apple-darwin\`
+          - \`x86_64-apple-darwin\`
 
-          Stable download URL (always resolves to the newest build):
+          Stable download URL (always resolves to the newest build; replace the target):
           \`\`\`bash
-          curl -fsSL https://github.com/${{ github.repository }}/releases/latest/download/${{ steps.package.outputs.archive }} | tar -xz
+          curl -fsSL https://github.com/${{ github.repository }}/releases/latest/download/srs-x86_64-unknown-linux-gnu.tar.gz | tar -xz
           ./srs --help
           \`\`\`
 
-          A matching \`${{ steps.package.outputs.archive }}.sha256\` is attached for verification.
+          A matching \`srs-<target>.tar.gz.sha256\` is attached for each archive.
 
           The \`srs-bindings\` WASM package (\`wasm-pack build crates/srs-bindings --target web\`
           output: \`.wasm\` + \`.js\` + \`.d.ts\`) is attached as \`${{ steps.package_wasm.outputs.archive }}\`
@@ -317,10 +381,10 @@ jobs:
           fi
 
       # The exact binary THIS RUN built, handed over via actions/artifact rather than
-      # fetched back from the release (srs-rust#877 follow-up — see the matching upload
-      # step in the `release` job for the reason: a draft release has no git tag until
+      # fetched back from the release (srs-rust#877 follow-up; the linux x86_64 leg of the
+      # `build` job uploads it, srs-rust#1517). Reason: a draft release has no git tag until
       # `promote-release` runs, so `gh release download <tag>` cannot resolve its assets
-      # by tag). The sha256 check right below still verifies the artifact-transfer path
+      # by tag. The sha256 check right below still verifies the artifact-transfer path
       # end to end; the one thing that check no longer covers is the *published* GH
       # release asset bytes specifically — an acceptable trade because `promote-release`
       # only flips the draft/latest flags, it never re-uploads or re-packages anything,
@@ -328,7 +392,7 @@ jobs:
       - name: Download built archive
         uses: actions/download-artifact@v4
         with:
-          name: srs-release-archive
+          name: srs-x86_64-unknown-linux-gnu
           path: /tmp/srs-release
 
       - name: Verify checksum and extract
