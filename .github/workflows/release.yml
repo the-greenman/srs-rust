@@ -384,7 +384,7 @@ jobs:
       # fetched back from the release (srs-rust#877 follow-up; the linux x86_64 leg of the
       # `build` job uploads it, srs-rust#1517). Reason: a draft release has no git tag until
       # `promote-release` runs, so `gh release download <tag>` cannot resolve its assets
-      # by tag). The sha256 check right below still verifies the artifact-transfer path
+      # by tag. The sha256 check right below still verifies the artifact-transfer path
       # end to end; the one thing that check no longer covers is the *published* GH
       # release asset bytes specifically — an acceptable trade because `promote-release`
       # only flips the draft/latest flags, it never re-uploads or re-packages anything,
