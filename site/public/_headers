@@ -1,0 +1,12 @@
+# Fetched by install.sh and by agents from any origin. `/*.md` also covers /cli/*.md.
+/llms.txt
+  Access-Control-Allow-Origin: *
+  Content-Type: text/plain; charset=utf-8
+
+/*.md
+  Access-Control-Allow-Origin: *
+  Content-Type: text/markdown; charset=utf-8
+
+/install.sh
+  Access-Control-Allow-Origin: *
+  Content-Type: text/plain; charset=utf-8

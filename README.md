@@ -91,6 +91,8 @@ wasm-pack build crates/srs-bindings --target web --out-dir ../srs-web/src/lib/sr
 
 ## Install / run
 
+Start at **[engine.semanticops.com](https://engine.semanticops.com)**: `curl -fsSL https://engine.semanticops.com/install.sh | sh` installs the prebuilt `srs`, and [start.md](https://engine.semanticops.com/start.md) is the five-minute path (sample repository, validate, MCP, output contract). The site lives in [`site/`](site/README.md).
+
 Prebuilt `srs` binaries are attached to each [release](https://github.com/the-greenman/srs-rust/releases) as `srs-<target>.tar.gz` (with a `.sha256`) for `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `aarch64-apple-darwin` and `x86_64-apple-darwin`. To build from source:
 
 ```bash
