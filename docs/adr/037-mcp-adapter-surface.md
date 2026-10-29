@@ -151,3 +151,7 @@ The `text` of every JSON tool result (`tool_ok`) and JSON resource read (`json_c
 ## Amendment (2026-10-25, #1344) — attention_list
 
 `attention_list` joins the `full` and `read` profiles: a no-argument read of where each actor is looking, one `{actor, attention, seq}` entry per actor (`attention_service::list_attention`). The state is session-only: held in memory by the store, shared by every clone of it (the browser's repository handle and its MCP sessions), keyed by the session actor's `id`, never written to disk and never stamped on a record. There is deliberately no MCP set tool: the host sets and clears attention through the WASM handle (`SrsRepository.set_attention` / `clear_attention` / `get_attention`), so an agent cannot move the writer's focus. No CLI surface, because a one-shot process has no session. Persistence and stamping stay with srs#915. No spec change.
+
+## Amendment (2026-10-29, #861) — repo_doctor
+
+`repo_doctor` joins the `full` and `read` profiles: a no-argument, read-only report of what `doctor_service::doctor` finds (`DoctorInput { fix: false }`, the existing typed `DoctorReport`), so an MCP-only agent can see a repository it bricked and what a repair would do. There is deliberately no `fix` argument and the input schema rejects one: this is split A of the owner's 2026-10-08 direction (report first). The fix model (safety classes, a discoverable catalogue of repairs) and the `doctor` to `lint` rename are a separate design (B), and MCP repair (C) waits on it. No CLI or spec change.

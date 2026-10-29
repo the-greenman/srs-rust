@@ -52,7 +52,7 @@
 `srs mcp serve --repo <path>` serves one repository over stdio (`--profile full|context|read`). `tools/list` and `resources/list` on the server are authoritative; in summary:
 
 - Resources: `srs://<repositoryId>/map`, `/navigation`, `/agent-index`, `/tree`, `/relation-types`, `/protocol`, `/container/<id>`, `/composition/<id>`, `/type/<id>`; templates `record/{instanceId}`, `context/{containerId}/{instanceId}`, `tree/{instanceId}`, `type/{typeId}`, `protocol/{protocolId}`, `attachment/{documentId}`. The `read` tool returns any of them for clients that cannot read resources.
-- Read tools: `find`, `similar`, `neighbours`, `read`, `type_schema`, `container_outline`, `record_allowed_transitions`, `attention_list`, `repo_validate`.
+- Read tools: `find`, `similar`, `neighbours`, `read`, `type_schema`, `container_outline`, `record_allowed_transitions`, `attention_list`, `repo_validate`, `repo_doctor`.
 - Write tools: `record_create`, `record_update`, `record_successor`, `record_fork`, `record_transition`, `note_create`, `note_update`, `note_graduate`, `relation_create`, `relation_delete`, `container_create`, `container_copy`, `container_member_add`, `container_member_remove`, `container_member_move`, `container_member_repair`, `attachment_add`, `attachment_link`.
 - Packages and protocols: `package_upgrade`, `package_dependency_list`, `package_dependency_set`, `package_dependency_remove`, `protocol_run_create`, `protocol_run_advance`, `protocol_run_get`, `protocol_run_list`, `protocol_run_complete`, `protocol_run_abandon`.
 

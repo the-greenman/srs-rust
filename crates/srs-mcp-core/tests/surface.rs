@@ -63,14 +63,31 @@ fn application_reads_repository_id_from_manifest() {
 }
 
 #[test]
-fn tool_catalogue_has_all_thirty_seven_tools_and_core_owns_the_schemas() {
+fn tool_catalogue_has_all_thirty_eight_tools_and_core_owns_the_schemas() {
     let (_dir, mut d) = setup();
     let listed = rpc(&mut d, "tools/list", json!({}));
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 37);
+    assert_eq!(tools.len(), 38);
     assert!(tools
         .iter()
         .all(|t| t["description"].is_string() && t["inputSchema"]["type"] == "object"));
+}
+
+#[test]
+fn repo_doctor_reports_without_fixing_and_is_in_the_read_profile() {
+    use srs_mcp_core::tools::ToolProfile;
+    let (_dir, mut d) = setup();
+    let r = tool(&mut d, "repo_doctor", json!({}));
+    assert_eq!(r["result"]["isError"], false, "{r}");
+    let report = &r["result"]["structuredContent"];
+    assert_eq!(report["fixApplied"], false, "{r}");
+    assert_eq!(report["findings"].as_array().unwrap().len(), 0, "{r}");
+    // No `fix` argument exists: the tool cannot be asked to write.
+    let refused = tool(&mut d, "repo_doctor", json!({ "fix": true }));
+    assert_eq!(refused["error"]["code"], -32602, "{refused}");
+    d.application_mut().set_tool_profile(ToolProfile::Read);
+    let r = tool(&mut d, "repo_doctor", json!({}));
+    assert_eq!(r["result"]["isError"], false, "{r}");
 }
 
 #[test]
