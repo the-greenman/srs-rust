@@ -63,11 +63,11 @@ fn application_reads_repository_id_from_manifest() {
 }
 
 #[test]
-fn tool_catalogue_has_all_thirty_eight_tools_and_core_owns_the_schemas() {
+fn tool_catalogue_has_all_thirty_nine_tools_and_core_owns_the_schemas() {
     let (_dir, mut d) = setup();
     let listed = rpc(&mut d, "tools/list", json!({}));
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 38);
+    assert_eq!(tools.len(), 39);
     assert!(tools
         .iter()
         .all(|t| t["description"].is_string() && t["inputSchema"]["type"] == "object"));
@@ -292,6 +292,46 @@ fn validated_write_then_read_resource_and_find() {
 
     let validate = tool(&mut d, "repo_validate", json!({}));
     assert_eq!(validate["result"]["isError"], false);
+}
+
+#[test]
+fn changes_reports_unsaved_writes_until_the_host_marks_saved() {
+    let (_dir, mut d) = setup();
+    let store = d.application().store().clone();
+    let status = |d: &mut McpDispatcher<SrsMcpApplication<FileStore>>| {
+        let r = tool(d, "changes", json!({}));
+        assert_eq!(r["result"]["isError"], false, "{r}");
+        r["result"]["structuredContent"].clone()
+    };
+    // No save point yet: the host saves nothing for an agent to wait on.
+    assert_eq!(status(&mut d)["tracked"], false);
+
+    srs_repository::changes_service::mark_saved(&store, Some("t0".into())).unwrap();
+    assert_eq!(status(&mut d)["unsaved"], false);
+
+    let created = tool(
+        &mut d,
+        "note_create",
+        json!({ "title": "Agent note", "sections": [{ "name": "body", "content": "hello" }] }),
+    );
+    let id = created["result"]["structuredContent"]["instanceId"].clone();
+    let s = status(&mut d);
+    assert_eq!(s["unsaved"], true);
+    assert_eq!(s["savedAt"], "t0");
+    assert_eq!(s["instances"][0]["instanceId"], id);
+    assert_eq!(s["instances"][0]["change"], "created");
+    assert_eq!(s["instances"][0]["title"], "Agent note");
+
+    srs_repository::changes_service::mark_saved(&store, None).unwrap();
+    let s = status(&mut d);
+    assert_eq!(s["unsaved"], false);
+    assert_eq!(s["instances"].as_array().unwrap().len(), 0);
+
+    // A cursor needs a session actor; the error is a tool result.
+    let r = tool(&mut d, "changes", json!({ "since": "cursor" }));
+    assert_eq!(r["result"]["isError"], true, "{r}");
+    let r = tool(&mut d, "changes", json!({ "since": "yesterday" }));
+    assert!(r["error"].is_object(), "{r}");
 }
 
 #[test]

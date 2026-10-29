@@ -283,6 +283,26 @@ impl SrsRepository {
         serde_json::to_string(&list).map_err(|e| js_invalid_input(e.to_string()))
     }
 
+    /// Record the repository as it is now as the save point (srs-rust#1522). Call it when a
+    /// document is opened and after every successful save or export; `saved_at` is shown back
+    /// as `savedAt`. In memory only, shared with every MCP session; not a write.
+    pub fn mark_saved(&self, saved_at: Option<String>) -> Result<(), JsValue> {
+        srs_repository::changes_service::mark_saved(&self.store, saved_at).map_err(|e| js_err(&e))
+    }
+
+    /// What changed, as JSON (srs-rust#1522): `since` is `"saved"` (since `mark_saved`) or
+    /// `"cursor"` (since this handle's session actor last read with `"cursor"`; moves it).
+    /// `{since, tracked, unsaved, savedAt?, writeEpoch, cursorStarted?, summary, manifest,
+    /// instances, relations, containers}` — the same result as the MCP `changes` tool.
+    pub fn changes(&self, since: &str) -> Result<String, JsValue> {
+        let since: srs_repository::changes_service::ChangesSince =
+            serde_json::from_value(serde_json::Value::String(since.to_string()))
+                .map_err(|e| js_invalid_input(e.to_string()))?;
+        let result =
+            srs_repository::changes_service::changes(&self.store, since).map_err(|e| js_err(&e))?;
+        serde_json::to_string(&result).map_err(|e| js_serialize("changes", e))
+    }
+
     /// Open an MCP session over this repository (resources, prompts, and the
     /// validated tool surface — the same application `srs mcp serve` runs).
     pub fn open_mcp_session(&self) -> Result<McpSession, JsValue> {
@@ -2468,6 +2488,85 @@ mod tests {
         assert_eq!(session.write_epoch(), repo.write_epoch());
         super::create_container_from_json(&repo.store, r#"{"title":"D"}"#).unwrap();
         assert_eq!(session.write_epoch(), repo.write_epoch());
+    }
+
+    #[test]
+    fn changes_lists_ui_and_mcp_writes_since_mark_saved() {
+        let store = super::create_blank_from_json(
+            r#"{"title":"T","description":"Why","namespace":"com.t.x"}"#,
+        )
+        .unwrap();
+        let repo = SrsRepository { store };
+        let read = |repo: &SrsRepository| -> serde_json::Value {
+            serde_json::from_str(&repo.changes("saved").unwrap()).unwrap()
+        };
+        assert_eq!(read(&repo)["tracked"], false);
+        repo.mark_saved(Some("opened".into())).unwrap();
+        assert_eq!(read(&repo)["unsaved"], false);
+
+        let c = super::create_container_from_json(&repo.store, r#"{"title":"C"}"#).unwrap();
+        let mut session = repo.open_mcp_session().unwrap();
+        session
+            .set_actor(r#"{"kind":"ai","id":"agent:a"}"#)
+            .unwrap();
+        let reply = session
+            .handle(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#)
+            .unwrap();
+        assert!(reply.contains("result"), "{reply}");
+        session.handle(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#);
+        let reply = session
+            .handle(r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"note_create","arguments":{"title":"From agent","sections":[{"name":"b","content":"x"}]}}}"#)
+            .unwrap();
+        assert!(reply.contains("\"isError\":false"), "{reply}");
+
+        let r = read(&repo);
+        assert_eq!(r["unsaved"], true);
+        assert_eq!(r["savedAt"], "opened");
+        let note = &r["instances"].as_array().unwrap()[0];
+        assert_eq!(note["title"], "From agent");
+        assert_eq!(note["createdBy"]["id"], "agent:a");
+        let containers = r["containers"].as_array().unwrap();
+        assert!(containers
+            .iter()
+            .any(|x| x["containerId"] == c.container_id.as_str() && x["change"] == "created"));
+
+        repo.mark_saved(None).unwrap();
+        let r = read(&repo);
+        assert_eq!(r["unsaved"], false);
+        assert!(r["instances"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn two_mcp_sessions_keep_their_own_cursors() {
+        let store = super::create_blank_from_json(
+            r#"{"title":"T","description":"Why","namespace":"com.t.x"}"#,
+        )
+        .unwrap();
+        let repo = SrsRepository { store };
+        let session = |id: &str| {
+            let mut s = repo.open_mcp_session().unwrap();
+            s.set_actor(&format!(r#"{{"kind":"ai","id":"{id}"}}"#))
+                .unwrap();
+            s.handle(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#);
+            s.handle(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#);
+            s
+        };
+        let cursor = |s: &mut super::McpSession| -> serde_json::Value {
+            let reply: serde_json::Value = serde_json::from_str(
+                &s.handle(r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"changes","arguments":{"since":"cursor"}}}"#)
+                    .unwrap(),
+            )
+            .unwrap();
+            reply["result"]["structuredContent"].clone()
+        };
+        let (mut a, mut b) = (session("agent:a"), session("agent:b"));
+        assert_eq!(cursor(&mut a)["cursorStarted"], true);
+        assert_eq!(cursor(&mut b)["cursorStarted"], true);
+        a.handle(r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"note_create","arguments":{"title":"N","sections":[{"name":"b","content":"x"}]}}}"#);
+        assert_eq!(cursor(&mut a)["instances"].as_array().unwrap().len(), 1);
+        assert!(cursor(&mut a)["instances"].as_array().unwrap().is_empty());
+        // A's reads did not move B's cursor.
+        assert_eq!(cursor(&mut b)["instances"].as_array().unwrap().len(), 1);
     }
 
     #[test]

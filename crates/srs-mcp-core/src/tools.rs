@@ -95,6 +95,7 @@ pub const TOOL_PACKAGE_UPGRADE: &str = "package_upgrade";
 pub const TOOL_NEIGHBOURS: &str = "neighbours";
 pub const TOOL_SIMILAR: &str = "similar";
 pub const TOOL_ATTENTION_LIST: &str = "attention_list";
+pub const TOOL_CHANGES: &str = "changes";
 pub const TOOL_ATTACHMENT_ADD: &str = "attachment_add";
 pub const TOOL_ATTACHMENT_LINK: &str = "attachment_link";
 /// Agent-facing replies are size-capped: omitted `limit` on `neighbours`, and its ceiling.
@@ -146,6 +147,7 @@ const READ_TOOLS: &[&str] = &[
     TOOL_PROTOCOL_RUN_LIST,
     TOOL_PACKAGE_DEPENDENCY_LIST,
     TOOL_ATTENTION_LIST,
+    TOOL_CHANGES,
     TOOL_REPO_VALIDATE,
     TOOL_REPO_DOCTOR,
 ];
@@ -456,6 +458,20 @@ one entry per actor with `actor`, `attention` (containerId, optional recordId an
 moved. Live session state held in memory by the open repository: never persisted, never on a \
 record, empty when nobody has set one. Read-only; the host sets and clears attention.";
 
+pub const DESC_CHANGES: &str = "What has changed and whether anything needs saving \
+(srs-rust#1522). `since: saved` (default) compares with the host's last save: `tracked` says \
+whether a save point was recorded (false: none was; a host writing straight to disk saves every write as it is made), `unsaved` \
+whether anything was written since, plus `savedAt`. `since: cursor` compares with your own last \
+`changes` read with `since: cursor` and moves your cursor to now; the first such read starts it \
+(`cursorStarted`) and lists nothing. Each actor's cursor is its own. Lists are sorted by id and \
+carry no full values: `instances` (instanceId, change created|updated|deleted, tier, title, \
+typeName, createdBy), `relations` (relationType and endpoints), `containers` (container level: \
+an entry added, moved or removed shows the container as updated), with `summary` counts for \
+package definitions; attachments are not listed. Read an entity to see its content. Live \
+session state, never persisted; reading it writes nothing. Baselines live only as long as the \
+host's session (a browser or relay host): on a server that opens the repository per request, \
+every cursor read starts afresh and nothing is tracked.";
+
 pub const DESC_PROTOCOL_RUN_LIST: &str = "List protocol run summaries, optionally filtered by \
 protocolId, containerId, and/or status (one of \"Active\", \"Completed\", \"Abandoned\" — \
 AND-combined with the other filters). Omit all filters to list every run. Each summary carries \
@@ -476,6 +492,14 @@ rejected. Returns the updated run.";
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EmptyToolInput {}
+
+/// `changes`: which baseline to compare with (srs-rust#1522).
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChangesToolInput {
+    /// `saved` (default): since the host's last save. `cursor`: since your own last look.
+    pub since: Option<srs_repository::changes_service::ChangesSince>,
+}
 
 /// Mirrors `discovery_service::DiscoveryQuery` field-for-field.
 #[derive(Debug, Default, Deserialize, JsonSchema)]
@@ -1454,6 +1478,11 @@ fn all_tools() -> Vec<Value> {
             input_schema::<EmptyToolInput>(),
         ),
         tool(
+            TOOL_CHANGES,
+            DESC_CHANGES,
+            input_schema::<ChangesToolInput>(),
+        ),
+        tool(
             TOOL_ATTACHMENT_ADD,
             DESC_ATTACHMENT_ADD,
             input_schema::<AttachmentAddToolInput>(),
@@ -1707,6 +1736,16 @@ pub fn call_tool(
             let _: EmptyToolInput = parse_args(arguments)?;
             match srs_repository::attention_service::list_attention(store) {
                 Ok(list) => tool_ok(&list),
+                Err(e) => Ok(tool_err(e.report())),
+            }
+        }
+        TOOL_CHANGES => {
+            let input: ChangesToolInput = parse_args(arguments)?;
+            let since = input
+                .since
+                .unwrap_or(srs_repository::changes_service::ChangesSince::Saved);
+            match srs_repository::changes_service::changes(store, since) {
+                Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.report())),
             }
         }
@@ -2401,6 +2440,7 @@ mod tests {
                 TOOL_NEIGHBOURS,
                 TOOL_SIMILAR,
                 TOOL_ATTENTION_LIST,
+                TOOL_CHANGES,
                 TOOL_ATTACHMENT_ADD,
                 TOOL_ATTACHMENT_LINK,
             ]

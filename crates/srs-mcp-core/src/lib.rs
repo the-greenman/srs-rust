@@ -40,6 +40,8 @@ relation_create, and note_create enforce the repository's type and relation cont
 return diagnostics on rejection. Run repo_validate after a write batch and check its \
 summary: summary.errors == 0 means the repository is consistent. Warnings are non-blocking, \
 but review them; info diagnostics are informational. An empty diagnostics array means the repository is completely clean. \
+Call the changes tool to see whether anything is unsaved and what changed since the last save, \
+or with since: cursor what changed since you last looked. \
 Prompts: this server exposes one MCP prompt per installed blueprint. Call prompts/list \
 to discover available blueprints; call prompts/get with a blueprint UUID to retrieve its \
 full brief as rendered markdown — AI guidance, required types, structure, and protocol.";
