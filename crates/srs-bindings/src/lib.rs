@@ -2537,6 +2537,39 @@ mod tests {
     }
 
     #[test]
+    fn two_mcp_sessions_keep_their_own_cursors() {
+        let store = super::create_blank_from_json(
+            r#"{"title":"T","description":"Why","namespace":"com.t.x"}"#,
+        )
+        .unwrap();
+        let repo = SrsRepository { store };
+        let session = |id: &str| {
+            let mut s = repo.open_mcp_session().unwrap();
+            s.set_actor(&format!(r#"{{"kind":"ai","id":"{id}"}}"#))
+                .unwrap();
+            s.handle(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#);
+            s.handle(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#);
+            s
+        };
+        let cursor = |s: &mut super::McpSession| -> serde_json::Value {
+            let reply: serde_json::Value = serde_json::from_str(
+                &s.handle(r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"changes","arguments":{"since":"cursor"}}}"#)
+                    .unwrap(),
+            )
+            .unwrap();
+            reply["result"]["structuredContent"].clone()
+        };
+        let (mut a, mut b) = (session("agent:a"), session("agent:b"));
+        assert_eq!(cursor(&mut a)["cursorStarted"], true);
+        assert_eq!(cursor(&mut b)["cursorStarted"], true);
+        a.handle(r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"note_create","arguments":{"title":"N","sections":[{"name":"b","content":"x"}]}}}"#);
+        assert_eq!(cursor(&mut a)["instances"].as_array().unwrap().len(), 1);
+        assert!(cursor(&mut a)["instances"].as_array().unwrap().is_empty());
+        // A's reads did not move B's cursor.
+        assert_eq!(cursor(&mut b)["instances"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
     fn update_container_missing_keeps_repository_error_code() {
         let store =
             super::create_blank_from_json(r#"{"title":"T","namespace":"com.t.x"}"#).unwrap();

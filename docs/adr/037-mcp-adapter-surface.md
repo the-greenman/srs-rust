@@ -168,3 +168,10 @@ The `text` of every JSON tool result (`tool_ok`) and JSON resource read (`json_c
 - There is deliberately no MCP tool to mark a save point. Only the host knows when it has persisted, so it calls `SrsRepository.mark_saved` through the WASM handle. A host that writes straight to disk never marks one, so `tracked` is false.
 - There is no CLI surface, and no spec change. A cursor that outlives the session would be srs#915's question.
 - Container changes are container-level; entry-level and field-level detail is the srs#387 contract.
+
+Also decided, in #1522:
+- **`changes`, not `agent-index`, carries the save status.** `agent-index` is the same core service as the CLI's `srs repo agent-index`, and the CLI has no session.
+- **`unsaved` follows the write epoch**, the same signal as an editor's dirty flag, not the lists. A write later undone by hand, or an attachment (attachments are not listed), still counts as unsaved.
+- **Cursors are keyed by actor `id`**, as attention is. Two sessions with one id share a cursor.
+- **Baselines are full snapshots.** If srs-rust#1193 measures them as a cost, derive them from the write recorder (ADR-049) instead.
+- **On the stdio server, `changes` carries no state between requests.** `srs mcp serve` opens a fresh store per request (above), so a cursor starts afresh on every read and `tracked` is false. Baselines live as long as a browser or relay host's session.

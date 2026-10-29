@@ -460,15 +460,17 @@ record, empty when nobody has set one. Read-only; the host sets and clears atten
 
 pub const DESC_CHANGES: &str = "What has changed and whether anything needs saving \
 (srs-rust#1522). `since: saved` (default) compares with the host's last save: `tracked` says \
-whether the host keeps a save point (false: every write is saved as it is made), `unsaved` \
+whether a save point was recorded (false: none was; a host writing straight to disk saves every write as it is made), `unsaved` \
 whether anything was written since, plus `savedAt`. `since: cursor` compares with your own last \
 `changes` read with `since: cursor` and moves your cursor to now; the first such read starts it \
 (`cursorStarted`) and lists nothing. Each actor's cursor is its own. Lists are sorted by id and \
 carry no full values: `instances` (instanceId, change created|updated|deleted, tier, title, \
 typeName, createdBy), `relations` (relationType and endpoints), `containers` (container level: \
 an entry added, moved or removed shows the container as updated), with `summary` counts for \
-package definitions. Read an entity to see its content. Live session state, never persisted; \
-reading it writes nothing.";
+package definitions; attachments are not listed. Read an entity to see its content. Live \
+session state, never persisted; reading it writes nothing. Baselines live only as long as the \
+host's session (a browser or relay host): on a server that opens the repository per request, \
+every cursor read starts afresh and nothing is tracked.";
 
 pub const DESC_PROTOCOL_RUN_LIST: &str = "List protocol run summaries, optionally filtered by \
 protocolId, containerId, and/or status (one of \"Active\", \"Completed\", \"Abandoned\" — \

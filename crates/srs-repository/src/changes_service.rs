@@ -93,11 +93,12 @@ pub struct ContainerChange {
 #[serde(rename_all = "camelCase")]
 pub struct ChangesResult {
     pub since: ChangesSince,
-    /// Whether the host keeps a save point. `false` means nobody marked one: a host writing
-    /// straight to disk saves every write as it is made, so there is nothing to save.
+    /// Whether a save point was recorded. `false` means none was: a host writing straight to
+    /// disk never records one, because every write is saved as it is made.
     pub tracked: bool,
     /// Whether anything was written since the save point (`null` when not tracked). The same
-    /// signal as an editor's dirty flag: a write that was later undone by hand still counts.
+    /// signal as an editor's dirty flag, so it follows the write epoch, not the lists: a write
+    /// later undone by hand, or an attachment (not listed), still counts.
     pub unsaved: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub saved_at: Option<String>,
@@ -178,30 +179,31 @@ pub fn changes(
             }
         }
     };
-    Ok(compact(
+    let diff = diff_snapshots(&base.snapshot, &live.snapshot);
+    let (instances, relations, containers) = compact(&diff);
+    Ok(ChangesResult {
         since,
         tracked,
         unsaved,
         saved_at,
         write_epoch,
         cursor_started,
-        &base,
-        &live,
-    ))
+        summary: diff.summary,
+        manifest: diff.manifest,
+        instances,
+        relations,
+        containers,
+    })
 }
 
-#[allow(clippy::too_many_arguments)]
+/// The diff's entities as id-sorted lists without their values.
 fn compact(
-    since: ChangesSince,
-    tracked: bool,
-    unsaved: Option<bool>,
-    saved_at: Option<String>,
-    write_epoch: u64,
-    cursor_started: bool,
-    base: &Baseline,
-    live: &Baseline,
-) -> ChangesResult {
-    let diff = diff_snapshots(&base.snapshot, &live.snapshot);
+    diff: &crate::diff::RepoDiff,
+) -> (
+    Vec<InstanceChange>,
+    Vec<RelationChange>,
+    Vec<ContainerChange>,
+) {
     let instance = |id: &str, tier: u8, change: ChangeKind, v: &serde_json::Value| {
         let title = v
             .get("title")
@@ -301,20 +303,7 @@ fn compact(
         )
         .collect();
     containers.sort_by(|a, b| a.container_id.cmp(&b.container_id));
-
-    ChangesResult {
-        since,
-        tracked,
-        unsaved,
-        saved_at,
-        write_epoch,
-        cursor_started,
-        summary: diff.summary,
-        manifest: diff.manifest,
-        instances,
-        relations,
-        containers,
-    }
+    (instances, relations, containers)
 }
 
 #[cfg(test)]
