@@ -54,6 +54,12 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # rust-toolchain.toml pins the channel, so cargo builds with that toolchain, not
+      # the `stable` one the action above installed the target into. Add the target to
+      # the pinned toolchain too, or the cross leg fails with "can't find crate for std".
+      - name: Add target to the pinned toolchain
+        run: rustup target add ${{ matrix.target }}
+
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
