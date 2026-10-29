@@ -259,6 +259,30 @@ impl SrsRepository {
         self.store.set_session_actor(None);
     }
 
+    /// Set this handle's session actor's attention (srs-rust#1344), as
+    /// `{"containerId":"..","recordId":"..?","fieldId":"..?"}`. Needs a valid session actor
+    /// (`set_actor`); in memory only, shared with every MCP session over this repository,
+    /// never written to the corpus. Returns the stored entry as JSON.
+    pub fn set_attention(&self, json: &str) -> Result<String, JsValue> {
+        let attention: srs_core::types::address::AttentionState =
+            serde_json::from_str(json).map_err(|e| js_invalid_input(e.to_string()))?;
+        let entry = srs_repository::attention_service::set_attention(&self.store, attention)
+            .map_err(|e| js_err(&e))?;
+        serde_json::to_string(&entry).map_err(|e| js_invalid_input(e.to_string()))
+    }
+
+    /// Clear this handle's session actor's attention. Returns whether it had one.
+    pub fn clear_attention(&self) -> Result<bool, JsValue> {
+        srs_repository::attention_service::clear_attention(&self.store).map_err(|e| js_err(&e))
+    }
+
+    /// The current attention of every actor, as `{"attention":[{actor,attention,seq}]}` JSON.
+    pub fn get_attention(&self) -> Result<String, JsValue> {
+        let list = srs_repository::attention_service::list_attention(&self.store)
+            .map_err(|e| js_err(&e))?;
+        serde_json::to_string(&list).map_err(|e| js_invalid_input(e.to_string()))
+    }
+
     /// Open an MCP session over this repository (resources, prompts, and the
     /// validated tool surface — the same application `srs mcp serve` runs).
     pub fn open_mcp_session(&self) -> Result<McpSession, JsValue> {
@@ -2350,6 +2374,47 @@ mod tests {
         s.clear_actor();
         let anon = s.handle(note).unwrap();
         assert!(!anon.contains("createdBy"), "{anon}");
+    }
+
+    /// srs-rust#1344: the writer's focus is set through the UI handle and read by an agent's
+    /// MCP session over the same repository; it is session state, so no write happens.
+    #[test]
+    fn attention_set_by_the_ui_handle_is_read_over_mcp() {
+        let store = super::create_blank_from_json(
+            r#"{"title":"T","description":"Why","namespace":"com.t.x"}"#,
+        )
+        .unwrap();
+        let repo = SrsRepository { store };
+        let mut s = repo.open_mcp_session().unwrap();
+        s.handle(r#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#)
+            .unwrap();
+        let list = r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"attention_list","arguments":{}}}"#;
+        let empty: serde_json::Value = serde_json::from_str(&s.handle(list).unwrap()).unwrap();
+        assert_eq!(
+            empty["result"]["structuredContent"]["attention"],
+            serde_json::json!([])
+        );
+
+        // No actor, no attention: the UI cannot set one anonymously.
+        assert!(!repo.get_attention().unwrap().contains("actor"));
+        repo.set_actor(r#"{"kind":"human","id":"user-7"}"#).unwrap();
+        let epoch = repo.write_epoch();
+        repo.set_attention(r#"{"containerId":"c-1","recordId":"r-1","fieldId":"body"}"#)
+            .unwrap();
+        assert_eq!(repo.write_epoch(), epoch);
+
+        let seen: serde_json::Value = serde_json::from_str(&s.handle(list).unwrap()).unwrap();
+        let entry = &seen["result"]["structuredContent"]["attention"][0];
+        assert_eq!(entry["actor"]["id"], "user-7");
+        assert_eq!(entry["attention"]["recordId"], "r-1");
+        assert_eq!(entry["attention"]["fieldId"], "body");
+
+        assert!(repo.clear_attention().unwrap());
+        let gone: serde_json::Value = serde_json::from_str(&s.handle(list).unwrap()).unwrap();
+        assert_eq!(
+            gone["result"]["structuredContent"]["attention"],
+            serde_json::json!([])
+        );
     }
 
     #[test]

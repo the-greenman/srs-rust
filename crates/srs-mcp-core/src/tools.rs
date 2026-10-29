@@ -92,6 +92,7 @@ pub const TOOL_PACKAGE_DEPENDENCY_REMOVE: &str = "package_dependency_remove";
 pub const TOOL_PACKAGE_UPGRADE: &str = "package_upgrade";
 pub const TOOL_NEIGHBOURS: &str = "neighbours";
 pub const TOOL_SIMILAR: &str = "similar";
+pub const TOOL_ATTENTION_LIST: &str = "attention_list";
 pub const TOOL_ATTACHMENT_ADD: &str = "attachment_add";
 pub const TOOL_ATTACHMENT_LINK: &str = "attachment_link";
 /// Agent-facing replies are size-capped: omitted `limit` on `neighbours`, and its ceiling.
@@ -142,6 +143,7 @@ const READ_TOOLS: &[&str] = &[
     TOOL_PROTOCOL_RUN_GET,
     TOOL_PROTOCOL_RUN_LIST,
     TOOL_PACKAGE_DEPENDENCY_LIST,
+    TOOL_ATTENTION_LIST,
     TOOL_REPO_VALIDATE,
 ];
 
@@ -435,6 +437,13 @@ Completed or Abandoned run is rejected. Returns the updated run.";
 
 pub const DESC_PROTOCOL_RUN_GET: &str = "Get a single protocol run by its runId, including its \
 full stageStates history and current attentionState. Returns an error if no run has that id.";
+
+pub const DESC_ATTENTION_LIST: &str =
+    "List where each actor is looking right now (srs-rust#1344): \
+one entry per actor with `actor`, `attention` (containerId, optional recordId and fieldId) and \
+`seq`. `seq` rises on every change, so compare it with your last read to see whether the writer \
+moved. Live session state held in memory by the open repository: never persisted, never on a \
+record, empty when nobody has set one. Read-only; the host sets and clears attention.";
 
 pub const DESC_PROTOCOL_RUN_LIST: &str = "List protocol run summaries, optionally filtered by \
 protocolId, containerId, and/or status (one of \"Active\", \"Completed\", \"Abandoned\" — \
@@ -1424,6 +1433,11 @@ fn all_tools() -> Vec<Value> {
             input_schema::<SimilarToolInput>(),
         ),
         tool(
+            TOOL_ATTENTION_LIST,
+            DESC_ATTENTION_LIST,
+            input_schema::<EmptyToolInput>(),
+        ),
+        tool(
             TOOL_ATTACHMENT_ADD,
             DESC_ATTACHMENT_ADD,
             input_schema::<AttachmentAddToolInput>(),
@@ -1662,6 +1676,13 @@ pub fn call_tool(
             };
             match discovery_service::find(store, input.into(), page) {
                 Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.report())),
+            }
+        }
+        TOOL_ATTENTION_LIST => {
+            let _: EmptyToolInput = parse_args(arguments)?;
+            match srs_repository::attention_service::list_attention(store) {
+                Ok(list) => tool_ok(&list),
                 Err(e) => Ok(tool_err(e.report())),
             }
         }
@@ -2354,6 +2375,7 @@ mod tests {
                 TOOL_PACKAGE_UPGRADE,
                 TOOL_NEIGHBOURS,
                 TOOL_SIMILAR,
+                TOOL_ATTENTION_LIST,
                 TOOL_ATTACHMENT_ADD,
                 TOOL_ATTACHMENT_LINK,
             ]
