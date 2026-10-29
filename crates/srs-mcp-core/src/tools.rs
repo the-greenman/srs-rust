@@ -27,6 +27,7 @@ use srs_repository::context_query_service::{
     list_neighbours, EdgeDirection, NeighboursPage, NeighboursQuery,
 };
 use srs_repository::discovery_service::{self, DiscoveryQuery, FindPage, MatchMode};
+use srs_repository::doctor_service::{self, DoctorInput};
 use srs_repository::package_dependency_service::{
     self, AddPackageDependencyInput, RemovePackageDependencyInput,
 };
@@ -48,6 +49,7 @@ use srs_repository::validation::validate_repository;
 // ── Tool names ────────────────────────────────────────────────────────────────
 
 pub const TOOL_REPO_VALIDATE: &str = "repo_validate";
+pub const TOOL_REPO_DOCTOR: &str = "repo_doctor";
 pub const TOOL_FIND: &str = "find";
 /// Agent-facing replies are size-capped; omitted `limit` on the MCP `find` tool.
 const FIND_DEFAULT_LIMIT: usize = 25;
@@ -145,6 +147,7 @@ const READ_TOOLS: &[&str] = &[
     TOOL_PACKAGE_DEPENDENCY_LIST,
     TOOL_ATTENTION_LIST,
     TOOL_REPO_VALIDATE,
+    TOOL_REPO_DOCTOR,
 ];
 
 impl ToolProfile {
@@ -195,6 +198,14 @@ array plus a summary. Run this after every write batch. summary.errors == 0 (equ
 error diagnostics) means the repository is consistent. Warnings are non-blocking, but review \
 them; info diagnostics are informational and counted in neither total. An empty diagnostics array means the repository is completely clean. Diagnostics are \
 data, not a tool error: the tool succeeds even when problems are found.";
+
+pub const DESC_REPO_DOCTOR: &str = "Report what is wrong with a repository that cannot be loaded \
+or validated, and what a repair would do (srs-rust#861). Read-only: it takes no arguments and \
+applies nothing. Each finding has `class` (e.g. duplicate-instance-id, dangling-relation-endpoint, \
+unrepaired), `locators`, `message`, `outcome` and `detail`. `outcome` is would-repair (a repair \
+exists), ambiguous (the data alone cannot decide it) or manual-step (no automated repair); \
+`fixApplied` is always false. Use it when repo_validate cannot run or reports faults you did not \
+cause; repairs themselves are made with the CLI (`srs repo doctor --fix`).";
 
 pub const DESC_PACKAGE_DEPENDENCY_LIST: &str = "List a package's packageDependencies \
 (RFC-044 package requirements) with each entry's check outcome: satisfied, or the reason \
@@ -1272,6 +1283,11 @@ fn all_tools() -> Vec<Value> {
             DESC_REPO_VALIDATE,
             input_schema::<EmptyToolInput>(),
         ),
+        tool(
+            TOOL_REPO_DOCTOR,
+            DESC_REPO_DOCTOR,
+            input_schema::<EmptyToolInput>(),
+        ),
         tool(TOOL_FIND, DESC_FIND, input_schema::<FindToolInput>()),
         tool(
             TOOL_RECORD_CREATE,
@@ -1659,6 +1675,14 @@ pub fn call_tool(
         TOOL_REPO_VALIDATE => {
             let _: EmptyToolInput = parse_args(arguments)?;
             match validate_repository(store) {
+                Ok(report) => tool_ok(&report),
+                Err(e) => Ok(tool_err(e.report())),
+            }
+        }
+        TOOL_REPO_DOCTOR => {
+            let _: EmptyToolInput = parse_args(arguments)?;
+            // Dry run only: `fix` is not an argument of this tool.
+            match doctor_service::doctor(store, DoctorInput { fix: false }) {
                 Ok(report) => tool_ok(&report),
                 Err(e) => Ok(tool_err(e.report())),
             }
@@ -2342,6 +2366,7 @@ mod tests {
             names,
             vec![
                 TOOL_REPO_VALIDATE,
+                TOOL_REPO_DOCTOR,
                 TOOL_FIND,
                 TOOL_RECORD_CREATE,
                 TOOL_RELATION_CREATE,
