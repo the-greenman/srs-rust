@@ -303,7 +303,7 @@ pub fn create_relation(
             relation_id: relation.relation_id.clone(),
             message: errors
                 .iter()
-                .map(|e| format!("{:?}: {}", e.code, e.message))
+                .map(|e| format!("{}: {}", e.code.as_code(), e.message))
                 .collect::<Vec<_>>()
                 .join(", "),
         }
@@ -656,7 +656,7 @@ fn load_relations_collection(
         Some((relative_path, value)) => {
             // [R11], since the Phase-6 flip: only the [R21]-exempt migration
             // surface may still read a collection file — a normal reader
-            // errors, matching the catalog's SRS038-R11-COLLECTION-RETIRED.
+            // errors, matching the catalog's collection-retired.
             if !store.rfc038_exempt() {
                 return Err(RepositoryError::InvalidSnapshotData {
                     message: format!(
@@ -845,7 +845,7 @@ pub fn rebuild_precedes_chain(
                     relation_id: relation.relation_id.clone(),
                     message: errors
                         .iter()
-                        .map(|e| format!("{:?}: {}", e.code, e.message))
+                        .map(|e| format!("{}: {}", e.code.as_code(), e.message))
                         .collect::<Vec<_>>()
                         .join(", "),
                 }
@@ -1108,7 +1108,7 @@ fn apply_precedes_splice(
                     relation_id: relation.relation_id.clone(),
                     message: errors
                         .iter()
-                        .map(|e| format!("{:?}: {}", e.code, e.message))
+                        .map(|e| format!("{}: {}", e.code.as_code(), e.message))
                         .collect::<Vec<_>>()
                         .join(", "),
                 }

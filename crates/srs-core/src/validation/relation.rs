@@ -42,6 +42,21 @@ pub enum RelationValidationCode {
     E4TypeConstraint,
 }
 
+impl RelationValidationCode {
+    /// The stable kebab-case identifier clients key on (one spelling per code).
+    pub fn as_code(&self) -> &'static str {
+        match self {
+            Self::E1UnknownRelationType => "relation-type-unknown",
+            Self::E1RetiredRelationType => "relation-type-retired",
+            Self::E1WriteRejected => "relation-type-write-rejected",
+            Self::E1Conflict => "relation-type-conflict",
+            Self::E2UnknownEndpoint => "relation-endpoint-unknown",
+            Self::E3Irreflexive => "relation-irreflexive",
+            Self::E4TypeConstraint => "relation-type-constraint",
+        }
+    }
+}
+
 /// Validate a single relation against the context.
 ///
 /// Returns `Ok(())` if all checks pass, or `Err(Vec<RelationValidationError>)` listing

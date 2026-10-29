@@ -5,7 +5,7 @@
 //!
 //! `note.json`'s schema (srs PR #505, dataModelRevision 4) dropped
 //! `graduatedAt` from its properties and set `additionalProperties: false`.
-//! Schema validation (`SRS038-R7-SCHEMA-VALIDATION`) runs unconditionally at
+//! Schema validation (`schema-validation`) runs unconditionally at
 //! catalog load, for every instance, **regardless of the repository's
 //! stamped `dataModelRevision`** — there is only one, current, schema per
 //! type. So a Note that still carries the legacy field (written by any
@@ -31,7 +31,7 @@
 //! A Note that still carries `graduatedAt` never becomes a `CatalogEntry`
 //! at all — [R7]'s classifier only adds an entry on a **passing** validation,
 //! and (when no `$schema` is declared) shape classification can fail
-//! differently again (`SRS038-R8-SHAPE-NO-MATCH`) depending on whether the
+//! differently again (`shape-no-match`) depending on whether the
 //! object happens to also fail every other candidate shape. Rather than
 //! chase every diagnostic code a broken Note can produce, detection here
 //! looks at raw JSON directly: any file anywhere in the tree whose body has
