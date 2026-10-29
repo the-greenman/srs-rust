@@ -7,7 +7,12 @@
   ],
   "properties": {
     "type": {
-      "description": "Serialized as `\"type\"` in JSON."
+      "description": "Serialized as `\"type\"` in JSON.",
+      "allOf": [
+        {
+          "$ref": "https://srs.semanticops.com/schema/2.0/type.json"
+        }
+      ]
     }
   }
 }

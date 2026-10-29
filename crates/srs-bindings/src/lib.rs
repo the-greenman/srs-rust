@@ -53,7 +53,9 @@ use srs_repository::store::RepositoryStore as _;
 use srs_repository::tag_service;
 use srs_repository::type_schema_service::{self, TypeSchemaInput};
 use srs_repository::validation;
-use srs_repository::view_service::{self, CompositionListFilter, GetViewResult};
+use srs_repository::view_service::{
+    self, CompositionListFilter, GetCompositionResult, GetViewResult,
+};
 use srs_repository::ErrorReport;
 use srs_repository::FileStore;
 use wasm_bindgen::prelude::*;
@@ -750,6 +752,25 @@ impl SrsRepository {
         let result = record_store::delete_record(&self.store, instance_id, cascade)
             .map_err(|e| js_err(&e))?;
         to_js(&DeleteRecordOutput {
+            instance_id: result.instance_id,
+            cascaded_relations: result.cascaded_relations,
+        })
+    }
+
+    /// Delete a note by instance ID. `cascade` mirrors the CLI's `--cascade`
+    /// flag (srs-rust#1486): `false` refuses a note that is the **target** of
+    /// Relations (e.g. records `derived-from` it); `true` deletes them with it.
+    /// Returns `{ instanceId, cascadedRelations: RelationSummary[] }`.
+    pub fn delete_note(&self, instance_id: &str, cascade: bool) -> Result<JsValue, JsValue> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct DeleteNoteOutput {
+            instance_id: String,
+            cascaded_relations: Vec<relation_service::RelationSummary>,
+        }
+        let result = srs_repository::services::delete_note(&self.store, instance_id, cascade)
+            .map_err(|e| js_err(&e))?;
+        to_js(&DeleteNoteOutput {
             instance_id: result.instance_id,
             cascaded_relations: result.cascaded_relations,
         })
@@ -1686,6 +1707,28 @@ impl SrsRepository {
         to_js(&views)
     }
 
+    /// Read one Composition, with its `sections`, by id (same service as
+    /// `srs composition get`). Returns the full `Composition` object, or `null` when no
+    /// Composition has that id.
+    pub fn get_composition(&self, id: &str) -> Result<JsValue, JsValue> {
+        match view_service::get_composition_by_id(&self.store, id).map_err(|e| js_err(&e))? {
+            GetCompositionResult::Found(composition) => to_js(&*composition),
+            GetCompositionResult::NotFound => Ok(JsValue::NULL),
+        }
+    }
+
+    /// The Compositions that show a container or an instance, resolved without rendering
+    /// (same service as `srs composition shown-in`). `target_id` is a container id or an
+    /// instance id; a Composition shows a container through its `rootTypeRefs` or through a
+    /// `container-subset` section that names the container, and an instance through every
+    /// container that lists it. Returns `{ targetId, targetKind: "container" | "instance",
+    /// compositions: CompositionSummary[] }`.
+    pub fn compositions_showing(&self, target_id: &str) -> Result<JsValue, JsValue> {
+        let shown =
+            view_service::compositions_showing(&self.store, target_id).map_err(|e| js_err(&e))?;
+        to_js(&shown)
+    }
+
     /// Resolve a structured container view for an editor member list (issue #254, #256):
     /// the container root record, the ordered member records (Tier-0, Tier-1, or Tier-2;
     /// full `Record` present only for Tier-2), the Composition-driven column spec, and
@@ -1782,11 +1825,18 @@ impl SrsRepository {
 
     /// List all known migrations with their applicability status for this repository.
     ///
-    /// Returns a JSON array of `{ id, title, description, status }` objects where
-    /// `status` is a string: `needed`, `alreadyApplied` or `notApplicable`.
+    /// Returns a JSON array of `{ id, title, description, status, revisionStep }` objects
+    /// where `status` is a string: `needed`, `alreadyApplied` or `notApplicable`, and
+    /// `revisionStep` is `{ from, to }` for an entry that brings the data to the next
+    /// `dataModelRevision` (must run, in array order, before writing) or `null` for a
+    /// structural entry (srs-rust#1466).
+    ///
+    /// Probes run on the migrator view of this handle, as `srs repo migrations` does: on a
+    /// gated handle (a below-current `load_tree`) the revision gate would otherwise refuse
+    /// every manifest/catalog probe and report it as a conservative `needed`.
     pub fn available_migrations(&self) -> Result<JsValue, JsValue> {
-        let result =
-            migration_registry_service::list_migrations(&self.store).map_err(|e| js_err(&e))?;
+        let store = self.store.clone().with_rfc038_exemption();
+        let result = migration_registry_service::list_migrations(&store).map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 

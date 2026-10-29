@@ -8,7 +8,11 @@
     "vocabulary"
   ],
   "properties": {
-    "term": true,
-    "vocabulary": true
+    "term": {
+      "$ref": "https://srs.semanticops.com/schema/2.0/term.json"
+    },
+    "vocabulary": {
+      "$ref": "https://srs.semanticops.com/schema/2.0/vocabulary.json"
+    }
   }
 }

@@ -7,6 +7,8 @@
     "lifecycle"
   ],
   "properties": {
-    "lifecycle": true
+    "lifecycle": {
+      "$ref": "https://srs.semanticops.com/schema/2.0/lifecycle.json"
+    }
   }
 }

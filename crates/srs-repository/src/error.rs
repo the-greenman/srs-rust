@@ -391,6 +391,29 @@ pub enum RepositoryError {
         used_by: Vec<String>,
     },
 
+    /// `relation-type update` to `retired` refused while Relations still use the key
+    /// (RFC-006 V5, RFC-005 E1; srs-rust#1475). `used_by` is capped; `count` is the total.
+    #[error("cannot retire relation-type '{id}' (key '{key}'): still used by {count} relation(s) [{used_by}]",
+            used_by = used_by.join(", "))]
+    RelationTypeRetireInUse {
+        id: String,
+        key: String,
+        count: usize,
+        used_by: Vec<String>,
+    },
+
+    /// `relation-type update` that changes `key` refused while Relations still use the
+    /// old key (RFC-005 E1, RFC-006 V5; srs-rust#1485). `used_by` is capped; `count` is the total.
+    #[error("cannot re-key relation-type '{id}' from '{old_key}' to '{new_key}': still used by {count} relation(s) [{used_by}]",
+            used_by = used_by.join(", "))]
+    RelationTypeRekeyInUse {
+        id: String,
+        old_key: String,
+        new_key: String,
+        count: usize,
+        used_by: Vec<String>,
+    },
+
     // ── ext:type-inheritance errors ───────────────────────────────────────────
     #[error("type inheritance cycle detected involving type '{type_id}'")]
     TypeInheritanceCycle { type_id: String },
@@ -988,6 +1011,36 @@ impl PartialEq for RepositoryError {
                 },
             ) => eta == etb && ia == ib && ua == ub,
             (
+                RepositoryError::RelationTypeRetireInUse {
+                    id: ia,
+                    key: ka,
+                    count: ca,
+                    used_by: ua,
+                },
+                RepositoryError::RelationTypeRetireInUse {
+                    id: ib,
+                    key: kb,
+                    count: cb,
+                    used_by: ub,
+                },
+            ) => ia == ib && ka == kb && ca == cb && ua == ub,
+            (
+                RepositoryError::RelationTypeRekeyInUse {
+                    id: ia,
+                    old_key: oa,
+                    new_key: na,
+                    count: ca,
+                    used_by: ua,
+                },
+                RepositoryError::RelationTypeRekeyInUse {
+                    id: ib,
+                    old_key: ob,
+                    new_key: nb,
+                    count: cb,
+                    used_by: ub,
+                },
+            ) => ia == ib && oa == ob && na == nb && ca == cb && ua == ub,
+            (
                 RepositoryError::TypeInheritanceCycle { type_id: a },
                 RepositoryError::TypeInheritanceCycle { type_id: b },
             ) => a == b,
@@ -1263,6 +1316,8 @@ impl RepositoryError {
             Self::DefinitionNotFound { .. } => "definition-not-found",
             Self::RunNotFound { .. } => "run-not-found",
             Self::CannotDeleteInUse { .. } => "cannot-delete-in-use",
+            Self::RelationTypeRetireInUse { .. } => "relation-type-retire-in-use",
+            Self::RelationTypeRekeyInUse { .. } => "relation-type-rekey-in-use",
             Self::TypeInheritanceCycle { .. } => "type-inheritance-cycle",
             Self::InheritedFieldDuplicate { .. } => "inherited-field-duplicate",
             Self::FieldOrderMismatch { .. } => "field-order-mismatch",
@@ -1574,6 +1629,19 @@ mod tests {
                 id: "x".into(),
                 used_by: vec![],
             },
+            R::RelationTypeRetireInUse {
+                id: "x".into(),
+                key: "x".into(),
+                count: 0,
+                used_by: vec![],
+            },
+            R::RelationTypeRekeyInUse {
+                id: "x".into(),
+                old_key: "x".into(),
+                new_key: "y".into(),
+                count: 0,
+                used_by: vec![],
+            },
             R::TypeInheritanceCycle {
                 type_id: "x".into(),
             },
@@ -1695,7 +1763,7 @@ mod tests {
         let all = all_variants();
         assert_eq!(
             all.len(),
-            102,
+            104,
             "all_variants() is out of step with the enum"
         );
         let mut seen = std::collections::HashSet::new();
@@ -1724,6 +1792,31 @@ mod tests {
         .report();
         assert_eq!(r.code, "cannot-delete-in-use");
         assert_eq!(r.details.unwrap()["usedBy"], serde_json::json!(["a", "b"]));
+
+        let r = RepositoryError::RelationTypeRetireInUse {
+            id: "x".into(),
+            key: "k".into(),
+            count: 3,
+            used_by: vec!["a".into()],
+        }
+        .report();
+        assert_eq!(r.code, "relation-type-retire-in-use");
+        let d = r.details.unwrap();
+        assert_eq!(d["count"], 3);
+        assert_eq!(d["usedBy"], serde_json::json!(["a"]));
+
+        let r = RepositoryError::RelationTypeRekeyInUse {
+            id: "x".into(),
+            old_key: "k".into(),
+            new_key: "n".into(),
+            count: 2,
+            used_by: vec!["a".into()],
+        }
+        .report();
+        assert_eq!(r.code, "relation-type-rekey-in-use");
+        let d = r.details.unwrap();
+        assert_eq!(d["count"], 2);
+        assert_eq!(d["usedBy"], serde_json::json!(["a"]));
 
         let r = RepositoryError::SuccessorRelationTypeUndetermined {
             candidates: vec!["supersedes".into()],

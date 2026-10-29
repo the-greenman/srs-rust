@@ -49,11 +49,41 @@
         "id": {
           "type": "string"
         },
+        "revisionStep": {
+          "description": "The data-model revision step this entry implements, or `null` for a structural entry. A `needed` entry with a step must be applied (in registry order) before writing.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RevisionStepPayload"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "status": {
           "$ref": "#/definitions/MigrationStatusPayload"
         },
         "title": {
           "type": "string"
+        }
+      }
+    },
+    "RevisionStepPayload": {
+      "type": "object",
+      "required": [
+        "from",
+        "to"
+      ],
+      "properties": {
+        "from": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "to": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         }
       }
     }

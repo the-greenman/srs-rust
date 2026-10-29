@@ -622,7 +622,7 @@ pub fn delete_containers_with_records(
     for id in &plan.instance_ids {
         match store.find_instance(id)?.map(|r| r.tier) {
             Some(0) => {
-                crate::services::delete_note(store, id)?;
+                crate::services::delete_note(store, id, true)?;
             }
             Some(_) => {
                 crate::record_store::delete_record(store, id, true)?;

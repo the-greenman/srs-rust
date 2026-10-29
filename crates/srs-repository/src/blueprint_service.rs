@@ -326,6 +326,7 @@ pub fn create_blueprint(
         DefinitionKind::Blueprint,
         &blueprint.name,
         &blueprint.id,
+        u64::from(blueprint.version),
     );
     let full_path = format!("{boundary_path}/{rel_filename}");
 

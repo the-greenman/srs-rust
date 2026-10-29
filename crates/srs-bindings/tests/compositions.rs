@@ -132,3 +132,58 @@ fn ladder_open(
         &srs_repository::rfc052_root_container_migration_service::ladder_srsj_fixture(srsj)?,
     )
 }
+
+/// `bound_view_srsj` with the Composition's `rootTypeRefs` removed: only its fixed
+/// `container-subset` section ties it to the container.
+fn fixed_container_srsj() -> String {
+    let mut v: serde_json::Value = serde_json::from_str(&bound_view_srsj()).unwrap();
+    v["data"]["package/compositions/bound.json"]
+        .as_object_mut()
+        .unwrap()
+        .remove("rootTypeRefs");
+    v.to_string()
+}
+
+/// A fixed-container section with no `rootTypeRefs` is invisible to
+/// `compositions_for_container` but is found by `compositions_showing`, for the container
+/// itself and for an instance it lists, with no render call.
+#[test]
+fn compositions_showing_resolves_fixed_container_sections() {
+    let store = ladder_open(&fixed_container_srsj()).expect("fixed-container srsj must load");
+    assert!(
+        view_service::compositions_for_container(&store, CONTAINER_ID)
+            .unwrap()
+            .is_empty()
+    );
+
+    let by_container = view_service::compositions_showing(&store, CONTAINER_ID).unwrap();
+    assert_eq!(by_container.target_kind, "container");
+    assert_eq!(by_container.compositions.len(), 1);
+    assert_eq!(by_container.compositions[0].id, VIEW_ID);
+
+    let by_instance = view_service::compositions_showing(&store, ROOT_ID).unwrap();
+    assert_eq!(by_instance.target_kind, "instance");
+    assert_eq!(by_instance.compositions.len(), 1);
+    assert_eq!(by_instance.compositions[0].id, VIEW_ID);
+}
+
+/// A Composition that matches both ways is listed once; an unrelated instance has none.
+#[test]
+fn compositions_showing_dedupes_and_excludes_unrelated() {
+    let store = ladder_open(&bound_view_srsj()).expect("bound-view srsj must load");
+    let shown = view_service::compositions_showing(&store, CONTAINER_ID).unwrap();
+    assert_eq!(shown.compositions.len(), 1);
+    let none =
+        view_service::compositions_showing(&store, "99999999-9999-4999-8999-999999999999").unwrap();
+    assert!(none.compositions.is_empty());
+}
+
+/// `get_composition_by_id` (behind the WASM `get_composition`) returns the sections.
+#[test]
+fn get_composition_returns_sections() {
+    let store = ladder_open(&bound_view_srsj()).expect("bound-view srsj must load");
+    match view_service::get_composition_by_id(&store, VIEW_ID).unwrap() {
+        view_service::GetCompositionResult::Found(c) => assert_eq!(c.sections.len(), 1),
+        view_service::GetCompositionResult::NotFound => panic!("composition must be found"),
+    }
+}

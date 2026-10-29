@@ -90,9 +90,16 @@ impl Package {
 
     /// Resolve a relation type definition by its relationType string.
     pub fn resolve_relation_type(&self, relation_type: &str) -> Option<&RelationTypeDefinition> {
-        self.relation_type_definitions
+        // RFC-006 V5: a retired definition does not hold its key, so a live one wins.
+        let mut same_key = self
+            .relation_type_definitions
             .iter()
-            .find(|rt| rt.key == relation_type)
+            .filter(|rt| rt.key == relation_type);
+        let first = same_key.next()?;
+        if first.resolves_for_reads() {
+            return Some(first);
+        }
+        same_key.find(|rt| rt.resolves_for_reads()).or(Some(first))
     }
 
     /// Get all relation type definitions as a slice.
@@ -153,13 +160,16 @@ impl Package {
             .find(|rt| rt.id == type_id && rt.version == version)
     }
 
-    /// Resolve a record type by its namespace and name.
+    /// Resolve a record type by its namespace and name, at its latest version: versions sit
+    /// side by side (srs-rust#1473), and a caller that names no version means the newest
+    /// (srs-rust#1512).
     ///
     /// This is the preferred lookup method as it avoids hardcoding UUIDs in tests.
     pub fn resolve_type_by_name(&self, namespace: &str, name: &str) -> Option<&RecordType> {
         self.record_types
             .iter()
-            .find(|rt| rt.namespace == namespace && rt.name == name)
+            .filter(|rt| rt.namespace == namespace && rt.name == name)
+            .max_by_key(|rt| rt.version)
     }
 
     /// Resolve a field by its ID.

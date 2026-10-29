@@ -6,6 +6,8 @@
     "view"
   ],
   "properties": {
-    "view": true
+    "view": {
+      "$ref": "https://srs.semanticops.com/schema/2.0/view.json"
+    }
   }
 }

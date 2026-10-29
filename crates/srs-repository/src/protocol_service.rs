@@ -335,6 +335,7 @@ pub fn create_protocol(
         DefinitionKind::Protocol,
         &protocol.name,
         &protocol.id,
+        u64::try_from(protocol.version).unwrap_or(1),
     );
     let full_path = format!("{boundary_path}/{rel_filename}");
 

@@ -183,3 +183,30 @@ with a dangling PINNED/LINEAGE reference can no longer export the affected packa
       schema change; srs-usage.md §5g follows in `srs`.
 - [x] **Decision mode** — complicated; Door 1; `gate:owner-merge` (released bytes change, merges
       after srs PR #874).
+
+## Amendment (srs-rust#1473): every writer writes each version beside the others
+
+The one `definition_rel_path` helper takes the definition's version. Version 1 keeps the
+unsuffixed `{dir}/{slug}-{id8}.json`, so no existing file is renamed (ADR-042 path
+stability). Version N > 1 gets the `-v{N}` suffix by the same `version_suffixed` rule the
+reader, install and upgrade already used. Every definition writer now uses it, so there is one
+path rule, where before the reader used it and the creators did not.
+
+`type create` / `type update` and `field create` / `field update` therefore write a new version
+**beside** the earlier ones and index it. The same version is rewritten in place. The #1412
+refusal ("writing version N would replace version M that records bind to") is removed: no write
+replaces another version any more. Deleting a type is per version: refused only while records
+bind to that version.
+
+The layout was approved by the owner on 2026-10-25, on condition that it is consistent with the
+ADRs and with practice (srs-rust#1473 holds the check). srs-programme already held a type at v1
+and v2 side by side (`packages/methodology/types/programme-b34ef0e7.json` and `-v2.json`).
+
+### Implementation charter (ADR-048)
+
+- [x] **Spec-first** — the spec lists definition files by path in the package index and sets no
+      filename rule; this is implementation territory.
+- [x] **Layer test** — core only (`srs-repository`); no CLI, payload, schema or WASM change.
+- [x] **One way per goal** — one path rule for writers and readers, where there were two.
+- [x] **Parity and mirror obligations** — none; no payload or schema changes.
+- [x] **Decision mode** — clear; Door 1 (owner-approved layout, srs-rust#1473).
