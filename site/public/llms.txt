@@ -1,0 +1,68 @@
+# srs engine
+
+> srs is the reference engine for SRS (Semantic Record System): one binary that is the CLI and the MCP server over an SRS repository, with prebuilt releases for Linux and macOS.
+
+## Get running
+
+- Install the srs engine: `curl -fsSL https://engine.semanticops.com/install.sh | sh`
+- [First five minutes](https://engine.semanticops.com/start.md): CLI, MCP server, output contract
+- [SemanticOps sites](https://semanticops.com/llms.txt): every site and what it is for
+
+## Start
+
+- [Start](https://engine.semanticops.com/start.md): install, open the sample or create a repository, validate, connect MCP, and the output contract.
+- [install.sh](https://engine.semanticops.com/install.sh): POSIX installer for x86_64 and arm64 Linux and macOS; installs to `$SRS_INSTALL_DIR` or `~/.local/bin`.
+
+## CLI reference
+
+- [Index](https://engine.semanticops.com/cli/index.md): `srs --help` and every command group.
+- [srs archive](https://engine.semanticops.com/cli/archive.md): Archive pack/unpack commands (.srs SRSzip format, ADR-036)
+- [srs attachment](https://engine.semanticops.com/cli/attachment.md): Source document attachment commands
+- [srs blueprint](https://engine.semanticops.com/cli/blueprint.md): Blueprint definition commands
+- [srs composition](https://engine.semanticops.com/cli/composition.md): Composition (L2 render view) definition management
+- [srs container](https://engine.semanticops.com/cli/container.md): Container grouping and membership commands
+- [srs context](https://engine.semanticops.com/cli/context.md): Addressability context-query commands (ext:addressability)
+- [srs field](https://engine.semanticops.com/cli/field.md): Field definition commands
+- [srs find](https://engine.semanticops.com/cli/find.md): Discover instances by structured filters + content search (ext:discovery)
+- [srs instance](https://engine.semanticops.com/cli/instance.md): Read any instance (Note or Record) without knowing its tier
+- [srs lifecycle](https://engine.semanticops.com/cli/lifecycle.md): Lifecycle definition commands (RFC-006)
+- [srs mcp](https://engine.semanticops.com/cli/mcp.md): Model Context Protocol server (stdio)
+- [srs migrate](https://engine.semanticops.com/cli/migrate.md): Migration handoff commands
+- [srs note](https://engine.semanticops.com/cli/note.md): Note management commands
+- [srs package](https://engine.semanticops.com/cli/package.md): Package management commands
+- [srs protocol](https://engine.semanticops.com/cli/protocol.md): Protocol definition commands
+- [srs record](https://engine.semanticops.com/cli/record.md): Generic record commands
+- [srs registry](https://engine.semanticops.com/cli/registry.md): Registry catalog commands (ext:registry)
+- [srs relation](https://engine.semanticops.com/cli/relation.md): Relation commands
+- [srs relation-type](https://engine.semanticops.com/cli/relation-type.md): Relation type definition commands
+- [srs render](https://engine.semanticops.com/cli/render.md): Render document outputs from Compositions
+- [srs repo](https://engine.semanticops.com/cli/repo.md): Repository inspection commands
+- [srs schema](https://engine.semanticops.com/cli/schema.md): JSON Schema generation (RFC-035)
+- [srs slice](https://engine.semanticops.com/cli/slice.md): RFC-026 container slices: one container as a standalone .srs (ADR-051)
+- [srs tag](https://engine.semanticops.com/cli/tag.md): Tag definition management commands
+- [srs term](https://engine.semanticops.com/cli/term.md): Term definition commands (RFC-006)
+- [srs theme](https://engine.semanticops.com/cli/theme.md): Theme definition management
+- [srs tree](https://engine.semanticops.com/cli/tree.md): Show the hierarchical record tree rooted at top-level or specified instances
+- [srs type](https://engine.semanticops.com/cli/type.md): Type definition commands
+- [srs view](https://engine.semanticops.com/cli/view.md): View (L1 field view) definition management
+- [srs vocabulary](https://engine.semanticops.com/cli/vocabulary.md): Vocabulary definition commands (RFC-006)
+
+## MCP
+
+`srs mcp serve --repo <path>` serves one repository over stdio (`--profile full|context|read`). `tools/list` and `resources/list` on the server are authoritative; in summary:
+
+- Resources: `srs://<repositoryId>/map`, `/navigation`, `/agent-index`, `/tree`, `/relation-types`, `/protocol`, `/container/<id>`, `/composition/<id>`, `/type/<id>`; templates `record/{instanceId}`, `context/{containerId}/{instanceId}`, `tree/{instanceId}`, `type/{typeId}`, `protocol/{protocolId}`, `attachment/{documentId}`. The `read` tool returns any of them for clients that cannot read resources.
+- Read tools: `find`, `similar`, `neighbours`, `read`, `type_schema`, `container_outline`, `record_allowed_transitions`, `attention_list`, `repo_validate`.
+- Write tools: `record_create`, `record_update`, `record_successor`, `record_fork`, `record_transition`, `note_create`, `note_update`, `note_graduate`, `relation_create`, `relation_delete`, `container_create`, `container_copy`, `container_member_add`, `container_member_remove`, `container_member_move`, `container_member_repair`, `attachment_add`, `attachment_link`.
+- Packages and protocols: `package_upgrade`, `package_dependency_list`, `package_dependency_set`, `package_dependency_remove`, `protocol_run_create`, `protocol_run_advance`, `protocol_run_get`, `protocol_run_list`, `protocol_run_complete`, `protocol_run_abandon`.
+
+Every write enforces the repository's type and relation contracts and returns diagnostics; run `repo_validate` after a batch.
+
+## Payload schemas
+
+- [srs-cli-payload-schemas.tar.gz](https://github.com/the-greenman/srs-rust/releases/latest/download/srs-cli-payload-schemas.tar.gz): JSON Schema for every command's `payload`, from the latest release (with a `.sha256`).
+
+## Releases and versioning
+
+- [Latest release](https://github.com/the-greenman/srs-rust/releases/latest): every merge to master builds `v<version>-build.<n>`; it becomes `latest` only after the corpus-conformance gate passes. Assets: `srs-<target>.tar.gz` for `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `aarch64-apple-darwin`, `x86_64-apple-darwin`.
+- `srs --version` prints the same string for every build. The MCP server's `serverInfo.version` carries the build (`0.1.0+build.<n>`); from the CLI, check for the capability you need in `--help` instead.
