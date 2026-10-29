@@ -36,7 +36,7 @@ srs repo validate --repo meeting
 srs repo map --repo meeting --pretty
 ```
 
-If `validate` answers `"ok": false` with `errors[0].code` = `container-migration-needed`, the repository was written for an older data model. Apply the migrations it lists in `errors[0].details.pending`, in order, then validate again:
+The sample validates as it is. A repository written for an older data model answers `"ok": false` with `errors[0].code` = `container-migration-needed`. Apply the migrations it lists in `errors[0].details.pending`, in order, then validate again:
 
 ```bash
 srs repo apply-migration --repo meeting --id <id>
