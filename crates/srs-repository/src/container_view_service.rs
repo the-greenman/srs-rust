@@ -1060,7 +1060,7 @@ mod tests {
     // Phase 3 (srs-rust#783): its scenario — a stored member whose tier is
     // outside 0/1/2 — cannot exist under the catalog model. Tier comes from
     // body shape classification (note/typed-record/record), and an object
-    // matching none of those shapes is a fatal SRS038-R8-SHAPE-NO-MATCH at
+    // matching none of those shapes is a fatal shape-no-match at
     // catalog build, so resolve_container_view can never see an
     // "unknown-tier" member to skip.
 

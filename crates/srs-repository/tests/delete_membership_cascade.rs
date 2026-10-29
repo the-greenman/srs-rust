@@ -3,7 +3,7 @@
 //! Before the fix, `record delete` removed the instance and its incident
 //! relations but left its id in Container `memberInstanceIds` / `rootInstanceIds`.
 //! The command reported success and the next open failed:
-//! `SRS038-R13-DANGLING-REFERENCE`, which RFC-038 [R24] makes fatal.
+//! `dangling-reference`, which RFC-038 [R24] makes fatal.
 //!
 //! RFC-038 Change F classifies removing a deleted member from a container as an
 //! *explicit container-membership operation*; since RFC-052 it writes the root

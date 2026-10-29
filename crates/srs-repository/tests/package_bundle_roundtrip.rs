@@ -506,7 +506,7 @@ fn bundle_roundtrip_standalone_into_repo_missing_dependencies_leaves_dangling_re
     assert!(
         report.diagnostics.iter().any(|d| {
             let d = serde_json::to_string(d).unwrap();
-            d.contains("SRS038-R13-DANGLING-REFERENCE") && d.contains(DEP_FIELD)
+            d.contains("dangling-reference") && d.contains(DEP_FIELD)
         }),
         "{:?}",
         report.diagnostics

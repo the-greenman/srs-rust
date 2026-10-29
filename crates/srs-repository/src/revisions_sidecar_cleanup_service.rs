@@ -19,7 +19,7 @@
 //! Once `catalog.rs` stops recognising `.revisions.json` as a sidecar (this
 //! same change), any such file left on disk is no longer tolerated: it falls
 //! through to ordinary instance-candidate classification, fails every shape
-//! (`SRS038-R8-SHAPE-NO-MATCH`), and — like any other `error`-severity
+//! (`shape-no-match`), and — like any other `error`-severity
 //! diagnostic under a reserved instance root — makes the *entire* checked
 //! catalog fail to load ([R24]). Exactly the `graduated-at-cleanup`
 //! (srs-rust#896) situation: a repair that must not itself depend on

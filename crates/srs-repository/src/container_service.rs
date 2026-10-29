@@ -1500,7 +1500,7 @@ pub fn list_roots(
 /// RFC-038 Change F: remove `instance_id` from `memberInstanceIds` and
 /// `rootInstanceIds` of every Container that names it. Called from the instance
 /// delete paths (srs-rust#834) so a delete never leaves a dangling container
-/// reference — `SRS038-R13-DANGLING-REFERENCE`, which [R24] makes fatal, i.e. a
+/// reference — `dangling-reference`, which [R24] makes fatal, i.e. a
 /// successful delete would render the repository unloadable.
 ///
 /// RFC-052 [R4] (amending RFC-038 [R22]): a routine instance delete must not modify
@@ -3207,7 +3207,7 @@ mod tests {
         let store = make_store();
         let container_id = "550e8400-e29b-41d4-a716-446655440000";
         // Embed-only root ([R1]): a containers/*.json file sharing the embed's
-        // id is a fatal SRS038-R12-DUPLICATE-ID under the catalog.
+        // id is a fatal duplicate-id under the catalog.
         let mut manifest = store.load_manifest().unwrap();
         crate::container_service::set_root_container(
             &store,
@@ -3562,7 +3562,7 @@ mod tests {
         let store = make_store();
         let container_id = "550e8400-e29b-41d4-a716-446655440000";
         // Embed-only root ([R1]): a containers/*.json file sharing the embed's
-        // id is a fatal SRS038-R12-DUPLICATE-ID under the catalog.
+        // id is a fatal duplicate-id under the catalog.
         let mut manifest = store.load_manifest().unwrap();
         crate::container_service::set_root_container(
             &store,
@@ -3673,7 +3673,7 @@ mod tests {
     /// a "richest source" `resolve_root_container` can prefer — no write path
     /// (`save_container`/`save_container_unchecked`) ever produces this shape,
     /// but a hand-edited or pre-RFC-038 legacy repo can. This state is fatal
-    /// under [R12] (`SRS038-R12-DUPLICATE-ID`) because the embed unconditionally
+    /// under [R12] (`duplicate-id`) because the embed unconditionally
     /// contributes its own catalog entry alongside the file's, and
     /// `resolve_root_container` must surface that as a propagated error, never
     /// as `Ok(container)` from the file-backed copy.
@@ -3714,7 +3714,7 @@ mod tests {
     // list_no_duplicate_when_root_in_index retired by RFC-038 Phase 3
     // (srs-rust#783): its scenario — the root container declared by BOTH
     // manifest.container and a containers/*.json file — is now a fatal
-    // SRS038-R12-DUPLICATE-ID at catalog build, so the "don't list it twice"
+    // duplicate-id at catalog build, so the "don't list it twice"
     // guarantee is enforced upstream by construction. Embed listing is
     // covered by embed_only_list_containers_includes_embed.
 
@@ -3839,7 +3839,7 @@ mod tests {
     // file_backed_root_add_member_updates_file retired by RFC-038 Phase 3
     // (srs-rust#783): the "file-backed root" it exercised — the root container
     // in BOTH manifest.container and a containers/*.json file — is now a
-    // fatal SRS038-R12-DUPLICATE-ID at catalog build ([R1]: the embed is the
+    // fatal duplicate-id at catalog build ([R1]: the embed is the
     // only authoritative root form). Root membership writes are covered by
     // embed_only_add_member_updates_manifest.
 
@@ -3847,7 +3847,7 @@ mod tests {
     fn update_container_all_fields_sync_to_manifest() {
         let embed_id = "aaa00000-0000-4000-8000-000000000001";
         // Embed-only root ([R1]): a containers/*.json file sharing the embed's
-        // id is a fatal SRS038-R12-DUPLICATE-ID under the catalog.
+        // id is a fatal duplicate-id under the catalog.
         let store = MemoryStore::default();
         let mut manifest = store.load_manifest().unwrap();
         crate::container_service::set_root_container(
