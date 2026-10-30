@@ -904,6 +904,13 @@ pub struct DiscoveryHitPayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(default, with = "Vec<String>")]
     pub matched_fields: Option<Vec<String>>,
+    /// The values of the requested `fields`, keyed by `Field.name`; absent without `--fields`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        default,
+        with = "std::collections::BTreeMap<String, serde_json::Value>"
+    )]
+    pub field_values: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 impl From<DiscoveryHit> for DiscoveryHitPayload {
@@ -920,6 +927,7 @@ impl From<DiscoveryHit> for DiscoveryHitPayload {
             score,
             snippet,
             matched_fields,
+            field_values,
         } = h;
         Self {
             instance_id,
@@ -933,6 +941,7 @@ impl From<DiscoveryHit> for DiscoveryHitPayload {
             score,
             snippet,
             matched_fields,
+            field_values,
         }
     }
 }

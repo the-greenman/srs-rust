@@ -45,6 +45,7 @@ pub fn dispatch(ctx: CliContext, args: FindArgs) -> Result<String> {
         by_type_limit: args.by_type_limit,
         facets: args.facets,
         projection: args.projection,
+        fields: args.fields,
     };
     let similar = args.similar;
     match with_store(&ctx, |store| {

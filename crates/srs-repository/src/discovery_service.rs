@@ -244,6 +244,10 @@ pub struct DiscoveryHit {
     /// Field names (or sentinels) whose text matched the content predicate. `full` projection only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub matched_fields: Option<Vec<String>>,
+    /// The values of the Fields named by [`FindPage::fields`] that the record carries, keyed by
+    /// `Field.name`, in every projection (srs-rust#1380). Absent without `fields`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field_values: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 /// Result shaping for [`find`] (srs-rust#1217). Deliberately not part of
@@ -251,7 +255,7 @@ pub struct DiscoveryHit {
 /// matches are returned; only [`FindPage::match_mode`] widens which instances match,
 /// and always to a superset of the RFC-012 recall floor (I-114).
 /// `limit: None` means every match; any default cap is the adapter's choice.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FindPage {
     pub limit: Option<usize>,
     pub offset: usize,
@@ -271,7 +275,15 @@ pub struct FindPage {
     /// matchedFields; `label` also drops score and snippet. Never changes which instances
     /// match, their order, `total` or the facets.
     pub projection: Projection,
+    /// `Field.name`s whose values each record hit carries as `fieldValues` (srs-rust#1380).
+    /// Orthogonal to [`Projection`]: it adds values and never changes the match, order, `total`
+    /// or facets. A name no Field defines yields a `find-field-unknown` warning diagnostic.
+    /// `None` = no `fieldValues` key, the payload is byte-identical to before.
+    pub fields: Option<Vec<String>>,
 }
+
+/// Stable code of the warning for a requested field name that no Field defines.
+pub const FIND_FIELD_UNKNOWN: &str = "find-field-unknown";
 
 impl FindPage {
     /// Whether the result carries facets: as asked, or by default only when no hits are asked
@@ -457,7 +469,7 @@ pub fn find(
         }
     }
 
-    finish_page(store, hits, facets, page, diagnostics)
+    finish_page(store, hits, facets, page, diagnostics, &field_text_index)
 }
 
 /// The facets of a match set, when the page asks for them.
@@ -473,7 +485,8 @@ fn finish_page(
     hits: Vec<DiscoveryHit>,
     facets: Option<DiscoveryFacets>,
     page: FindPage,
-    diagnostics: Vec<String>,
+    mut diagnostics: Vec<String>,
+    field_text_index: &FieldTextIndex,
 ) -> Result<DiscoveryResult, RepositoryError> {
     let total = hits.len();
     let mut hits: Vec<DiscoveryHit> = hits
@@ -491,8 +504,24 @@ fn finish_page(
     } else {
         container_service::membership_index(store)?
     };
+    let requested = requested_fields(&page, field_text_index, &mut diagnostics);
     for hit in &mut hits {
         hit.uri = resource_uri::record_uri(repo_id, &hit.instance_id);
+        if !requested.is_empty() && hit.type_id.is_some() {
+            let record = store.load_record_by_id(&hit.instance_id)?;
+            hit.field_values = Some(
+                requested
+                    .iter()
+                    .filter_map(|n| {
+                        record
+                            .field_values
+                            .0
+                            .get(*n)
+                            .map(|v| (n.to_string(), v.clone()))
+                    })
+                    .collect(),
+            );
+        }
         if full {
             hit.container_ids = Some(
                 memberships
@@ -515,6 +544,30 @@ fn finish_page(
         facets,
         diagnostics,
     })
+}
+
+/// The distinct requested `fields` that a Field defines, in request order; each unknown name
+/// adds one `find-field-unknown` warning (identifier over label: never a silent drop).
+fn requested_fields<'a>(
+    page: &'a FindPage,
+    index: &FieldTextIndex,
+    diagnostics: &mut Vec<String>,
+) -> Vec<&'a str> {
+    let mut known: Vec<&str> = Vec::new();
+    let mut seen = HashSet::new();
+    for name in page.fields.iter().flatten() {
+        if !seen.insert(name.as_str()) {
+            continue;
+        }
+        if index.has_field_name(name) {
+            known.push(name);
+        } else {
+            diagnostics.push(format!(
+                "warning: {FIND_FIELD_UNKNOWN}: no Field named '{name}' in the effective package"
+            ));
+        }
+    }
+    known
 }
 
 /// The store-cached [`DiscoveryIndex`], built on first use.
@@ -607,7 +660,7 @@ pub fn similar(
     // Facets count the similar set, as `find`'s count its match set.
     let facets = page_facets(&candidates, &page);
     let hits = candidates.into_iter().map(|c| c.hit).collect();
-    finish_page(store, hits, facets, page, diagnostics)
+    finish_page(store, hits, facets, page, diagnostics, &field_text_index)
 }
 
 /// Every instance passing the structured predicates (and the content words, if any), Tier 2 then Tier 0.
@@ -918,6 +971,7 @@ fn find_tier2(
             score: None,
             snippet,
             matched_fields: Some(matched_fields),
+            field_values: None,
         };
         hits.push(Candidate {
             hit,
@@ -981,6 +1035,7 @@ fn find_tier0(
             score: None,
             snippet,
             matched_fields: Some(matched_fields),
+            field_values: None,
         };
         hits.push(Candidate {
             hit,
@@ -1352,6 +1407,57 @@ mod tests {
     }
 
     #[test]
+    fn fields_add_named_values_to_hits_in_every_projection() {
+        let store = faceted_store();
+        let run = |projection, fields: Option<Vec<&str>>| {
+            find(
+                &store,
+                DiscoveryQuery::default(),
+                FindPage {
+                    projection,
+                    fields: fields.map(|f| f.into_iter().map(String::from).collect()),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+        };
+        let plain = run(Projection::Label, None);
+        assert!(plain.hits.iter().all(|h| h.field_values.is_none()));
+        assert!(serde_json::to_value(&plain.hits[0])
+            .unwrap()
+            .get("fieldValues")
+            .is_none());
+        assert!(plain.diagnostics.is_empty());
+
+        for projection in [Projection::Full, Projection::Card, Projection::Label] {
+            let r = run(projection, Some(vec!["kind", "nope", "kind"]));
+            assert_eq!(ids(&r), ids(&plain), "the match does not change");
+            assert_eq!(r.total, plain.total);
+            let kinds: Vec<_> = r
+                .hits
+                .iter()
+                .filter_map(|h| h.field_values.as_ref())
+                .filter_map(|v| v.get("kind").cloned())
+                .collect();
+            assert!(kinds.contains(&serde_json::json!("a")));
+            assert!(kinds.contains(&serde_json::json!("b")));
+            // Only the named fields, and a record without the value carries no key.
+            assert!(r.hits.iter().all(|h| h
+                .field_values
+                .as_ref()
+                .is_none_or(|v| v.keys().all(|k| k == "kind"))));
+            // One coded warning for the unknown name, not one per hit or repeat.
+            let warns: Vec<_> = r
+                .diagnostics
+                .iter()
+                .filter(|d| d.contains(FIND_FIELD_UNKNOWN))
+                .collect();
+            assert_eq!(warns.len(), 1);
+            assert!(warns[0].contains("'nope'"));
+        }
+    }
+
+    #[test]
     fn projection_trims_hits_without_changing_the_match() {
         let store = faceted_store();
         let run = |projection| {
@@ -1439,6 +1545,7 @@ mod tests {
     fn typed_candidate(i: usize) -> Candidate {
         Candidate {
             hit: DiscoveryHit {
+                field_values: None,
                 instance_id: format!("i{i}"),
                 uri: String::new(),
                 label: String::new(),
@@ -1567,7 +1674,7 @@ mod tests {
             ..Default::default()
         };
         // A sentence: "zzz" and the other words are absent, "consent" is enough.
-        let sentence = find(&store, q("how is consent zzz handled"), any).unwrap();
+        let sentence = find(&store, q("how is consent zzz handled"), any.clone()).unwrap();
         assert_eq!(ids(&sentence), vec![ID1]);
         // The same query under the default all-words mode finds nothing.
         let all = find(&store, q("how is consent zzz handled"), FindPage::default()).unwrap();
@@ -1575,14 +1682,14 @@ mod tests {
         // Recall floor: every all-words (hence every phrase) match is an any-word match.
         for m in ["consent process", "adopt changes", "consent"] {
             let all = find(&store, q(m), FindPage::default()).unwrap();
-            let any = find(&store, q(m), any).unwrap();
+            let any = find(&store, q(m), any.clone()).unwrap();
             assert!(ids(&all).iter().all(|id| ids(&any).contains(id)), "{m}");
         }
         // Words shorter than MIN_SIGNIFICANT_CHARS never match on their own...
-        let short = find(&store, q("zzz of a"), any).unwrap();
+        let short = find(&store, q("zzz of a"), any.clone()).unwrap();
         assert_eq!(short.total, 0);
         // ...unless the query has no significant word: then every word must occur (all-words).
-        let only_short = find(&store, q("of"), any).unwrap();
+        let only_short = find(&store, q("of"), any.clone()).unwrap();
         let only_short_all = find(&store, q("of"), FindPage::default()).unwrap();
         assert_eq!(ids(&only_short), ids(&only_short_all));
     }
@@ -1638,15 +1745,18 @@ mod tests {
             ..Default::default()
         };
         // "her" is a substring of "other" (ID3) but not a token anywhere: no match.
-        assert_eq!(find(&store, q("her zzz"), any).unwrap().total, 0);
+        assert_eq!(find(&store, q("her zzz"), any.clone()).unwrap().total, 0);
         // "other" is a token of ID3 only — and not a substring hit on "another" (ID6).
-        assert_eq!(ids(&find(&store, q("other zzz"), any).unwrap()), vec![ID3]);
+        assert_eq!(
+            ids(&find(&store, q("other zzz"), any.clone()).unwrap()),
+            vec![ID3]
+        );
         // Ranked even though `rank` is false: scores filled, best first.
-        let ranked = find(&store, q("consent process"), any).unwrap();
+        let ranked = find(&store, q("consent process"), any.clone()).unwrap();
         assert_eq!(ids(&ranked), vec![ID2, ID1]);
         assert!(ranked.hits.iter().all(|h| h.score.is_some()));
         // A query of only common words behaves as all-words.
-        let common = find(&store, q("the"), any).unwrap();
+        let common = find(&store, q("the"), any.clone()).unwrap();
         let all = find(&store, q("the"), FindPage::default()).unwrap();
         assert_eq!(common.total, all.total);
     }
