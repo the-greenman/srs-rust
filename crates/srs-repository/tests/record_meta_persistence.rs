@@ -197,3 +197,44 @@ fn file_store_fork_carries_meta_and_tags_round_trip() {
     );
     assert_eq!(fork.tags, Some(vec!["alpha".to_string()]));
 }
+
+/// srs-rust#1528 reproduction (probe): `create_record` persists a record whose
+/// `fieldMeta.<field>.source` is outside `record.json`'s enum
+/// (`human | ai | imported | derived`), and the next catalog load fails
+/// `SRS038-R7-SCHEMA-VALIDATION`, which is fatal. The write should refuse.
+/// Ignored until the owner rules where the check lives (core [R-series] rule
+/// or the schema validator on the write path); remove `ignore` with the fix.
+#[test]
+#[ignore = "srs-rust#1528: reproduces the bug; create_record must refuse an out-of-enum fieldMeta.source"]
+fn create_record_refuses_out_of_enum_field_meta_source() {
+    let tmp = TempDir::new().unwrap();
+    let store = FileStore::new(tmp.path());
+    create_repository(&store, &init_input()).unwrap();
+    package_service::create_field(&store, name_field()).unwrap();
+    package_service::create_type(&store, test_type()).unwrap();
+
+    let mut fv = FieldValues::new();
+    fv.insert("test-name", serde_json::json!("Initial"));
+    let mut meta = indexmap::IndexMap::new();
+    meta.insert(
+        "test-name".to_string(),
+        srs_core::types::record::FieldMeta {
+            source: Some("not-an-enum-value".to_string()),
+            ..Default::default()
+        },
+    );
+    let created =
+        record_store::create_record(&store, "1041type-test-0001", 1, fv, Some(meta), None);
+    assert!(
+        created.is_err(),
+        "create must refuse an out-of-enum fieldMeta.source"
+    );
+
+    // Whatever happened, the repository must still load.
+    drop(store);
+    let reopened = FileStore::new(tmp.path());
+    assert!(
+        record_store::list_all_records(&reopened).is_ok(),
+        "repository must still load after the refused write"
+    );
+}
