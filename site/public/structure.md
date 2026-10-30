@@ -75,10 +75,35 @@ srs container members add <root container> <overview id>            # the area a
 
 ## Check it
 
-- **Walk it:** `srs repo navigation --pretty`. From the root you should reach every area and part without searching.
-- **Read it:** `srs render composition --view <front door id>`. Read it top to bottom as someone who did not write it.
-- **Cold test:** give an agent with no context only the repository, and ask it to explain the repository and find one specific record.
+The checks below test the core promise: a person and an agent can both read the repository, and its meaning is intact. Each check names what fixes a failure.
+
+| Check | Passes when | If it fails |
+|---|---|---|
+| **Front door** | | |
+| F1 The identity record is a reading guide | it has 400 characters or more of guide | Write the guide: what the repository holds, the areas in order, what states mean, where to go next |
+| F2 The first document renders on its own | `render composition` of the first composition gives a real page with no parameters | Install a front-door composition first, with every section bound |
+| **Structure** | | |
+| S1 A few areas at the top | 2 to 9 navigation sections | Group the root into areas, ordered as a newcomer should read them |
+| S2 Every root member opens a section | every root member anchors a container | Give each its own section container |
+| S3 Sections are documents, not labels | 80% or more of section anchors carry 200 characters or more of prose | Rewrite each anchor as an overview: in short, the story, the parts, what is open |
+| S4 No level is a wall | no parent in a reachable section has more than 15 direct children | Add a level of parts |
+| S5 Everything is reachable | 90% or more of instances are reachable through sections | Place unreached records, or retire them |
+| **Reading** | | |
+| L1 Fields have labels | 90% or more of field assignments have a `displayLabel` | Label every field in the reader's words |
+| L2 Types have reading views | at least half the types in use have a view | Add a reading view per type |
+| L3 Documents use headings and views | at least half of composition sections set `titleFieldId` or a view | Set them |
+| **Semantics intact** | | |
+| M1 The repository validates | 0 errors | Fix every error, and review warnings |
+| M2 One record per meaning | 2% or fewer of records share a type and title | Collapse duplicates; keep provenance as relations |
+
+Two more checks need a reader:
+- **A read-through:** someone who did not write it reads it front to back and can say what it holds.
+- **A cold agent:** given only the repository, an agent explains it and finds a named record without searching blindly.
+
+Walk it with `srs repo navigation --pretty`, and read the front door with `srs render composition --view <id>`.
+
+The thresholds are a starting point. Adjust them as readers show where they fail.
 
 Known gaps in today's tools:
-- Navigation output does not yet keep entry order or depth inside a section (srs-rust#1490). The stored outline is still the source of truth.
+- Navigation output does not yet keep entry order or depth inside a section (srs-rust#1490). The stored outline is the source of truth.
 - The editor's container pane lists search results rather than the outline (srs-web#668).
