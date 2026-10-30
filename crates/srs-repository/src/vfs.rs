@@ -21,6 +21,9 @@ use std::path::{Path, PathBuf};
 /// by `FileStore::repository_exists`/`initialize_repository` and `tree_session`.
 pub(crate) const SRS_MARKER_DIR: &str = ".srs";
 
+/// Directory of the derived, non-authoritative cache (ADR-056). Disk only.
+pub(crate) const SRS_CACHE_DIR: &str = ".srs/cache";
+
 /// Path of the default orientation file inside the marker directory.
 pub(crate) const SRS_MARKER_README_PATH: &str = ".srs/README.md";
 
@@ -44,6 +47,14 @@ pub enum DirCheck {
     Missing,
     /// Path resolves outside the repository root.
     OutsideRoot,
+}
+
+/// Cheap identity of a file on disk (size + modification time), the key the
+/// derived catalog cache (ADR-056) validates a cached classification against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FileStamp {
+    pub size: u64,
+    pub mtime_ns: u128,
 }
 
 /// Minimal filesystem surface consumed by `FileStore`.
@@ -76,6 +87,23 @@ pub trait Vfs: std::fmt::Debug {
     /// The Mem/Disk discriminator used by `tree_session::export_tree` and the
     /// archive pack branch (ADR-038/038) — no `Any` downcasting.
     fn as_mem_snapshot(&self) -> Option<BTreeMap<String, Vec<u8>>>;
+
+    /// Size and mtime of a file, for the derived catalog cache (ADR-056).
+    /// `None` (the default) means this backend has no stable file identity and
+    /// must not be cached: memory-backed trees and WASM.
+    fn stamp(&self, _rel: &str) -> Option<FileStamp> {
+        None
+    }
+
+    /// Read a derived-cache file by name. Disk-only (ADR-056); the default has
+    /// no cache.
+    fn cache_read(&self, _name: &str) -> Option<Vec<u8>> {
+        None
+    }
+
+    /// Best-effort write of a derived-cache file by name. A failure is
+    /// swallowed: a cache that cannot be written is simply absent next time.
+    fn cache_write(&self, _name: &str, _bytes: &[u8]) {}
 }
 
 /// Lexically normalize a repo-relative path; `None` if it escapes the root.
@@ -246,6 +274,10 @@ impl Vfs for DiskVfs {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
+                    // The derived cache (ADR-056) is not part of the tree.
+                    if path == root.join(SRS_CACHE_DIR) {
+                        continue;
+                    }
                     walk(root, &path, result);
                 } else {
                     let relative = path
@@ -284,6 +316,45 @@ impl Vfs for DiskVfs {
             return Ok(DirCheck::Missing);
         }
         Ok(DirCheck::Ok)
+    }
+
+    fn stamp(&self, rel: &str) -> Option<FileStamp> {
+        let meta = std::fs::metadata(self.abs(rel)).ok()?;
+        let mtime_ns = meta
+            .modified()
+            .ok()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .as_nanos();
+        Some(FileStamp {
+            size: meta.len(),
+            mtime_ns,
+        })
+    }
+
+    fn cache_read(&self, name: &str) -> Option<Vec<u8>> {
+        std::fs::read(self.abs(SRS_CACHE_DIR).join(name)).ok()
+    }
+
+    fn cache_write(&self, name: &str, bytes: &[u8]) {
+        // Only inside an initialised repository: the cache never creates the
+        // marker directory itself.
+        if !self.abs(SRS_MARKER_DIR).is_dir() {
+            return;
+        }
+        let dir = self.abs(SRS_CACHE_DIR);
+        if std::fs::create_dir_all(&dir).is_err() {
+            return;
+        }
+        let ignore = dir.join(".gitignore");
+        if !ignore.exists() {
+            let _ = std::fs::write(&ignore, "*\n");
+        }
+        // Write then rename so a concurrent reader never sees a torn file.
+        let tmp = dir.join(format!("{name}.{}.tmp", std::process::id()));
+        if std::fs::write(&tmp, bytes).is_ok() && std::fs::rename(&tmp, dir.join(name)).is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
     }
 
     fn as_mem_snapshot(&self) -> Option<BTreeMap<String, Vec<u8>>> {

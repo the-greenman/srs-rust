@@ -1142,6 +1142,10 @@ mod tests {
         fn walk(root: &Path, dir: &Path, out: &mut std::collections::BTreeMap<String, Vec<u8>>) {
             for e in std::fs::read_dir(dir).unwrap() {
                 let p = e.unwrap().path();
+                // The derived catalog cache (ADR-056) is not part of the corpus.
+                if p.ends_with(".srs/cache") {
+                    continue;
+                }
                 if p.is_dir() {
                     walk(root, &p, out);
                 } else {
