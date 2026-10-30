@@ -3565,7 +3565,11 @@ mod tests {
 /// One entry of the top-level `errors[]` on an `ok:false` envelope (ADR-053).
 /// Deliberate mirror of `srs_repository::ErrorReport`: schemars is not a
 /// dependency of srs-repository (ADR-011).
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+///
+/// The published schema is a discriminated union on `code` for the codes a client
+/// acts on (ADR-053 §4, decision 01cfb06e option (d), srs-rust#1342); every other
+/// code keeps the open `details` object. The wire is unchanged.
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ErrorReportPayload {
     /// Stable kebab-case error code (ADR-048 rule 6).
@@ -3575,4 +3579,100 @@ pub struct ErrorReportPayload {
     /// Open object of variant-specific fields, when the error has any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub details: Option<serde_json::Value>,
+}
+
+/// `details` of `lifecycle-not-defined` (srs-web#512). Mirrors
+/// `RepositoryError::LifecycleNotDefined`; pinned by a round-trip test.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LifecycleNotDefinedDetails {
+    /// The record whose Type declares no lifecycle.
+    pub id: String,
+}
+
+/// `details` of `cannot-delete-in-use` (srs-vscode#131). Mirrors
+/// `RepositoryError::CannotDeleteInUse`; pinned by a round-trip test.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CannotDeleteInUseDetails {
+    pub entity_type: String,
+    pub id: String,
+    /// Ids of the definitions still referencing the entity.
+    pub used_by: Vec<String>,
+}
+
+/// `details` of `successor-relation-type-undetermined` (srs-rust#1247). Mirrors
+/// `RepositoryError::SuccessorRelationTypeUndetermined`; pinned by a round-trip test.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SuccessorRelationTypeUndeterminedDetails {
+    /// Relation types the lifecycle would accept; empty when it names none.
+    pub candidates: Vec<String>,
+}
+
+impl JsonSchema for ErrorReportPayload {
+    fn schema_name() -> String {
+        "ErrorReportPayload".to_string()
+    }
+
+    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        error_report_schema(gen)
+    }
+}
+
+/// Schema of [`ErrorReportPayload`]: one branch per typed code (`code` a const,
+/// `details` required and typed), then a fallback branch for every other code
+/// with the open `details` object. A validator accepts a typed code only through
+/// its own branch, so a client switching on `code` narrows `details`.
+fn error_report_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    use schemars::schema::Schema;
+    let typed = [
+        (
+            "lifecycle-not-defined",
+            gen.subschema_for::<LifecycleNotDefinedDetails>(),
+        ),
+        (
+            "cannot-delete-in-use",
+            gen.subschema_for::<CannotDeleteInUseDetails>(),
+        ),
+        (
+            "successor-relation-type-undetermined",
+            gen.subschema_for::<SuccessorRelationTypeUndeterminedDetails>(),
+        ),
+    ];
+    let message = serde_json::json!({
+        "description": "Human-readable message; equals the aligned `diagnostics[i]`.",
+        "type": "string"
+    });
+    let mut branches: Vec<serde_json::Value> = typed
+        .iter()
+        .map(|(code, details)| {
+            serde_json::json!({
+                "type": "object",
+                "required": ["code", "details", "message"],
+                "properties": {
+                    "code": {"const": code},
+                    "details": details,
+                    "message": message,
+                }
+            })
+        })
+        .collect();
+    let typed_codes: Vec<&str> = typed.iter().map(|(c, _)| *c).collect();
+    branches.push(serde_json::json!({
+        "description": "Any other code: `details` is an open object of variant-specific fields, when the error has any.",
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+            "code": {
+                "description": "Stable kebab-case error code (ADR-048 rule 6).",
+                "type": "string",
+                "not": {"enum": typed_codes}
+            },
+            "details": {"type": "object"},
+            "message": message,
+        }
+    }));
+    serde_json::from_value::<Schema>(serde_json::json!({ "oneOf": branches }))
+        .expect("error report schema is well formed")
 }

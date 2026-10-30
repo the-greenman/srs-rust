@@ -766,3 +766,53 @@ fn error_report_mirror_roundtrip() {
         serde_json::from_value(serde_json::to_value(&mirror).unwrap()).unwrap();
     assert_eq!(back, report);
 }
+
+#[test]
+fn error_report_typed_details_mirror_repository_errors() {
+    use srs_repository::error::RepositoryError as E;
+    let cases = [
+        E::LifecycleNotDefined { id: "r1".into() },
+        E::CannotDeleteInUse {
+            entity_type: "type".into(),
+            id: "x".into(),
+            used_by: vec!["a".into(), "b".into()],
+        },
+        E::SuccessorRelationTypeUndetermined {
+            candidates: vec!["supersedes".into()],
+        },
+    ];
+    for e in cases {
+        let r = e.report();
+        let details = r.details.clone().expect("typed codes carry details");
+        let back = match r.code.as_str() {
+            "lifecycle-not-defined" => serde_json::to_value(
+                serde_json::from_value::<LifecycleNotDefinedDetails>(details.clone()).unwrap(),
+            ),
+            "cannot-delete-in-use" => serde_json::to_value(
+                serde_json::from_value::<CannotDeleteInUseDetails>(details.clone()).unwrap(),
+            ),
+            "successor-relation-type-undetermined" => serde_json::to_value(
+                serde_json::from_value::<SuccessorRelationTypeUndeterminedDetails>(details.clone())
+                    .unwrap(),
+            ),
+            other => panic!("unmirrored code {other}"),
+        }
+        .unwrap();
+        assert_eq!(back, details, "mirror drifted from {}", r.code);
+    }
+}
+
+#[test]
+fn error_report_schema_discriminates_on_code() {
+    let schema = serde_json::to_value(schemars::schema_for!(ErrorReportPayload)).unwrap();
+    let branches = schema["oneOf"].as_array().unwrap();
+    assert_eq!(branches.len(), 4);
+    for (b, code) in branches.iter().zip([
+        "lifecycle-not-defined",
+        "cannot-delete-in-use",
+        "successor-relation-type-undetermined",
+    ]) {
+        assert_eq!(b["properties"]["code"]["const"], code);
+        assert!(b["required"].as_array().unwrap().contains(&"details".into()));
+    }
+}
