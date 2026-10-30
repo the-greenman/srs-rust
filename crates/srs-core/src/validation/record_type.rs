@@ -129,6 +129,7 @@ pub fn validate_cross_field_rules_for_type(
     else {
         return Vec::new();
     };
+    let mut errors = rule_kind_property_errors(rules);
     let field_types = cross_field_type_map(fields, record_type);
     let phantom = Record {
         created_by: None,
@@ -145,10 +146,54 @@ pub fn validate_cross_field_rules_for_type(
         updated_at: None,
         extra: std::collections::BTreeMap::new(),
     };
-    validate_cross_field_rules(&phantom, rules, &field_types)
-        .into_iter()
-        .filter(|e| matches!(e, CoreError::CrossFieldRuleMisconfigured { .. }))
-        .collect()
+    errors.extend(
+        validate_cross_field_rules(&phantom, rules, &field_types)
+            .into_iter()
+            .filter(|e| matches!(e, CoreError::CrossFieldRuleMisconfigured { .. })),
+    );
+    errors
+}
+
+/// I-96 (RFC-019 R10): a rule that carries a property belonging to a different rule kind
+/// MUST be reported as a Type-level validation error. `conditional-required` and
+/// `field-ordering` must not supply `fieldIds`; `mutual-exclusion` must not supply
+/// `predicateFieldId`, `predicateValue`, `targetFieldId` or `effect`. `conditional-forbidden`
+/// (RFC-040 Change F) is not named by I-96, so its shape is left unchecked here.
+fn rule_kind_property_errors(rules: &[CrossFieldRule]) -> Vec<CoreError> {
+    let mut errors = Vec::new();
+    for (index, rule) in rules.iter().enumerate() {
+        let (kind, foreign): (&str, Vec<&str>) = match rule.rule_type {
+            CrossFieldRuleKind::ConditionalRequired => (
+                "conditional-required",
+                rule.field_ids.iter().map(|_| "fieldIds").collect(),
+            ),
+            CrossFieldRuleKind::FieldOrdering => (
+                "field-ordering",
+                rule.field_ids.iter().map(|_| "fieldIds").collect(),
+            ),
+            CrossFieldRuleKind::MutualExclusion => (
+                "mutual-exclusion",
+                [
+                    ("predicateFieldId", rule.predicate_field_id.is_some()),
+                    ("predicateValue", rule.predicate_value.is_some()),
+                    ("targetFieldId", rule.target_field_id.is_some()),
+                    ("effect", rule.effect.is_some()),
+                ]
+                .into_iter()
+                .filter_map(|(name, present)| present.then_some(name))
+                .collect(),
+            ),
+            CrossFieldRuleKind::ConditionalForbidden => continue,
+        };
+        for property in foreign {
+            errors.push(CoreError::CrossFieldRuleMisconfigured {
+                reason: format!(
+                    "{kind} rule at index {index} must not supply '{property}' (a property of another rule kind, I-96)"
+                ),
+            });
+        }
+    }
+    errors
 }
 
 /// Returns the non-empty string value for the field with `field_id` in the
@@ -817,6 +862,97 @@ mod tests {
         .expect("type fixture should deserialize");
 
         assert!(validate_cross_field_rules_for_type(&rt, &fields).is_empty());
+    }
+
+    fn i96_fields() -> Vec<Field> {
+        ["f-a", "f-b"]
+            .iter()
+            .map(|id| {
+                serde_json::from_value(serde_json::json!({
+                    "id": id, "namespace": "com.test", "name": id, "version": 1,
+                    "description": "d", "fieldType": { "datatype": "string" },
+                    "createdAt": "2026-01-01T00:00:00Z",
+                }))
+                .expect("field fixture should deserialize")
+            })
+            .collect()
+    }
+
+    fn i96_type(rule: serde_json::Value) -> RecordType {
+        serde_json::from_value(serde_json::json!({
+            "id": "t-1", "namespace": "com.test", "name": "t", "version": 1,
+            "description": "d",
+            "fields": [
+                { "fieldId": "f-a", "order": 0, "required": false },
+                { "fieldId": "f-b", "order": 1, "required": false },
+            ],
+            "validationRules": [rule],
+            "createdAt": "2026-01-01T00:00:00Z",
+        }))
+        .expect("type fixture should deserialize")
+    }
+
+    #[test]
+    fn i96_mutual_exclusion_flags_each_foreign_property() {
+        let rt = i96_type(serde_json::json!({
+            "type": "mutual-exclusion",
+            "fieldIds": ["f-a", "f-b"],
+            "predicateFieldId": "f-a",
+            "predicateValue": "x",
+            "targetFieldId": "f-b",
+            "effect": "must-precede",
+        }));
+        let errs = validate_cross_field_rules_for_type(&rt, &i96_fields());
+        for property in [
+            "predicateFieldId",
+            "predicateValue",
+            "targetFieldId",
+            "effect",
+        ] {
+            assert!(
+                errs.iter().any(|e| matches!(
+                    e,
+                    CoreError::CrossFieldRuleMisconfigured { reason }
+                        if reason.contains("index 0") && reason.contains(&format!("'{property}'"))
+                )),
+                "missing I-96 error for {property}: {errs:?}"
+            );
+        }
+        assert_eq!(errs.len(), 4, "{errs:?}");
+    }
+
+    #[test]
+    fn i96_conditional_required_and_field_ordering_flag_field_ids() {
+        for rule in [
+            serde_json::json!({
+                "type": "conditional-required", "predicateFieldId": "f-a",
+                "predicateValue": "x", "targetFieldId": "f-b", "fieldIds": ["f-a", "f-b"],
+            }),
+            serde_json::json!({
+                "type": "field-ordering", "predicateFieldId": "f-a",
+                "targetFieldId": "f-b", "effect": "must-precede", "fieldIds": ["f-a", "f-b"],
+            }),
+        ] {
+            let rt = i96_type(rule);
+            let errs = validate_cross_field_rules_for_type(&rt, &i96_fields());
+            assert!(
+                errs.iter().any(|e| matches!(
+                    e,
+                    CoreError::CrossFieldRuleMisconfigured { reason }
+                        if reason.contains("'fieldIds'") && reason.contains("I-96")
+                )),
+                "expected an I-96 fieldIds error, got: {errs:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn i96_leaves_conditional_forbidden_shape_unchecked() {
+        let rt = i96_type(serde_json::json!({
+            "type": "conditional-forbidden", "predicateFieldId": "f-a",
+            "predicateValue": "x", "targetFieldId": "f-b", "fieldIds": ["f-a", "f-b"],
+        }));
+        assert!(validate_cross_field_rules_for_type(&rt, &i96_fields()).is_empty());
     }
 
     #[test]
