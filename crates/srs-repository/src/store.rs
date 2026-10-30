@@ -498,6 +498,17 @@ pub trait RepositoryStore {
         self.load_instance_json(relative_path)
             .map(CandidateSource::Parsed)
     }
+
+    /// Derived catalog cache seam (ADR-056). A store with no stable file
+    /// identity (memory, WASM) keeps the defaults and never caches.
+    fn candidate_stamp(&self, _relative_path: &str) -> Option<crate::vfs::FileStamp> {
+        None
+    }
+    fn catalog_cache_read(&self) -> Option<Vec<u8>> {
+        None
+    }
+    fn catalog_cache_write(&self, _bytes: &[u8]) {}
+
     fn save_instance_json(
         &self,
         relative_path: &str,
@@ -2476,6 +2487,19 @@ impl RepositoryStore for FileStore {
             text: self.vfs.read_to_string(relative_path)?,
             display_path: self.abs(relative_path),
         })
+    }
+
+    fn candidate_stamp(&self, relative_path: &str) -> Option<crate::vfs::FileStamp> {
+        self.vfs.stamp(relative_path)
+    }
+
+    fn catalog_cache_read(&self) -> Option<Vec<u8>> {
+        self.vfs.cache_read(crate::catalog_cache::CACHE_FILE)
+    }
+
+    fn catalog_cache_write(&self, bytes: &[u8]) {
+        self.vfs
+            .cache_write(crate::catalog_cache::CACHE_FILE, bytes)
     }
 
     fn save_instance_json(
