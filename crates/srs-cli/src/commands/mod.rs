@@ -1965,6 +1965,11 @@ pub struct FindArgs {
     /// score, snippet) or `label` (id, uri, label, type, state)
     #[arg(long = "projection", value_name = "PROJECTION", default_value = "full")]
     pub projection: srs_repository::projection::Projection,
+    /// Add the values of these Fields (`Field.name`, comma-separated) to each record hit as
+    /// `fieldValues`, in any projection. A name no Field defines is a `find-field-unknown`
+    /// warning in `diagnostics`
+    #[arg(long = "fields", value_name = "NAMES", value_delimiter = ',')]
+    pub fields: Option<Vec<String>>,
     /// More like this: instances similar to this instance (Record or Note id), ranked by BM25
     /// over its top-weighted terms, excluding itself. The other filters narrow the candidates;
     /// not combinable with --text.

@@ -544,6 +544,10 @@ pub struct FindToolInput {
     /// How much of each hit: "full" (default), "card" (instanceId, uri, label, type,
     /// lifecycleState, score, snippet) or "label" (as card, without score and snippet).
     pub projection: Option<Projection>,
+    /// Field names (`Field.name`) whose values each record hit carries as `fieldValues`, in any
+    /// projection. A name no Field defines is a `find-field-unknown` warning in `diagnostics`.
+    #[serde(default)]
+    pub fields: Option<Vec<String>>,
 }
 
 /// Input of the `similar` tool: the source `instanceId` plus find's structured filters
@@ -1726,6 +1730,7 @@ pub fn call_tool(
                 by_type_limit: input.by_type_limit,
                 facets: input.facets,
                 projection: input.projection.unwrap_or_default(),
+                fields: input.fields.clone(),
             };
             match discovery_service::find(store, input.into(), page) {
                 Ok(result) => tool_ok(&result),
@@ -2180,6 +2185,7 @@ mod tests {
             match_mode: Some(MatchMode::Any),
             facets: Some(true),
             projection: Some(Projection::Card),
+            fields: None,
         };
         let q: DiscoveryQuery = find.into();
         assert_eq!(q.type_id.as_deref(), Some("tid"));
