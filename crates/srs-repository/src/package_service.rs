@@ -780,6 +780,8 @@ pub fn create_type_in_package(
         }
     }
 
+    refuse_misconfigured_cross_field_rules(store, &record_type)?;
+
     if record_type.id.trim().is_empty() {
         record_type.id = new_instance_id();
     }
@@ -792,6 +794,43 @@ pub fn create_type_in_package(
     )?;
 
     Ok(CreateTypeResult { record_type })
+}
+
+/// I-92/94/95/96: the Type-level cross-field check `repo validate` runs, applied at the
+/// write boundary so a type whose rules silently do nothing is refused before anything is
+/// written (srs-rust#1533). Fields resolve against the package the store serves.
+fn refuse_misconfigured_cross_field_rules(
+    store: &dyn RepositoryStore,
+    record_type: &RecordType,
+) -> Result<(), RepositoryError> {
+    if record_type
+        .validation_rules
+        .as_ref()
+        .is_none_or(|rules| rules.is_empty())
+    {
+        return Ok(());
+    }
+    let package = store.load_package()?;
+    let reasons: Vec<String> =
+        srs_core::validation::record_type::validate_cross_field_rules_for_type(
+            record_type,
+            &package.fields,
+        )
+        .into_iter()
+        .map(|e| e.to_string())
+        .collect();
+    if reasons.is_empty() {
+        return Ok(());
+    }
+    Err(RepositoryError::InvalidInput {
+        message: format!(
+            "type '{}/{}@{}' has misconfigured cross-field rules (ext:cross-field-validation, I-92/94/95/96): {}",
+            record_type.namespace,
+            record_type.name,
+            record_type.version,
+            reasons.join("; ")
+        ),
+    })
 }
 
 /// Write one version of a type and return its repo-root-relative path. A version that
@@ -853,6 +892,8 @@ pub fn update_type(
             });
         }
     }
+
+    refuse_misconfigured_cross_field_rules(store, &record_type)?;
 
     let path = write_type_version(store, &record_type, &owner)?;
     let prefix = format!("{}/", owner.as_deref().unwrap_or("package"));
@@ -2024,6 +2065,60 @@ mod tests {
         assert!(
             !types.iter().any(|t| t.as_str().unwrap().contains("probe")),
             "no type file should have been registered after a rejected create"
+        );
+    }
+
+    fn mixed_kind_rules() -> Vec<srs_core::types::record_type::CrossFieldRule> {
+        serde_json::from_value(serde_json::json!([{
+            "type": "mutual-exclusion",
+            "fieldIds": ["a", "b"],
+            "predicateFieldId": "a",
+            "predicateValue": "x",
+            "targetFieldId": "b",
+        }]))
+        .unwrap()
+    }
+
+    #[test]
+    fn type_create_refuses_cross_field_rule_with_another_kinds_property() {
+        let store = MemoryStore::default();
+        let mut rt = make_type("00000000-0000-0000-0000-000000000023", "mixed-rule");
+        rt.validation_rules = Some(mixed_kind_rules());
+
+        let result = create_type(&store, rt);
+        assert!(
+            matches!(
+                result,
+                Err(RepositoryError::InvalidInput { ref message })
+                    if message.contains("I-96") && message.contains("'predicateFieldId'")
+            ),
+            "expected InvalidInput naming the rule and property, got {result:?}"
+        );
+
+        let pkg = store.load_package_json().unwrap();
+        let types = pkg["types"].as_array().unwrap();
+        assert!(
+            !types
+                .iter()
+                .any(|t| t.as_str().unwrap().contains("mixed-rule")),
+            "no type file should have been registered after a refused create"
+        );
+    }
+
+    #[test]
+    fn type_update_refuses_cross_field_rule_with_another_kinds_property() {
+        let rt = make_type("00000000-0000-0000-0000-000000000024", "mixed-update");
+        let store = MemoryStore::with_type(rt.clone());
+        let mut updated = rt;
+        updated.validation_rules = Some(mixed_kind_rules());
+
+        let result = update_type(&store, updated);
+        assert!(
+            matches!(
+                result,
+                Err(RepositoryError::InvalidInput { ref message }) if message.contains("I-96")
+            ),
+            "expected InvalidInput, got {result:?}"
         );
     }
 
