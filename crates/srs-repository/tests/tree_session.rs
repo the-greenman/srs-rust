@@ -98,7 +98,14 @@ fn export_tree_synthesizes_marker() {
     assert_diff_is_exactly(&base, &exported, &[".srs/README.md"]);
     let readme = String::from_utf8(exported[".srs/README.md"].clone()).unwrap();
     assert!(readme.starts_with("# About SRS"));
-    assert!(readme.contains("https://srs.semanticops.com"));
+    assert!(readme.contains("https://srs.semanticops.com/llms.txt"));
+    // The site standard's Get running block, verbatim (semanticops.com#44),
+    // so an agent arriving at the repository can install the engine.
+    assert!(readme.contains(
+        "- Install the srs engine: `curl -fsSL https://engine.semanticops.com/install.sh | sh`\n\
+         - [First five minutes](https://engine.semanticops.com/start.md): CLI, MCP server, output contract\n\
+         - [SemanticOps sites](https://semanticops.com/llms.txt): every site and what it is for\n"
+    ));
 }
 
 #[test]
