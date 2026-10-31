@@ -25,6 +25,10 @@ fn fixture_map() -> BTreeMap<String, Vec<u8>> {
         for entry in std::fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();
             if path.is_dir() {
+                // The derived catalog cache (ADR-056) is not part of the fixture.
+                if path.ends_with(".srs/cache") {
+                    continue;
+                }
                 walk(root, &path, map);
             } else {
                 let rel = path

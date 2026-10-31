@@ -398,22 +398,100 @@ fn prepare_instance_candidates(
     paths: Vec<&String>,
     parallel: bool,
 ) -> BTreeMap<String, Prepared> {
-    let sources: Vec<(&String, Result<CandidateSource, RepositoryError>)> = paths
-        .into_iter()
-        .map(|p| (p, store.read_candidate_source(p)))
-        .collect();
-    let work = |(path, src): (&String, Result<CandidateSource, RepositoryError>)| {
-        (path.clone(), classify_source(src))
+    use crate::catalog_cache as cache;
+    // Derived cache (ADR-056): only for stores with a stable file identity.
+    let loaded = store.catalog_cache_read().and_then(|b| cache::load(&b));
+    let mut result: BTreeMap<String, Prepared> = BTreeMap::new();
+    let mut fresh: BTreeMap<String, cache::Entry> = BTreeMap::new();
+    let mut changed = false;
+    // Misses: path, source, stamp taken before the read (a later edit then
+    // shows as a different stamp, never as a stale hit).
+    let mut sources: Vec<(
+        &String,
+        Result<CandidateSource, RepositoryError>,
+        Option<crate::vfs::FileStamp>,
+    )> = Vec::new();
+    for p in paths {
+        let stamp = store.candidate_stamp(p);
+        let cached = stamp.zip(loaded.as_ref().and_then(|l| l.entries.get(p)));
+        if let (Some((s, e)), Some(l)) = (cached, loaded.as_ref()) {
+            if e.matches_stamp(s) {
+                if !l.needs_hash_check(s) {
+                    if let Some(c) = e.classification() {
+                        fresh.insert(p.clone(), e.clone());
+                        result.insert(p.clone(), Prepared::Classified(Ok(c)));
+                        continue;
+                    }
+                } else {
+                    // Racy: confirm by content.
+                    let src = store.read_candidate_source(p);
+                    if let Ok(CandidateSource::Text { text, .. }) = &src {
+                        if e.matches_text(text) {
+                            if let Some(c) = e.classification() {
+                                fresh.insert(p.clone(), e.clone());
+                                result.insert(p.clone(), Prepared::Classified(Ok(c)));
+                                continue;
+                            }
+                        }
+                    }
+                    sources.push((p, src, stamp));
+                    continue;
+                }
+            }
+        }
+        sources.push((p, store.read_candidate_source(p), stamp));
+    }
+    changed |= !sources.is_empty()
+        || loaded
+            .as_ref()
+            .is_none_or(|l| l.entries.len() != fresh.len());
+    let work = |(path, src, stamp): (
+        &String,
+        Result<CandidateSource, RepositoryError>,
+        Option<crate::vfs::FileStamp>,
+    )| {
+        let text = match &src {
+            Ok(CandidateSource::Text { text, .. }) => Some(text.clone()),
+            _ => None,
+        };
+        let prepared = classify_source(src);
+        let entry = match (&prepared, stamp, text) {
+            (Prepared::Classified(Ok((kind, tier, id))), Some(s), Some(t)) => {
+                Some(cache::Entry::new(s, &t, *kind, *tier, id))
+            }
+            _ => None,
+        };
+        (path.clone(), prepared, entry)
     };
+    #[allow(unused_mut)]
+    let mut done: Vec<(String, Prepared, Option<cache::Entry>)>;
     #[cfg(not(target_arch = "wasm32"))]
     {
         use rayon::prelude::*;
-        if parallel {
-            return sources.into_par_iter().map(work).collect();
+        done = if parallel {
+            sources.into_par_iter().map(work).collect()
+        } else {
+            sources.into_iter().map(work).collect()
+        };
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = parallel;
+        done = sources.into_iter().map(work).collect();
+    }
+    for (path, prepared, entry) in done {
+        if let Some(e) = entry {
+            fresh.insert(path.clone(), e);
+        }
+        result.insert(path, prepared);
+    }
+    // Write only when something changed and the store can cache at all.
+    if changed && !fresh.is_empty() {
+        if let Some(bytes) = cache::serialize(fresh) {
+            store.catalog_cache_write(&bytes);
         }
     }
-    let _ = parallel;
-    sources.into_iter().map(work).collect()
+    result
 }
 
 fn classify_source(src: Result<CandidateSource, RepositoryError>) -> Prepared {
