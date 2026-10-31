@@ -39,24 +39,148 @@
     }
   },
   "definitions": {
-    "ErrorReportPayload": {
-      "description": "One entry of the top-level `errors[]` on an `ok:false` envelope (ADR-053). Deliberate mirror of `srs_repository::ErrorReport`: schemars is not a dependency of srs-repository (ADR-011).",
+    "CannotDeleteInUseDetails": {
+      "description": "`details` of `cannot-delete-in-use` (srs-vscode#131). Mirrors `RepositoryError::CannotDeleteInUse`; pinned by a round-trip test.",
       "type": "object",
       "required": [
-        "code",
-        "message"
+        "entityType",
+        "id",
+        "usedBy"
       ],
       "properties": {
-        "code": {
-          "description": "Stable kebab-case error code (ADR-048 rule 6).",
+        "entityType": {
           "type": "string"
         },
-        "details": {
-          "description": "Open object of variant-specific fields, when the error has any."
-        },
-        "message": {
-          "description": "Human-readable message; equals the aligned `diagnostics[i]`.",
+        "id": {
           "type": "string"
+        },
+        "usedBy": {
+          "description": "Ids of the definitions still referencing the entity.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ErrorReportPayload": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "code",
+            "details",
+            "message"
+          ],
+          "properties": {
+            "code": {
+              "const": "lifecycle-not-defined"
+            },
+            "details": {
+              "$ref": "#/definitions/LifecycleNotDefinedDetails"
+            },
+            "message": {
+              "description": "Human-readable message; equals the aligned `diagnostics[i]`.",
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "code",
+            "details",
+            "message"
+          ],
+          "properties": {
+            "code": {
+              "const": "cannot-delete-in-use"
+            },
+            "details": {
+              "$ref": "#/definitions/CannotDeleteInUseDetails"
+            },
+            "message": {
+              "description": "Human-readable message; equals the aligned `diagnostics[i]`.",
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "code",
+            "details",
+            "message"
+          ],
+          "properties": {
+            "code": {
+              "const": "successor-relation-type-undetermined"
+            },
+            "details": {
+              "$ref": "#/definitions/SuccessorRelationTypeUndeterminedDetails"
+            },
+            "message": {
+              "description": "Human-readable message; equals the aligned `diagnostics[i]`.",
+              "type": "string"
+            }
+          }
+        },
+        {
+          "description": "Any other code: `details` is an open object of variant-specific fields, when the error has any.",
+          "type": "object",
+          "required": [
+            "code",
+            "message"
+          ],
+          "properties": {
+            "code": {
+              "description": "Stable kebab-case error code (ADR-048 rule 6).",
+              "type": "string",
+              "not": {
+                "enum": [
+                  "lifecycle-not-defined",
+                  "cannot-delete-in-use",
+                  "successor-relation-type-undetermined"
+                ]
+              }
+            },
+            "details": {
+              "type": "object"
+            },
+            "message": {
+              "description": "Human-readable message; equals the aligned `diagnostics[i]`.",
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "LifecycleNotDefinedDetails": {
+      "description": "`details` of `lifecycle-not-defined` (srs-web#512). Mirrors `RepositoryError::LifecycleNotDefined`; pinned by a round-trip test.",
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "description": "The record whose Type declares no lifecycle.",
+          "type": "string"
+        }
+      }
+    },
+    "SuccessorRelationTypeUndeterminedDetails": {
+      "description": "`details` of `successor-relation-type-undetermined` (srs-rust#1247). Mirrors `RepositoryError::SuccessorRelationTypeUndetermined`; pinned by a round-trip test.",
+      "type": "object",
+      "required": [
+        "candidates"
+      ],
+      "properties": {
+        "candidates": {
+          "description": "Relation types the lifecycle would accept; empty when it names none.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     }
