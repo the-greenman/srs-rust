@@ -2317,8 +2317,6 @@ mod tests {
     use super::SrsRepository;
     use srs_repository::RepositoryStore;
 
-    /// Native coverage of the non-JS half of `js_invalid_input`; the `Error`
-    /// construction itself is covered by the wasm32 build only.
     /// srs-rust#638: the policy result serialises flat and camelCase, as the CLI payload does.
     #[test]
     fn attachment_policy_serialises_like_the_cli_payload() {
@@ -2348,6 +2346,8 @@ mod tests {
         );
     }
 
+    /// Native coverage of the non-JS half of `js_invalid_input`; the `Error`
+    /// construction itself is covered by the wasm32 build only.
     #[test]
     fn invalid_input_report_is_coded() {
         let r = srs_repository::error::RepositoryError::InvalidInput {
