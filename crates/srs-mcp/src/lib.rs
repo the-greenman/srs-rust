@@ -24,15 +24,20 @@ use std::path::PathBuf;
 /// `actor` is the host-supplied RFC-046 session actor (raw JSON, from the CLI's
 /// `--actor` / `SRS_ACTOR`), stamped as `createdBy` on everything this server
 /// creates. It never comes from a tool argument. `profile` picks the tools advertised and
-/// accepted (srs-rust#1287).
+/// accepted (srs-rust#1287). With `registry`, the server serves the registry's repository
+/// entries instead of `repo_path` (RFC-049 [R8]); `default_id` names the default ([R13]).
 pub fn serve_stdio(
     repo_path: PathBuf,
+    registry: Option<PathBuf>,
+    default_id: Option<String>,
     actor: Option<serde_json::Value>,
     profile: tools::ToolProfile,
 ) -> anyhow::Result<()> {
-    let server = SrsMcpServer::new(repo_path)?
-        .with_session_actor(actor)
-        .with_tool_profile(profile);
+    let server = match registry {
+        Some(path) => SrsMcpServer::from_registry(&path, default_id.as_deref())?,
+        None => SrsMcpServer::new(repo_path)?,
+    };
+    let server = server.with_session_actor(actor).with_tool_profile(profile);
     // Stdio transport uses tokio's blocking pool for stdin/stdout — no I/O
     // driver needed. Timers ARE needed: rmcp's shutdown path uses tokio::time.
     let runtime = tokio::runtime::Builder::new_current_thread()

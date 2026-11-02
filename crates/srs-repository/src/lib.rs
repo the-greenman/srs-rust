@@ -8,6 +8,7 @@ pub mod attention_service;
 pub mod blueprint_brief_service;
 pub mod blueprint_schema_service;
 pub mod blueprint_service;
+pub mod boundary_service;
 pub mod catalog;
 pub(crate) mod catalog_cache;
 pub mod changes_service;

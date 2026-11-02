@@ -636,6 +636,17 @@ pub enum RepositoryError {
         message: String,
     },
 
+    /// RFC-049 [R5], [R16], [R17]: a read or write refused at the boundary. `code` is
+    /// one of `read-only`, `locator-unusable`, `id-mismatch`, `revision-unsupported`,
+    /// `write-not-routed`, `write-refused`.
+    #[error("{message}")]
+    BoundaryRefused {
+        #[serde(skip)]
+        code: &'static str,
+        #[serde(skip)]
+        message: String,
+    },
+
     /// RFC-038 [R21]: a repository below storage generation 2 is not
     /// supported. Feature-inactive until the Phase-6 flip; fired only under
     /// the crate-internal test activation until then.
@@ -1379,6 +1390,7 @@ impl RepositoryError {
             Self::ActorProvenance { code, .. } => code,
             Self::InvalidPackageBundle { code, .. } => code,
             Self::SliceRefused { code, .. } => code,
+            Self::BoundaryRefused { code, .. } => code,
             Self::StorageGenerationUnsupported { .. } => "storage-generation-unsupported",
             Self::GzipSrsj { .. } => "srsj-gzip-rejected",
         }
@@ -1782,6 +1794,10 @@ mod tests {
                 code: "slice-y",
                 message: "x".into(),
             },
+            R::BoundaryRefused {
+                code: "boundary-x",
+                message: "x".into(),
+            },
             R::StorageGenerationUnsupported { declared: 1 },
             R::GzipSrsj { path: "x".into() },
         ]
@@ -1792,7 +1808,7 @@ mod tests {
         let all = all_variants();
         assert_eq!(
             all.len(),
-            105,
+            106,
             "all_variants() is out of step with the enum"
         );
         let mut seen = std::collections::HashSet::new();

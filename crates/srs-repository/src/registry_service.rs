@@ -47,7 +47,9 @@ fn load_json(
     registry::load(doc).map_err(|r| refused(r, path))
 }
 
-fn read_registry_file(path: &std::path::Path) -> Result<LoadedRegistry, RepositoryError> {
+pub(crate) fn read_registry_file(
+    path: &std::path::Path,
+) -> Result<LoadedRegistry, RepositoryError> {
     let content = std::fs::read_to_string(path).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             RepositoryError::NotFound {

@@ -13,6 +13,8 @@ use rmcp::ErrorData as McpError;
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use srs_mcp_core::{srs_metadata, McpApplication as _, McpApplicationError, SrsMcpApplication};
+use srs_repository::boundary_service::{Access, Boundary};
+use srs_repository::error::RepositoryError;
 use srs_repository::store::FileStore;
 
 pub(crate) type App = SrsMcpApplication<FileStore>;
@@ -37,9 +39,80 @@ fn call<T: DeserializeOwned>(
 
 /// The stdio server's `initialize` result: the one definition lives in
 /// `srs_metadata::initialize_result_for()` (shared with the browser dispatcher), parsed here.
-pub(crate) fn server_info(profile: srs_mcp_core::tools::ToolProfile) -> ServerInfo {
-    serde_json::from_value(srs_metadata::initialize_result_for(profile))
-        .expect("srs_metadata::initialize_result_for() is a valid rmcp InitializeResult")
+/// Serving several repositories, the instructions also name the default repository
+/// and the boundary (RFC-049 [R13]).
+pub(crate) fn server_info(
+    profile: srs_mcp_core::tools::ToolProfile,
+    boundary: &Boundary,
+) -> ServerInfo {
+    let mut info: ServerInfo = serde_json::from_value(srs_metadata::initialize_result_for(profile))
+        .expect("srs_metadata::initialize_result_for() is a valid rmcp InitializeResult");
+    if boundary.members().len() > 1 {
+        let members: Vec<String> = boundary
+            .members()
+            .iter()
+            .map(|m| {
+                let label = m
+                    .label
+                    .as_deref()
+                    .map(|l| format!(" ({l})"))
+                    .unwrap_or_default();
+                let ro = if m.read_only { ", read-only" } else { "" };
+                format!("{}{label}{ro}", m.id)
+            })
+            .collect();
+        let note = format!(
+            "\n\nThis server serves several repositories (RFC-049): {}. The default repository is {}{}. \
+             Address another one by its id: srs://<repositoryId>/… for resources, and the optional \
+             `repositoryId` argument on any tool. A write goes to that one repository; read-only \
+             repositories refuse writes (read-only).",
+            members.join("; "),
+            boundary.default_id(),
+            if boundary.default_loaded() { "" } else { " (its entry did not load: requests relying on it are refused)" },
+        );
+        info.instructions = Some(info.instructions.unwrap_or_default() + &note);
+    }
+    info
+}
+
+/// A boundary refusal on a resource or prompt request (RFC-049 [R5]).
+pub(crate) fn boundary_error(e: RepositoryError) -> McpError {
+    mcp_error(McpApplicationError::from_report(e.report()))
+}
+
+/// A boundary refusal on a tool call, as a tool error result carrying its code.
+pub(crate) fn tool_refusal(e: RepositoryError) -> CallToolResult {
+    let report = e.report();
+    serde_json::from_value(json!({
+        "content": [{ "type": "text", "text": report.message }],
+        "structuredContent": report,
+        "isError": true,
+    }))
+    .expect("a tool error result is a valid CallToolResult")
+}
+
+/// Split a tool call's routing argument from its own arguments: `repositoryId`, or
+/// for `read` the repository segment of its `uri`. The tool never sees `repositoryId`.
+pub(crate) fn take_repository_id(
+    name: &str,
+    arguments: Option<rmcp::model::JsonObject>,
+) -> (Option<String>, Option<rmcp::model::JsonObject>) {
+    let mut arguments = arguments;
+    let explicit = arguments
+        .as_mut()
+        .and_then(|a| a.remove("repositoryId"))
+        .and_then(|v| v.as_str().map(ToString::to_string));
+    let from_uri = (name == srs_mcp_core::tools::TOOL_READ)
+        .then(|| {
+            arguments
+                .as_ref()?
+                .get("uri")?
+                .as_str()
+                .map(ToString::to_string)
+        })
+        .flatten()
+        .and_then(|u| srs_mcp_core::uri::repository_segment(&u).map(ToString::to_string));
+    (explicit.or(from_uri), arguments)
 }
 
 pub(crate) fn list_resources(app: &mut App) -> Result<ListResourcesResult, McpError> {
@@ -56,20 +129,43 @@ pub(crate) fn read_resource(app: &mut App, uri: &str) -> Result<ReadResourceResu
     call(app, "resources/read", Some(json!({ "uri": uri })))
 }
 
-pub(crate) fn list_tools(app: &mut App) -> Result<ListToolsResult, McpError> {
-    call(app, "tools/list", None)
+/// The tool list; serving several repositories (`routed`), every tool also takes an
+/// optional `repositoryId` (RFC-049 [R13], [R17]).
+pub(crate) fn list_tools(app: &mut App, routed: bool) -> Result<ListToolsResult, McpError> {
+    let mut list = app.call("tools/list", None).map_err(mcp_error)?;
+    if routed {
+        for tool in list["tools"].as_array_mut().into_iter().flatten() {
+            let schema = &mut tool["inputSchema"];
+            if !schema["properties"].is_object() {
+                schema["properties"] = json!({});
+            }
+            schema["properties"]["repositoryId"] = json!({
+                "type": "string",
+                "description": "The repository this call is for (default: the server's default repository)."
+            });
+        }
+    }
+    serde_json::from_value(list).map_err(|e| McpError::internal_error(e.to_string(), None))
 }
 
+/// One tool call. A write the target refuses on I/O (permissions, a lock) is
+/// reported as `write-refused` (RFC-049 [R17]).
 pub(crate) fn call_tool(
     app: &mut App,
     name: &str,
     arguments: Option<rmcp::model::JsonObject>,
+    access: Access,
 ) -> Result<CallToolResult, McpError> {
-    call(
-        app,
-        "tools/call",
-        Some(json!({ "name": name, "arguments": arguments })),
-    )
+    let mut result = app
+        .call(
+            "tools/call",
+            Some(&json!({ "name": name, "arguments": arguments })),
+        )
+        .map_err(mcp_error)?;
+    if access == Access::Write && result["structuredContent"]["code"] == "io" {
+        result["structuredContent"]["code"] = json!("write-refused");
+    }
+    serde_json::from_value(result).map_err(|e| McpError::internal_error(e.to_string(), None))
 }
 
 pub(crate) fn list_prompts(app: &mut App) -> Result<ListPromptsResult, McpError> {
