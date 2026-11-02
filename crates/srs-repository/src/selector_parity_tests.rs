@@ -103,7 +103,7 @@ fn make_view(name: &str) -> View {
             editor_hint_override: None,
             label_mode: None,
             composite_renderer: None,
-            field_id: "f1".to_string(),
+            field_id: crate::core_package::core_package().fields[0].id.clone(),
             order: 0,
             required: None,
             visible: None,
