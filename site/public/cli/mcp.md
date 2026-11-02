@@ -69,6 +69,12 @@ Options:
           
           [default: json]
 
+      --registry <FILE>
+          Serve every repository in this RFC-049 registry file instead of --repo. Requests name their repository by id (`srs://<repositoryId>/…`, or a tool's `repositoryId`); writes are routed to that one repository and refused on read-only entries
+
+      --default <REPOSITORY_ID>
+          With --registry: the default repository id, for requests that name none (default: the registry's first repository entry)
+
       --store <STORE>
           Storage backend override. By default the backend is inferred from the repository location
           
