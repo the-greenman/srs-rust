@@ -14,7 +14,7 @@ pub enum McpCommand {
         /// Serve every repository in this RFC-049 registry file instead of --repo. Requests
         /// name their repository by id (`srs://<repositoryId>/…`, or a tool's `repositoryId`);
         /// writes are routed to that one repository and refused on read-only entries
-        #[arg(long = "registry", value_name = "FILE")]
+        #[arg(long = "registry", value_name = "FILE", conflicts_with = "repo")]
         registry: Option<std::path::PathBuf>,
         /// With --registry: the default repository id, for requests that name none
         /// (default: the registry's first repository entry)

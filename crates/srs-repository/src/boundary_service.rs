@@ -133,6 +133,11 @@ impl Boundary {
         &self.default_id
     }
 
+    /// Whether the members come from a registry (else: the one repository served).
+    pub fn is_registry(&self) -> bool {
+        self.from_registry
+    }
+
     /// Whether the default repository's entry loaded ([R13]).
     pub fn default_loaded(&self) -> bool {
         self.default_loaded
@@ -142,6 +147,8 @@ impl Boundary {
     /// refusing with the first outcome that holds, in [R17]'s order:
     /// `not-in-boundary`, `read-only` (writes; decided from the entry, so the target
     /// is never reached), `locator-unusable`, `id-mismatch`, `revision-unsupported`.
+    /// Without a registry, a write naming another repository is `write-not-routed`
+    /// ([R16]) and a read of one is `not-in-boundary`.
     pub fn resolve(
         &self,
         repository_id: Option<&str>,
@@ -152,8 +159,17 @@ impl Boundary {
             .members
             .iter()
             .find(|m| m.id.eq_ignore_ascii_case(id))
-            .ok_or_else(|| RepositoryError::NotInBoundary {
-                repository_id: id.to_string(),
+            .ok_or_else(|| {
+                if !self.from_registry && access == Access::Write {
+                    refused(
+                        "write-not-routed",
+                        format!("this server writes only to its own repository, not '{id}'"),
+                    )
+                } else {
+                    RepositoryError::NotInBoundary {
+                        repository_id: id.to_string(),
+                    }
+                }
             })?;
         if access == Access::Write && member.read_only {
             return Err(refused(
@@ -186,7 +202,7 @@ impl Boundary {
                 ))
             }
         };
-        let (found, revision) = read_identity(&path).map_err(|_| {
+        let unusable = || {
             refused(
                 "locator-unusable",
                 format!(
@@ -195,7 +211,14 @@ impl Boundary {
                     path.display()
                 ),
             )
-        })?;
+        };
+        if !path.join(".srs").is_dir() {
+            return Err(unusable());
+        }
+        let (found, revision) = read_identity(&path).map_err(|_| unusable())?;
+        if found.is_empty() {
+            return Err(unusable());
+        }
         if !found.eq_ignore_ascii_case(&member.id) {
             return Err(refused(
                 "id-mismatch",
@@ -214,10 +237,8 @@ impl Boundary {
                 ),
             ));
         }
-        Ok(Resolved {
-            id: member.id.clone(),
-            path,
-        })
+        // [R10]: the repository's own spelling of its id, not the registry's.
+        Ok(Resolved { id: found, path })
     }
 }
 

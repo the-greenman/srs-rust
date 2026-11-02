@@ -21,7 +21,7 @@ use srs_repository::boundary_service::{Access, Boundary};
 use srs_repository::error::RepositoryError;
 use srs_repository::store::{FileStore, RepositoryStore};
 
-use srs_mcp_core::SrsMcpApplication;
+use srs_mcp_core::{McpApplicationError, SrsMcpApplication};
 
 use crate::application;
 
@@ -121,6 +121,32 @@ impl SrsMcpServer {
         Ok(app)
     }
 
+    /// One tool call routed to the repository it names (RFC-049 [R16], [R17]). An unknown
+    /// tool is reported as unknown before any routing.
+    fn route_tool(&self, request: CallToolRequestParams) -> Result<CallToolResult, McpError> {
+        if !srs_mcp_core::routing::known_tool(self.tool_profile, &request.name) {
+            return Err(application::invalid(McpApplicationError::invalid_params(
+                format!(
+                    "unknown tool '{}' (not in the '{}' tool profile)",
+                    request.name,
+                    self.tool_profile.as_str()
+                ),
+            )));
+        }
+        let (repository_id, arguments) =
+            srs_mcp_core::routing::take_repository_id(&request.name, request.arguments)
+                .map_err(application::invalid)?;
+        let access = if srs_mcp_core::routing::is_write(&request.name) {
+            Access::Write
+        } else {
+            Access::Read
+        };
+        match self.open_app(repository_id.as_deref(), access) {
+            Ok(mut app) => application::call_tool(&mut app, &request.name, arguments, access),
+            Err(e) => Ok(application::tool_refusal(e)),
+        }
+    }
+
     /// Run `f` on the default repository's application.
     fn on_default<T>(
         &self,
@@ -155,7 +181,9 @@ impl ServerHandler for SrsMcpServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListResourceTemplatesResult, McpError>> + Send + '_ {
-        ready(self.on_default(application::list_resource_templates))
+        ready(application::list_resource_templates(
+            self.boundary.default_id(),
+        ))
     }
 
     fn read_resource(
@@ -176,8 +204,10 @@ impl ServerHandler for SrsMcpServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListToolsResult, McpError>> + Send + '_ {
-        let routed = self.boundary.members().len() > 1;
-        ready(self.on_default(|app| application::list_tools(app, routed)))
+        ready(application::list_tools(
+            self.tool_profile,
+            self.boundary.is_registry(),
+        ))
     }
 
     fn call_tool(
@@ -185,17 +215,7 @@ impl ServerHandler for SrsMcpServer {
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<CallToolResult, McpError>> + Send + '_ {
-        let (repository_id, arguments) =
-            application::take_repository_id(&request.name, request.arguments);
-        let access = if srs_mcp_core::tools::ToolProfile::Read.allows(&request.name) {
-            Access::Read
-        } else {
-            Access::Write
-        };
-        ready(match self.open_app(repository_id.as_deref(), access) {
-            Ok(mut app) => application::call_tool(&mut app, &request.name, arguments, access),
-            Err(e) => Ok(application::tool_refusal(e)),
-        })
+        ready(self.route_tool(request))
     }
 
     fn list_prompts(

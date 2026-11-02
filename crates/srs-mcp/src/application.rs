@@ -47,7 +47,7 @@ pub(crate) fn server_info(
 ) -> ServerInfo {
     let mut info: ServerInfo = serde_json::from_value(srs_metadata::initialize_result_for(profile))
         .expect("srs_metadata::initialize_result_for() is a valid rmcp InitializeResult");
-    if boundary.members().len() > 1 {
+    if boundary.is_registry() {
         let members: Vec<String> = boundary
             .members()
             .iter()
@@ -62,7 +62,7 @@ pub(crate) fn server_info(
             })
             .collect();
         let note = format!(
-            "\n\nThis server serves several repositories (RFC-049): {}. The default repository is {}{}. \
+            "\n\nThis server serves the repositories of a registry (RFC-049): {}. The default repository is {}{}. \
              Address another one by its id: srs://<repositoryId>/… for resources, and the optional \
              `repositoryId` argument on any tool. A write goes to that one repository; read-only \
              repositories refuse writes (read-only).",
@@ -82,74 +82,42 @@ pub(crate) fn boundary_error(e: RepositoryError) -> McpError {
 
 /// A boundary refusal on a tool call, as a tool error result carrying its code.
 pub(crate) fn tool_refusal(e: RepositoryError) -> CallToolResult {
-    let report = e.report();
-    serde_json::from_value(json!({
-        "content": [{ "type": "text", "text": report.message }],
-        "structuredContent": report,
-        "isError": true,
-    }))
-    .expect("a tool error result is a valid CallToolResult")
-}
-
-/// Split a tool call's routing argument from its own arguments: `repositoryId`, or
-/// for `read` the repository segment of its `uri`. The tool never sees `repositoryId`.
-pub(crate) fn take_repository_id(
-    name: &str,
-    arguments: Option<rmcp::model::JsonObject>,
-) -> (Option<String>, Option<rmcp::model::JsonObject>) {
-    let mut arguments = arguments;
-    let explicit = arguments
-        .as_mut()
-        .and_then(|a| a.remove("repositoryId"))
-        .and_then(|v| v.as_str().map(ToString::to_string));
-    let from_uri = (name == srs_mcp_core::tools::TOOL_READ)
-        .then(|| {
-            arguments
-                .as_ref()?
-                .get("uri")?
-                .as_str()
-                .map(ToString::to_string)
-        })
-        .flatten()
-        .and_then(|u| srs_mcp_core::uri::repository_segment(&u).map(ToString::to_string));
-    (explicit.or(from_uri), arguments)
+    serde_json::from_value(srs_mcp_core::tools::tool_err(e.report()))
+        .expect("a tool error result is a valid CallToolResult")
 }
 
 pub(crate) fn list_resources(app: &mut App) -> Result<ListResourcesResult, McpError> {
     call(app, "resources/list", None)
 }
 
+/// The resource templates, for the default repository's id (they open no repository).
 pub(crate) fn list_resource_templates(
-    app: &mut App,
+    default_id: &str,
 ) -> Result<ListResourceTemplatesResult, McpError> {
-    call(app, "resources/templates/list", None)
+    serde_json::from_value(srs_mcp_core::srs_resources::list_resource_templates(
+        default_id,
+    ))
+    .map_err(|e| McpError::internal_error(e.to_string(), None))
 }
 
 pub(crate) fn read_resource(app: &mut App, uri: &str) -> Result<ReadResourceResult, McpError> {
     call(app, "resources/read", Some(json!({ "uri": uri })))
 }
 
-/// The tool list; serving several repositories (`routed`), every tool also takes an
-/// optional `repositoryId` (RFC-049 [R13], [R17]).
-pub(crate) fn list_tools(app: &mut App, routed: bool) -> Result<ListToolsResult, McpError> {
-    let mut list = app.call("tools/list", None).map_err(mcp_error)?;
+/// The tool list, from the profile alone (it opens no repository); serving a registry,
+/// every tool also takes an optional `repositoryId` (RFC-049 [R13], [R17]).
+pub(crate) fn list_tools(
+    profile: srs_mcp_core::tools::ToolProfile,
+    routed: bool,
+) -> Result<ListToolsResult, McpError> {
+    let mut list = srs_mcp_core::tools::list_tools_for(profile);
     if routed {
-        for tool in list["tools"].as_array_mut().into_iter().flatten() {
-            let schema = &mut tool["inputSchema"];
-            if !schema["properties"].is_object() {
-                schema["properties"] = json!({});
-            }
-            schema["properties"]["repositoryId"] = json!({
-                "type": "string",
-                "description": "The repository this call is for (default: the server's default repository)."
-            });
-        }
+        srs_mcp_core::routing::advertise_repository_id(&mut list);
     }
     serde_json::from_value(list).map_err(|e| McpError::internal_error(e.to_string(), None))
 }
 
-/// One tool call. A write the target refuses on I/O (permissions, a lock) is
-/// reported as `write-refused` (RFC-049 [R17]).
+/// One tool call. A write the target refuses on I/O is `write-refused` (RFC-049 [R17]).
 pub(crate) fn call_tool(
     app: &mut App,
     name: &str,
@@ -162,10 +130,15 @@ pub(crate) fn call_tool(
             Some(&json!({ "name": name, "arguments": arguments })),
         )
         .map_err(mcp_error)?;
-    if access == Access::Write && result["structuredContent"]["code"] == "io" {
-        result["structuredContent"]["code"] = json!("write-refused");
+    if access == Access::Write {
+        srs_mcp_core::routing::mark_write_refused(&mut result);
     }
     serde_json::from_value(result).map_err(|e| McpError::internal_error(e.to_string(), None))
+}
+
+/// An invalid-params error (an unknown tool, a malformed `repositoryId`).
+pub(crate) fn invalid(e: McpApplicationError) -> McpError {
+    mcp_error(e)
 }
 
 pub(crate) fn list_prompts(app: &mut App) -> Result<ListPromptsResult, McpError> {

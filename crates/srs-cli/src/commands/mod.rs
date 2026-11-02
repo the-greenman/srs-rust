@@ -2027,6 +2027,13 @@ pub fn dispatch(cli: Cli) -> Result<String> {
             path: std::path::PathBuf::from("."),
             store: StoreBackend::File,
         },
+        // mcp serve --registry serves the registry's repositories, not one found from cwd.
+        Commands::Mcp(mcp::McpCommand::Serve {
+            registry: Some(_), ..
+        }) => RepositoryLocation {
+            path: std::path::PathBuf::from("."),
+            store: StoreBackend::File,
+        },
         // render markdown is a pure stdin → HTML transform; no repository involved.
         Commands::Render(RenderCommand::Markdown) => RepositoryLocation {
             path: std::path::PathBuf::from("."),

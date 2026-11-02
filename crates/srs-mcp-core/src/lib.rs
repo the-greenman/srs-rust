@@ -109,6 +109,7 @@ pub(crate) fn json_text<T: serde::Serialize + ?Sized>(
 }
 
 pub mod guard;
+pub mod routing;
 pub mod tools;
 pub mod uri;
 
