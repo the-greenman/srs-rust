@@ -813,6 +813,9 @@ fn error_report_schema_discriminates_on_code() {
         "successor-relation-type-undetermined",
     ]) {
         assert_eq!(b["properties"]["code"]["const"], code);
-        assert!(b["required"].as_array().unwrap().contains(&"details".into()));
+        assert!(b["required"]
+            .as_array()
+            .unwrap()
+            .contains(&"details".into()));
     }
 }
