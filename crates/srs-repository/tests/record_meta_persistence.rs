@@ -217,6 +217,10 @@ fn file_store_field_update_breaking_records_is_refused_and_writes_nothing() {
         while let Some(d) = stack.pop() {
             for e in std::fs::read_dir(&d).unwrap() {
                 let p = e.unwrap().path();
+                // The derived catalog cache (ADR-056) is not part of the corpus.
+                if p.ends_with(".srs/cache") {
+                    continue;
+                }
                 if p.is_dir() {
                     stack.push(p);
                 } else {
