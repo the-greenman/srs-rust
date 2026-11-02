@@ -13824,6 +13824,16 @@ mod tests {
         label_field: Option<(&str, &str)>,
         type_id: &str,
     ) {
+        add_rp_record_created_at(store, id, label_field, type_id, None);
+    }
+
+    fn add_rp_record_created_at(
+        store: &crate::store::memory::MemoryStore,
+        id: &str,
+        label_field: Option<(&str, &str)>,
+        type_id: &str,
+        created_at: Option<&str>,
+    ) {
         use srs_core::types::record::{FieldValues, Record};
         let mut field_values = FieldValues::new();
         if let Some((name, val)) = label_field {
@@ -13841,7 +13851,7 @@ mod tests {
             field_values,
             lifecycle_state: None,
             tags: None,
-            created_at: None,
+            created_at: created_at.map(str::to_string),
             updated_at: None,
             extra: std::collections::BTreeMap::new(),
         };
@@ -16952,6 +16962,105 @@ mod tests {
             root.children[0].children.is_empty(),
             "a leaf child with no contains children of its own must omit children, got: {:?}",
             root.children[0].children
+        );
+    }
+
+    /// srs-rust#1132: a section that declares no `ordering` renders its own `contains`
+    /// children in the spec default order: the `precedes` chain (a fork and a join kept
+    /// contiguous), then unchained members by `createdAt`, then `instanceId`. The result
+    /// must not depend on the order the `contains` edges were declared in.
+    #[test]
+    fn contains_children_without_declared_ordering_render_in_spec_default_order() {
+        let store = make_contains_children_json_store(Some("f-title"));
+        // Chain (diamond): a -> b, a -> c, b -> d, c -> d. Loose, unchained: x (oldest),
+        // y and z (same createdAt, so instanceId decides).
+        for (id, created) in [
+            ("rec-child-d", "2026-01-04T00:00:00Z"),
+            ("rec-child-c", "2026-01-03T00:00:00Z"),
+            ("rec-loose-z", "2026-01-02T00:00:00Z"),
+            ("rec-loose-y", "2026-01-02T00:00:00Z"),
+            ("rec-loose-x", "2026-01-01T00:00:00Z"),
+        ] {
+            add_rp_record_created_at(&store, id, Some(("title", id)), "t-test", Some(created));
+        }
+        let mut edges: Vec<(&str, &str, &str)> = Vec::new();
+        for child in [
+            "rec-loose-z",
+            "rec-child-d",
+            "rec-loose-x",
+            "rec-child-b",
+            "rec-child-c",
+            "rec-loose-y",
+            "rec-child-a",
+        ] {
+            edges.push(("contains", "rec-root", child));
+        }
+        edges.push(("precedes", "rec-child-a", "rec-child-b"));
+        edges.push(("precedes", "rec-child-a", "rec-child-c"));
+        edges.push(("precedes", "rec-child-b", "rec-child-d"));
+        edges.push(("precedes", "rec-child-c", "rec-child-d"));
+        let render_with = |edges: &[(&str, &str, &str)]| -> Vec<String> {
+            let relations: Vec<_> = edges
+                .iter()
+                .enumerate()
+                .map(|(i, (t, s, d))| {
+                    serde_json::to_value(test_rel(
+                        &format!("eeeeeeee-0000-4000-8000-{:012}", i + 1),
+                        t,
+                        s,
+                        d,
+                    ))
+                    .unwrap()
+                })
+                .collect();
+            crate::store::write_relations_standalone_for_test(
+                &store,
+                &serde_json::json!({ "relations": relations }),
+            );
+            let result = render_composition(RenderCompositionOptions {
+                store: &store,
+                view_id: "dv-children-test",
+                format: Some("json"),
+                theme_variant: None,
+                container_id: None,
+                instance_id_filter: None,
+                exclude_instance_ids: &[],
+            })
+            .unwrap();
+            let root = &result.projection.unwrap().sections[0].records[0];
+            root.children
+                .iter()
+                .map(|c| c.instance_id.clone())
+                .collect()
+        };
+
+        let ids = render_with(&edges);
+        let pos = |id: &str| ids.iter().position(|i| i == id).unwrap();
+        assert_eq!(
+            ids.len(),
+            7,
+            "every contains child renders once, got: {ids:?}"
+        );
+        for (before, after) in [
+            ("rec-child-a", "rec-child-b"),
+            ("rec-child-a", "rec-child-c"),
+            ("rec-child-b", "rec-child-d"),
+            ("rec-child-c", "rec-child-d"),
+            ("rec-loose-x", "rec-loose-y"),
+            ("rec-loose-y", "rec-loose-z"),
+        ] {
+            assert!(
+                pos(before) < pos(after),
+                "{before} must render before {after} (precedes chain, then createdAt, \
+                 then instanceId), got: {ids:?}"
+            );
+        }
+
+        edges.reverse();
+        assert_eq!(
+            render_with(&edges),
+            ids,
+            "the default order must not depend on the order the edges were declared in"
         );
     }
 

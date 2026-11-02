@@ -153,7 +153,12 @@ pub fn read_package_bundle(bytes: &[u8]) -> Result<ReadPackageBundle, Repository
                 .ok_or_else(|| invalid("missing name".to_string()))?;
             definitions.push(PackageSourceDefinition {
                 kind,
-                rel_path: versioned_rel_path(definition_rel_path(kind, &name, id), item),
+                rel_path: definition_rel_path(
+                    kind,
+                    &name,
+                    id,
+                    item.get("version").and_then(Value::as_u64).unwrap_or(1),
+                ),
                 value: item.clone(),
             });
         }
@@ -175,15 +180,6 @@ pub fn read_package_bundle(bytes: &[u8]) -> Result<ReadPackageBundle, Repository
         },
         notes,
     })
-}
-
-/// Each version of a definition keeps its own file (#1267): v1 keeps the
-/// legacy path, later versions get a `-v{n}` suffix.
-fn versioned_rel_path(path: String, item: &Value) -> String {
-    match item.get("version").and_then(Value::as_u64) {
-        Some(v) if v > 1 => version_suffixed(&path, v),
-        _ => path,
-    }
 }
 
 /// The one `-v{n}` path rule (reader, install and upgrade): `a/b.json` -> `a/b-v2.json`.
@@ -771,7 +767,12 @@ mod tests {
     fn put(store: &FileStore, selector: Option<&str>, kind: DefinitionKind, v: Value) -> String {
         let prefix = selector.unwrap_or("package");
         let name = definition_name(kind, &v).unwrap();
-        let rel = definition_rel_path(kind, &name, v["id"].as_str().unwrap());
+        let rel = definition_rel_path(
+            kind,
+            &name,
+            v["id"].as_str().unwrap(),
+            v["version"].as_u64().unwrap_or(1),
+        );
         store
             .ensure_instance_dir(&format!("{prefix}/{}", rel.rsplit_once('/').unwrap().0))
             .unwrap();

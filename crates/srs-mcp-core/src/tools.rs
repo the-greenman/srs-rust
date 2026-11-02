@@ -27,6 +27,7 @@ use srs_repository::context_query_service::{
     list_neighbours, EdgeDirection, NeighboursPage, NeighboursQuery,
 };
 use srs_repository::discovery_service::{self, DiscoveryQuery, FindPage, MatchMode};
+use srs_repository::doctor_service::{self, DoctorInput};
 use srs_repository::package_dependency_service::{
     self, AddPackageDependencyInput, RemovePackageDependencyInput,
 };
@@ -48,6 +49,7 @@ use srs_repository::validation::validate_repository;
 // ── Tool names ────────────────────────────────────────────────────────────────
 
 pub const TOOL_REPO_VALIDATE: &str = "repo_validate";
+pub const TOOL_REPO_DOCTOR: &str = "repo_doctor";
 pub const TOOL_FIND: &str = "find";
 /// Agent-facing replies are size-capped; omitted `limit` on the MCP `find` tool.
 const FIND_DEFAULT_LIMIT: usize = 25;
@@ -92,6 +94,8 @@ pub const TOOL_PACKAGE_DEPENDENCY_REMOVE: &str = "package_dependency_remove";
 pub const TOOL_PACKAGE_UPGRADE: &str = "package_upgrade";
 pub const TOOL_NEIGHBOURS: &str = "neighbours";
 pub const TOOL_SIMILAR: &str = "similar";
+pub const TOOL_ATTENTION_LIST: &str = "attention_list";
+pub const TOOL_CHANGES: &str = "changes";
 pub const TOOL_ATTACHMENT_ADD: &str = "attachment_add";
 pub const TOOL_ATTACHMENT_LINK: &str = "attachment_link";
 /// Agent-facing replies are size-capped: omitted `limit` on `neighbours`, and its ceiling.
@@ -142,7 +146,10 @@ const READ_TOOLS: &[&str] = &[
     TOOL_PROTOCOL_RUN_GET,
     TOOL_PROTOCOL_RUN_LIST,
     TOOL_PACKAGE_DEPENDENCY_LIST,
+    TOOL_ATTENTION_LIST,
+    TOOL_CHANGES,
     TOOL_REPO_VALIDATE,
+    TOOL_REPO_DOCTOR,
 ];
 
 impl ToolProfile {
@@ -193,6 +200,14 @@ array plus a summary. Run this after every write batch. summary.errors == 0 (equ
 error diagnostics) means the repository is consistent. Warnings are non-blocking, but review \
 them; info diagnostics are informational and counted in neither total. An empty diagnostics array means the repository is completely clean. Diagnostics are \
 data, not a tool error: the tool succeeds even when problems are found.";
+
+pub const DESC_REPO_DOCTOR: &str = "Report what is wrong with a repository that cannot be loaded \
+or validated, and what a repair would do (srs-rust#861). Read-only: it takes no arguments and \
+applies nothing. Each finding has `class` (e.g. duplicate-instance-id, dangling-relation-endpoint, \
+unrepaired), `locators`, `message`, `outcome` and `detail`. `outcome` is would-repair (a repair \
+exists), ambiguous (the data alone cannot decide it) or manual-step (no automated repair); \
+`fixApplied` is always false. Use it when repo_validate cannot run or reports faults you did not \
+cause; repairs themselves are made with the CLI (`srs repo doctor --fix`).";
 
 pub const DESC_PACKAGE_DEPENDENCY_LIST: &str = "List a package's packageDependencies \
 (RFC-044 package requirements) with each entry's check outcome: satisfied, or the reason \
@@ -436,6 +451,27 @@ Completed or Abandoned run is rejected. Returns the updated run.";
 pub const DESC_PROTOCOL_RUN_GET: &str = "Get a single protocol run by its runId, including its \
 full stageStates history and current attentionState. Returns an error if no run has that id.";
 
+pub const DESC_ATTENTION_LIST: &str =
+    "List where each actor is looking right now (srs-rust#1344): \
+one entry per actor with `actor`, `attention` (containerId, optional recordId and fieldId) and \
+`seq`. `seq` rises on every change, so compare it with your last read to see whether the writer \
+moved. Live session state held in memory by the open repository: never persisted, never on a \
+record, empty when nobody has set one. Read-only; the host sets and clears attention.";
+
+pub const DESC_CHANGES: &str = "What has changed and whether anything needs saving \
+(srs-rust#1522). `since: saved` (default) compares with the host's last save: `tracked` says \
+whether a save point was recorded (false: none was; a host writing straight to disk saves every write as it is made), `unsaved` \
+whether anything was written since, plus `savedAt`. `since: cursor` compares with your own last \
+`changes` read with `since: cursor` and moves your cursor to now; the first such read starts it \
+(`cursorStarted`) and lists nothing. Each actor's cursor is its own. Lists are sorted by id and \
+carry no full values: `instances` (instanceId, change created|updated|deleted, tier, title, \
+typeName, createdBy), `relations` (relationType and endpoints), `containers` (container level: \
+an entry added, moved or removed shows the container as updated), with `summary` counts for \
+package definitions; attachments are not listed. Read an entity to see its content. Live \
+session state, never persisted; reading it writes nothing. Baselines live only as long as the \
+host's session (a browser or relay host): on a server that opens the repository per request, \
+every cursor read starts afresh and nothing is tracked.";
+
 pub const DESC_PROTOCOL_RUN_LIST: &str = "List protocol run summaries, optionally filtered by \
 protocolId, containerId, and/or status (one of \"Active\", \"Completed\", \"Abandoned\" — \
 AND-combined with the other filters). Omit all filters to list every run. Each summary carries \
@@ -456,6 +492,14 @@ rejected. Returns the updated run.";
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EmptyToolInput {}
+
+/// `changes`: which baseline to compare with (srs-rust#1522).
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChangesToolInput {
+    /// `saved` (default): since the host's last save. `cursor`: since your own last look.
+    pub since: Option<srs_repository::changes_service::ChangesSince>,
+}
 
 /// Mirrors `discovery_service::DiscoveryQuery` field-for-field.
 #[derive(Debug, Default, Deserialize, JsonSchema)]
@@ -1263,6 +1307,11 @@ fn all_tools() -> Vec<Value> {
             DESC_REPO_VALIDATE,
             input_schema::<EmptyToolInput>(),
         ),
+        tool(
+            TOOL_REPO_DOCTOR,
+            DESC_REPO_DOCTOR,
+            input_schema::<EmptyToolInput>(),
+        ),
         tool(TOOL_FIND, DESC_FIND, input_schema::<FindToolInput>()),
         tool(
             TOOL_RECORD_CREATE,
@@ -1422,6 +1471,16 @@ fn all_tools() -> Vec<Value> {
             TOOL_SIMILAR,
             DESC_SIMILAR,
             input_schema::<SimilarToolInput>(),
+        ),
+        tool(
+            TOOL_ATTENTION_LIST,
+            DESC_ATTENTION_LIST,
+            input_schema::<EmptyToolInput>(),
+        ),
+        tool(
+            TOOL_CHANGES,
+            DESC_CHANGES,
+            input_schema::<ChangesToolInput>(),
         ),
         tool(
             TOOL_ATTACHMENT_ADD,
@@ -1649,6 +1708,14 @@ pub fn call_tool(
                 Err(e) => Ok(tool_err(e.report())),
             }
         }
+        TOOL_REPO_DOCTOR => {
+            let _: EmptyToolInput = parse_args(arguments)?;
+            // Dry run only: `fix` is not an argument of this tool.
+            match doctor_service::doctor(store, DoctorInput { fix: false }) {
+                Ok(report) => tool_ok(&report),
+                Err(e) => Ok(tool_err(e.report())),
+            }
+        }
         TOOL_FIND => {
             let input: FindToolInput = parse_args(arguments)?;
             let page = FindPage {
@@ -1661,6 +1728,23 @@ pub fn call_tool(
                 projection: input.projection.unwrap_or_default(),
             };
             match discovery_service::find(store, input.into(), page) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.report())),
+            }
+        }
+        TOOL_ATTENTION_LIST => {
+            let _: EmptyToolInput = parse_args(arguments)?;
+            match srs_repository::attention_service::list_attention(store) {
+                Ok(list) => tool_ok(&list),
+                Err(e) => Ok(tool_err(e.report())),
+            }
+        }
+        TOOL_CHANGES => {
+            let input: ChangesToolInput = parse_args(arguments)?;
+            let since = input
+                .since
+                .unwrap_or(srs_repository::changes_service::ChangesSince::Saved);
+            match srs_repository::changes_service::changes(store, since) {
                 Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.report())),
             }
@@ -2321,6 +2405,7 @@ mod tests {
             names,
             vec![
                 TOOL_REPO_VALIDATE,
+                TOOL_REPO_DOCTOR,
                 TOOL_FIND,
                 TOOL_RECORD_CREATE,
                 TOOL_RELATION_CREATE,
@@ -2354,6 +2439,8 @@ mod tests {
                 TOOL_PACKAGE_UPGRADE,
                 TOOL_NEIGHBOURS,
                 TOOL_SIMILAR,
+                TOOL_ATTENTION_LIST,
+                TOOL_CHANGES,
                 TOOL_ATTACHMENT_ADD,
                 TOOL_ATTACHMENT_LINK,
             ]

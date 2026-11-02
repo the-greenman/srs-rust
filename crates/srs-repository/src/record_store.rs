@@ -50,7 +50,7 @@ use std::collections::BTreeMap;
 /// lifecycle metadata on disk without any error at write time, and a later
 /// catalog rescan reads the corrupted value back — producing a second file
 /// under the original (now catalog-invisible) id and a fatal
-/// SRS038-R12-DUPLICATE-ID (srs-rust#1049, srs-rust#1060).
+/// duplicate-id (srs-rust#1049, srs-rust#1060).
 const RESERVED_RECORD_ENVELOPE_KEYS: &[&str] = &[
     "typeVersion",
     "fieldValues",
@@ -4300,7 +4300,7 @@ pub(crate) mod tests {
     // serialized — corrupting the on-disk id and, on a later write in the same
     // call (e.g. an explicit `lifecycleState` override), causing the catalog
     // to treat the record as new and write a second file under the original
-    // id, a fatal SRS038-R12-DUPLICATE-ID. These are red-test-first repros:
+    // id, a fatal duplicate-id. These are red-test-first repros:
     // each must be rejected up front, before anything is written.
     #[test]
     fn create_record_in_context_rejects_reserved_envelope_key() {

@@ -291,6 +291,23 @@ pub trait RepositoryStore {
     /// requests never do). A no-op for stores that cannot carry a session actor.
     fn set_session_actor(&self, _actor: Option<serde_json::Value>) {}
 
+    /// In-memory session attention (srs-rust#1344), shared by every clone of the store;
+    /// `None` for stores that hold no session state. See [`crate::attention_service`].
+    fn attention_board(&self) -> Option<crate::attention_service::AttentionBoard> {
+        None
+    }
+
+    /// In-memory session baselines (srs-rust#1522), shared by every clone of the store;
+    /// `None` for stores that hold no session state. See [`crate::changes_service`].
+    fn baseline_board(&self) -> Option<crate::changes_service::BaselineBoard> {
+        None
+    }
+
+    /// Monotonic write generation (srs-rust#1139); `0` for stores that do not count writes.
+    fn write_epoch(&self) -> u64 {
+        0
+    }
+
     /// What the pre-load transformer migrated in memory when this store was opened
     /// (srs-rust#1444), `None` when it opened as stored. While it is set, every write is
     /// refused with `migration-required-before-write`, so a document is never saved at
@@ -481,6 +498,17 @@ pub trait RepositoryStore {
         self.load_instance_json(relative_path)
             .map(CandidateSource::Parsed)
     }
+
+    /// Derived catalog cache seam (ADR-056). A store with no stable file
+    /// identity (memory, WASM) keeps the defaults and never caches.
+    fn candidate_stamp(&self, _relative_path: &str) -> Option<crate::vfs::FileStamp> {
+        None
+    }
+    fn catalog_cache_read(&self) -> Option<Vec<u8>> {
+        None
+    }
+    fn catalog_cache_write(&self, _bytes: &[u8]) {}
+
     fn save_instance_json(
         &self,
         relative_path: &str,
@@ -1072,6 +1100,10 @@ pub struct FileStore {
     /// RFC-046 session actor (raw, unvalidated JSON) — see
     /// [`RepositoryStore::session_actor`].
     session_actor: RefCell<Option<serde_json::Value>>,
+    /// Session attention (srs-rust#1344): shared by every clone like `epoch`, never persisted.
+    attention: crate::attention_service::AttentionBoard,
+    /// Session baselines (srs-rust#1522): shared by every clone like `attention`, never persisted.
+    baselines: crate::changes_service::BaselineBoard,
     /// Write recorder (ADR-049): shared by every clone like `epoch`; drained by
     /// [`RepositoryStore::drain_changes`]. Coalesced per `(target, id)`, so it is
     /// bounded by the number of distinct entities written.
@@ -1102,6 +1134,8 @@ impl Clone for FileStore {
             epoch: self.epoch.clone(),
             cache_epoch: Cell::new(self.epoch.get()),
             session_actor: RefCell::new(self.session_actor.borrow().clone()),
+            attention: self.attention.clone(),
+            baselines: self.baselines.clone(),
             changes: self.changes.clone(),
             recording: self.recording.clone(),
             migration_notice: self.migration_notice.clone(),
@@ -1124,6 +1158,8 @@ impl FileStore {
             epoch: Rc::new(Cell::new(0)),
             cache_epoch: Cell::new(0),
             session_actor: RefCell::new(None),
+            attention: Default::default(),
+            baselines: Default::default(),
             changes: Rc::default(),
             recording: Rc::default(),
             migration_notice: Rc::default(),
@@ -1144,6 +1180,8 @@ impl FileStore {
             epoch: Rc::new(Cell::new(0)),
             cache_epoch: Cell::new(0),
             session_actor: RefCell::new(None),
+            attention: Default::default(),
+            baselines: Default::default(),
             changes: Rc::default(),
             recording: Rc::default(),
             migration_notice: Rc::default(),
@@ -1714,6 +1752,18 @@ impl RepositoryStore for FileStore {
 
     fn set_session_actor(&self, actor: Option<serde_json::Value>) {
         *self.session_actor.borrow_mut() = actor;
+    }
+
+    fn attention_board(&self) -> Option<crate::attention_service::AttentionBoard> {
+        Some(self.attention.clone())
+    }
+
+    fn baseline_board(&self) -> Option<crate::changes_service::BaselineBoard> {
+        Some(self.baselines.clone())
+    }
+
+    fn write_epoch(&self) -> u64 {
+        self.epoch.get()
     }
 
     fn migration_notice(&self) -> Option<MigrationNotice> {
@@ -2437,6 +2487,19 @@ impl RepositoryStore for FileStore {
             text: self.vfs.read_to_string(relative_path)?,
             display_path: self.abs(relative_path),
         })
+    }
+
+    fn candidate_stamp(&self, relative_path: &str) -> Option<crate::vfs::FileStamp> {
+        self.vfs.stamp(relative_path)
+    }
+
+    fn catalog_cache_read(&self) -> Option<Vec<u8>> {
+        self.vfs.cache_read(crate::catalog_cache::CACHE_FILE)
+    }
+
+    fn catalog_cache_write(&self, bytes: &[u8]) {
+        self.vfs
+            .cache_write(crate::catalog_cache::CACHE_FILE, bytes)
     }
 
     fn save_instance_json(
@@ -6606,7 +6669,7 @@ mod tests {
         let store = FileStore::new(temp.path());
 
         // minimal_relation_for_store's source/target must resolve, or
-        // build_checked flags SRS038-R13-DANGLING-REFERENCE.
+        // build_checked flags dangling-reference.
         store
             .save_record(&minimal_record_for_store(
                 "aaaa0001-0000-4000-a000-000000000001",

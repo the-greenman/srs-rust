@@ -26,6 +26,15 @@ to prevent. Both surfaces validate writes:
 
 Run `srs repo validate` after changes.
 
+## Get running
+
+`srs` is the engine: one binary that is both the CLI and the MCP server.
+
+- Install the srs engine: `curl -fsSL https://engine.semanticops.com/install.sh | sh`
+- [First five minutes](https://engine.semanticops.com/start.md): CLI, MCP server, output contract
+- [SemanticOps sites](https://semanticops.com/llms.txt): every site and what it is for
+
 ## Learn more
 
-<https://srs.semanticops.com> (canonical JSON Schemas live under `/schema/2.0/`).
+<https://srs.semanticops.com/llms.txt>: the specification, for agents
+(canonical JSON Schemas live under `https://srs.semanticops.com/schema/2.0/`).

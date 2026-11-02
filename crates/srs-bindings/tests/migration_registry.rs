@@ -186,7 +186,7 @@ fn apply_migration_via_registry_migrate_identity() {
                 "views": [], "compositions": [], "blueprints": []
             },
             // Embed-only root ([R1]) — a containers/*.json file sharing the
-            // embed's id is a fatal SRS038-R12-DUPLICATE-ID.
+            // embed's id is a fatal duplicate-id.
             "records/notes/identity.json": {
                 "instanceId": note_id,
                 "title": "Test Repo",

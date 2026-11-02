@@ -5,7 +5,7 @@
 //! the `srs` spec corpus at revision 7: `repo copy` (file -> `.srsj`) flattened
 //! every sub-package's fields/types/compositions into the primary package on
 //! export, so re-importing the bundle failed with 446
-//! `SRS038-R12-DUPLICATE-ID` diagnostics — the same definition claimed by two
+//! `duplicate-id` diagnostics — the same definition claimed by two
 //! objects. Root cause: `export_package_boundary`'s primary-boundary branch
 //! called `RepositoryStore::load_package()`, which *intentionally* merges
 //! every `manifest.packageRefs` sub-package into one resolved view for
@@ -394,7 +394,7 @@ fn repo_copy_round_trip_preserves_package_boundaries_at_current_revision() {
     );
 
     // .srsj -> file (reimport): srs#256 saw this fail with 446
-    // SRS038-R12-DUPLICATE-ID diagnostics; the catalog must now load clean.
+    // duplicate-id diagnostics; the catalog must now load clean.
     let reimported = srs_repository::tree_session::new_tree_session();
     copy_repository(&exported, &reimported).expect("reimport must succeed");
     assert_one_home_per_definition(&reimported);

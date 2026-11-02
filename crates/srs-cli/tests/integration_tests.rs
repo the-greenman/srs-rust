@@ -126,7 +126,7 @@ fn create_navigation_repo() -> TempDir {
             "namespace": "com.test",
             "title": "Example Governance",
             // Embed-only root ([R1]): a containers/*.json file sharing the
-            // embed's id is a fatal SRS038-R12-DUPLICATE-ID under the catalog.
+            // embed's id is a fatal duplicate-id under the catalog.
             "container": {
                 "containerId": root_container,
                 "title": "Example Governance",
@@ -2056,7 +2056,7 @@ fn repo_validate_tier_schema_mismatch_returns_ok_false() {
     assert!(
         diags.iter().any(|d| {
             d.as_str()
-                .map(|s| s.contains("SRS038-R7-SCHEMA-VALIDATION") && s.contains("record.json"))
+                .map(|s| s.contains("schema-validation") && s.contains("record.json"))
                 .unwrap_or(false)
         }),
         "expected a declared-schema validation diagnostic: {:?}",
@@ -8948,7 +8948,7 @@ fn create_repo_with_tier0_identity() -> TempDir {
     );
 
     // Embed-only root ([R1]): a containers/*.json file sharing the embed's
-    // id is a fatal SRS038-R12-DUPLICATE-ID under the catalog.
+    // id is a fatal duplicate-id under the catalog.
 
     // Write minimal package
     write_json(

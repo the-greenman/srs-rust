@@ -110,6 +110,7 @@ pub fn create_vocabulary(
         DefinitionKind::Vocabulary,
         &vocabulary.name,
         &vocabulary.id,
+        u64::from(vocabulary.version),
     );
     let full_path = format!("{boundary_path}/{rel_filename}");
 

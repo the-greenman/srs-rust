@@ -1258,3 +1258,148 @@ fn patched_catalog_equals_fresh_build_over_random_writes() {
         assert_catalog_matches_fresh(&store, &vfs, usize::MAX, "final");
     }
 }
+
+// ---------------------------------------------------------------------------
+// srs-rust#1198 / ADR-056: the derived catalog cache must never change a result
+// ---------------------------------------------------------------------------
+
+const CACHE_PATH: &str = ".srs/cache/catalog.json";
+
+fn cached_repo() -> tempfile::TempDir {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    write_minimal(root);
+    std::fs::create_dir_all(root.join(".srs")).unwrap();
+    for i in 0..6 {
+        write(
+            root,
+            &format!("records/n{i}.json"),
+            &note_json(&format!("00000000-0000-4000-8000-0000000003{i:02}")),
+        );
+    }
+    write(root, "records/broken.json", "{not json");
+    tmp
+}
+
+fn cold(root: &Path) -> catalog::RepositoryCatalog {
+    let _ = std::fs::remove_dir_all(root.join(".srs/cache"));
+    catalog::build(&FileStore::new(root)).unwrap()
+}
+
+fn warm(root: &Path) -> catalog::RepositoryCatalog {
+    catalog::build(&FileStore::new(root)).unwrap()
+}
+
+/// Age every file so no entry sits inside the racy window and the stamp alone is
+/// trusted; this is the path a real second invocation takes.
+fn age_files(root: &Path, secs: u64) {
+    let t = std::time::SystemTime::now() - std::time::Duration::from_secs(secs);
+    for entry in std::fs::read_dir(root.join("records")).unwrap() {
+        let f = std::fs::File::options()
+            .write(true)
+            .open(entry.unwrap().path())
+            .unwrap();
+        f.set_modified(t).unwrap();
+    }
+}
+
+#[test]
+fn cache_is_written_ignored_and_equals_a_cold_build() {
+    let tmp = cached_repo();
+    let root = tmp.path();
+    age_files(root, 3600);
+    let first = cold(root);
+    assert!(root.join(CACHE_PATH).is_file(), "cache written on disk");
+    assert_eq!(
+        std::fs::read_to_string(root.join(".srs/cache/.gitignore")).unwrap(),
+        "*\n"
+    );
+    assert_eq!(warm(root), first, "warm build equals cold build");
+    assert_eq!(warm(root), first);
+}
+
+#[test]
+fn cache_matches_cold_after_edit_rename_delete_and_touch() {
+    let tmp = cached_repo();
+    let root = tmp.path();
+    age_files(root, 3600);
+    cold(root);
+
+    // Edit: change the instance id (size is unchanged, mtime moves).
+    let p = root.join("records/n1.json");
+    let edited = std::fs::read_to_string(&p)
+        .unwrap()
+        .replace("0000000003", "0000000009");
+    std::fs::write(&p, edited).unwrap();
+    assert_eq!(warm(root), cold(root));
+    warm(root);
+
+    // Rename.
+    std::fs::rename(
+        root.join("records/n2.json"),
+        root.join("records/renamed.json"),
+    )
+    .unwrap();
+    assert_eq!(warm(root), cold(root));
+    warm(root);
+
+    // Delete.
+    std::fs::remove_file(root.join("records/n3.json")).unwrap();
+    assert_eq!(warm(root), cold(root));
+    warm(root);
+
+    // Touch without changing content.
+    let f = std::fs::File::options()
+        .write(true)
+        .open(root.join("records/n4.json"))
+        .unwrap();
+    f.set_modified(std::time::SystemTime::now()).unwrap();
+    assert_eq!(warm(root), cold(root));
+}
+
+#[test]
+fn racy_edit_with_same_size_and_mtime_is_caught_by_content_hash() {
+    let tmp = cached_repo();
+    let root = tmp.path();
+    // Files are fresh (inside the racy window), so the stamp alone is not trusted.
+    cold(root);
+    let p = root.join("records/n0.json");
+    let mtime = std::fs::metadata(&p).unwrap().modified().unwrap();
+    let edited = std::fs::read_to_string(&p)
+        .unwrap()
+        .replace("0000000003", "0000000007");
+    std::fs::write(&p, edited).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&p)
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
+    // Same size, same mtime, new bytes: the warm build must still see them.
+    let warmed = warm(root);
+    assert!(warmed.instances.iter().any(|e| e.id.contains("0000000007")));
+    assert_eq!(warmed, cold(root));
+}
+
+#[test]
+fn corrupt_or_foreign_cache_falls_back_to_the_full_build() {
+    let tmp = cached_repo();
+    let root = tmp.path();
+    age_files(root, 3600);
+    let truth = cold(root);
+    for bad in [
+        "not json".to_string(),
+        r#"{"format":1,"fingerprint":"other","written_ns":0,"entries":{}}"#.to_string(),
+        r#"{"format":99,"fingerprint":"","written_ns":0,"entries":{}}"#.to_string(),
+    ] {
+        std::fs::write(root.join(CACHE_PATH), bad).unwrap();
+        assert_eq!(warm(root), truth);
+    }
+}
+
+#[test]
+fn memory_backed_store_never_caches() {
+    let store = FileStore::from_vfs(Rc::new(MemVfs::new()));
+    assert!(store.candidate_stamp("records/x.json").is_none());
+    assert!(store.catalog_cache_read().is_none());
+}

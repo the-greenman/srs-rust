@@ -802,7 +802,7 @@ mod tests {
         };
         let manifest = Manifest {
             // Embed-only root ([R1]): a containers/*.json file sharing the
-            // embed's id is a fatal SRS038-R12-DUPLICATE-ID under the catalog.
+            // embed's id is a fatal duplicate-id under the catalog.
             root_container_id: Some(root_container.container_id.clone()),
             upstream_package: None,
             extra: std::collections::BTreeMap::new(),
@@ -862,7 +862,7 @@ mod tests {
     // navigation_tier0_identity_and_missing_member_accumulates_both_diagnostics
     // retired by RFC-038 Phase 3 (srs-rust#783): its "ghost member" premise — a
     // root-container member id with no backing instance — is now a fatal
-    // SRS038-R13-DANGLING-REFERENCE at catalog build ([R24]), so
+    // dangling-reference at catalog build ([R24]), so
     // repository_navigation can never reach its own member-does-not-resolve
     // diagnostic branch through storage. The Tier-0-identity diagnostic half is
     // still covered by navigation_tier0_note_identity_returns_diagnostic.
@@ -1044,7 +1044,7 @@ mod tests {
 
         // Sections declared via rootInstanceIds only (in the embed itself —
         // RFC-038 [R1]: a containers/*.json file sharing the embed's id is a
-        // fatal SRS038-R12-DUPLICATE-ID, so the root is embed-only).
+        // fatal duplicate-id, so the root is embed-only).
 
         let nav = super::repository_navigation(&store).unwrap();
 

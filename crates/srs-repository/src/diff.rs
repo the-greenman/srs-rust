@@ -77,6 +77,23 @@ pub struct DiffRelations {
     pub modified: Vec<RelationModified>,
 }
 
+/// A container that was added, removed or changed, keyed by `containerId` (srs-rust#1522).
+/// Container-level only: which entries moved is the srs#387 contract.
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerChanged {
+    pub container_id: String,
+    pub title: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffContainers {
+    pub added: Vec<ContainerChanged>,
+    pub removed: Vec<ContainerChanged>,
+    pub modified: Vec<ContainerChanged>,
+}
+
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PackageItemAdded {
@@ -145,6 +162,9 @@ pub struct DiffSummary {
     pub compositions_added: usize,
     pub compositions_removed: usize,
     pub compositions_modified: usize,
+    pub containers_added: usize,
+    pub containers_removed: usize,
+    pub containers_modified: usize,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -154,6 +174,7 @@ pub struct RepoDiff {
     pub manifest: ManifestDiff,
     pub instances: DiffInstances,
     pub relations: DiffRelations,
+    pub containers: DiffContainers,
     pub package: DiffPackage,
 }
 
@@ -164,6 +185,51 @@ pub fn diff_repositories(
     let snap_from = export_repository_snapshot(from)?;
     let snap_to = export_repository_snapshot(to)?;
     Ok(compute_diff(&snap_from, &snap_to))
+}
+
+/// The same comparison over two snapshots already in hand (a session baseline, srs-rust#1522).
+pub fn diff_snapshots(from: &RepositorySnapshot, to: &RepositorySnapshot) -> RepoDiff {
+    compute_diff(from, to)
+}
+
+/// Every container on one side, the root container included (its entries are navigation).
+fn containers_by_id(
+    snap: &RepositorySnapshot,
+) -> HashMap<&str, &srs_core::types::container::Container> {
+    snap.containers
+        .iter()
+        .chain(snap.root_container.iter())
+        .map(|c| (c.container_id.as_str(), c))
+        .collect()
+}
+
+fn diff_containers(snap_from: &RepositorySnapshot, snap_to: &RepositorySnapshot) -> DiffContainers {
+    let from = containers_by_id(snap_from);
+    let to = containers_by_id(snap_to);
+    let changed = |c: &srs_core::types::container::Container| ContainerChanged {
+        container_id: c.container_id.clone(),
+        title: c.title.clone(),
+    };
+    let mut out = DiffContainers {
+        added: Vec::new(),
+        removed: Vec::new(),
+        modified: Vec::new(),
+    };
+    for (id, c) in &to {
+        match from.get(id) {
+            None => out.added.push(changed(c)),
+            Some(f) if serde_json::to_value(f).ok() != serde_json::to_value(c).ok() => {
+                out.modified.push(changed(c))
+            }
+            Some(_) => {}
+        }
+    }
+    for (id, c) in &from {
+        if !to.contains_key(id) {
+            out.removed.push(changed(c));
+        }
+    }
+    out
 }
 
 fn compute_diff(snap_from: &RepositorySnapshot, snap_to: &RepositorySnapshot) -> RepoDiff {
@@ -280,6 +346,7 @@ fn compute_diff(snap_from: &RepositorySnapshot, snap_to: &RepositorySnapshot) ->
 
     // Package diff — flatten all packages from each side by item ID
     let package = diff_packages(&snap_from.packages, &snap_to.packages);
+    let containers = diff_containers(snap_from, snap_to);
 
     let summary = DiffSummary {
         instances_added: instances_added.len(),
@@ -300,6 +367,9 @@ fn compute_diff(snap_from: &RepositorySnapshot, snap_to: &RepositorySnapshot) ->
         compositions_added: package.compositions.added.len(),
         compositions_removed: package.compositions.removed.len(),
         compositions_modified: package.compositions.modified.len(),
+        containers_added: containers.added.len(),
+        containers_removed: containers.removed.len(),
+        containers_modified: containers.modified.len(),
     };
 
     RepoDiff {
@@ -320,6 +390,7 @@ fn compute_diff(snap_from: &RepositorySnapshot, snap_to: &RepositorySnapshot) ->
             removed: relations_removed,
             modified: relations_modified,
         },
+        containers,
         package,
     }
 }

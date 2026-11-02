@@ -147,3 +147,31 @@ The `text` of every JSON tool result (`tool_ok`) and JSON resource read (`json_c
 
 `attachment_add` (`fileName`, `content` UTF-8 text or `contentBase64`, optional `title`/`subdir`/`contentType`) and `attachment_link` (`instanceId`, `documentId`) join the `full` profile (not `context`/`read`). Each calls the CLI's service (`attachment_service::add_attachment` / `link_attachment`); base64 decoding is input deserialization in the shadow struct's `TryFrom`. The MCP tool sets `AddAttachmentInput.enforce_policy`, so `add_attachment` rejects, before any write, content that breaks the RFC-017 `attachment_policy` (I-107 permits hard rejection); the CLI and WASM paths keep validate-time warnings until #1332 decides whether human flows reject too (the flag is a declared twin; end state: removed or a policy mode). The check fails open when the policy record is unreadable, like validate. Trade-offs: ADR-049's `WriteSummary` does not record source documents, so `attachment_add` produces no summary entry (`attachment_link` appears as a record update); the session write guard rejects `attachment_link` on a protected record (like `record_transition`) but does not guard `attachment_add`, so without a policy a guarded session can still add arbitrary bytes. No spec change.
 
+
+## Amendment (2026-10-25, #1344) — attention_list
+
+`attention_list` joins the `full` and `read` profiles: a no-argument read of where each actor is looking, one `{actor, attention, seq}` entry per actor (`attention_service::list_attention`). The state is session-only: held in memory by the store, shared by every clone of it (the browser's repository handle and its MCP sessions), keyed by the session actor's `id`, never written to disk and never stamped on a record. There is deliberately no MCP set tool: the host sets and clears attention through the WASM handle (`SrsRepository.set_attention` / `clear_attention` / `get_attention`), so an agent cannot move the writer's focus. No CLI surface, because a one-shot process has no session. Persistence and stamping stay with srs#915. No spec change.
+
+## Amendment (2026-10-29, #861) — repo_doctor
+
+`repo_doctor` joins the `full` and `read` profiles: a no-argument, read-only report of what `doctor_service::doctor` finds (`DoctorInput { fix: false }`, the existing typed `DoctorReport`), so an MCP-only agent can see a repository it bricked and what a repair would do. There is deliberately no `fix` argument and the input schema rejects one: this is split A of the owner's 2026-10-08 direction (report first). The fix model (safety classes, a discoverable catalogue of repairs) and the `doctor` to `lint` rename are a separate design (B), and MCP repair (C) waits on it. No CLI or spec change.
+
+## Amendment (2026-10-29, #1522) — changes
+
+`changes` joins the `full` and `read` profiles: a read of what changed and whether anything needs saving (`changes_service::changes`).
+- `since: saved` (the default) compares with the host's save point. `since: cursor` compares with the calling actor's own cursor and then moves that cursor to now.
+- The result carries:
+  - `tracked`, `unsaved`, `savedAt` and `writeEpoch`;
+  - id-sorted lists of instances, relations and containers, with no full values;
+  - the core `RepoDiff` summary.
+- The baselines follow the attention pattern. They are session-only, held in memory by the store, shared by every clone and keyed by the session actor's `id`, and never written to disk.
+- There is deliberately no MCP tool to mark a save point. Only the host knows when it has persisted, so it calls `SrsRepository.mark_saved` through the WASM handle. A host that writes straight to disk never marks one, so `tracked` is false.
+- There is no CLI surface, and no spec change. A cursor that outlives the session would be srs#915's question.
+- Container changes are container-level; entry-level and field-level detail is the srs#387 contract.
+
+Also decided, in #1522:
+- **`changes`, not `agent-index`, carries the save status.** `agent-index` is the same core service as the CLI's `srs repo agent-index`, and the CLI has no session.
+- **`unsaved` follows the write epoch**, the same signal as an editor's dirty flag, not the lists. A write later undone by hand, or an attachment (attachments are not listed), still counts as unsaved.
+- **Cursors are keyed by actor `id`**, as attention is. Two sessions with one id share a cursor.
+- **Baselines are full snapshots.** If srs-rust#1193 measures them as a cost, derive them from the write recorder (ADR-049) instead.
+- **On the stdio server, `changes` carries no state between requests.** `srs mcp serve` opens a fresh store per request (above), so a cursor starts afresh on every read and `tracked` is false. Baselines live as long as a browser or relay host's session.

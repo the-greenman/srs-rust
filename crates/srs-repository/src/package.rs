@@ -160,13 +160,16 @@ impl Package {
             .find(|rt| rt.id == type_id && rt.version == version)
     }
 
-    /// Resolve a record type by its namespace and name.
+    /// Resolve a record type by its namespace and name, at its latest version: versions sit
+    /// side by side (srs-rust#1473), and a caller that names no version means the newest
+    /// (srs-rust#1512).
     ///
     /// This is the preferred lookup method as it avoids hardcoding UUIDs in tests.
     pub fn resolve_type_by_name(&self, namespace: &str, name: &str) -> Option<&RecordType> {
         self.record_types
             .iter()
-            .find(|rt| rt.namespace == namespace && rt.name == name)
+            .filter(|rt| rt.namespace == namespace && rt.name == name)
+            .max_by_key(|rt| rt.version)
     }
 
     /// Resolve a field by its ID.

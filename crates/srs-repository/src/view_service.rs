@@ -560,8 +560,12 @@ pub fn create_view(
         source: e,
     })?;
     store.ensure_views_dir(&format!("{boundary_path}/views"))?;
-    let rel_filename =
-        crate::package_service::definition_rel_path(DefinitionKind::View, &view.name, &view.id);
+    let rel_filename = crate::package_service::definition_rel_path(
+        DefinitionKind::View,
+        &view.name,
+        &view.id,
+        u64::from(view.version),
+    );
     let full_path = format!("{boundary_path}/{rel_filename}");
     store.save_view(&full_path, &view)?;
     store.add_definition_to_boundary(&selector, DefinitionKind::View, &rel_filename)?;
@@ -690,6 +694,7 @@ pub fn create_composition(
         DefinitionKind::Composition,
         &composition.name,
         &composition.id,
+        u64::from(composition.version),
     );
     let full_path = format!("{boundary_path}/{rel_filename}");
     store.save_composition(&full_path, &composition)?;

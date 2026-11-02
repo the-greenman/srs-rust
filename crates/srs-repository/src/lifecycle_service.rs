@@ -89,6 +89,7 @@ pub fn create_lifecycle(
         DefinitionKind::Lifecycle,
         &lifecycle.name,
         &lifecycle.id,
+        u64::from(lifecycle.version),
     );
     let full_path = format!("{boundary_path}/{rel_filename}");
 
@@ -353,6 +354,7 @@ mod tests {
             DefinitionKind::Lifecycle,
             "simple_lifecycle",
             &created.lifecycle.id,
+            u64::from(created.lifecycle.version),
         );
         assert!(expected.starts_with("lifecycles/simplelifecycle-"));
         assert!(!expected.contains("simple-lifecycle"));

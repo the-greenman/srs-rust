@@ -728,7 +728,7 @@ pub fn validate_repository(
                         let rt_opt = package.resolve_type(&record.type_id, record.type_version);
 
                         if rt_opt.is_none() {
-                            // [R13]/SRS038-R13-DANGLING-REFERENCE family: a Record's
+                            // [R13]/dangling-reference family: a Record's
                             // typeId is the authority (Record→Type edge) and, like a
                             // relation endpoint or container member, must resolve — a
                             // typeId@typeVersion resolving to nothing is the degenerate
@@ -736,12 +736,12 @@ pub fn validate_repository(
                             // type-level checking below with zero diagnostics
                             // (srs-rust#854).
                             diagnostics.push(ValidationDiagnostic {
- code: Some("SRS038-R13-DANGLING-REFERENCE".to_string()),
+ code: Some("dangling-reference".to_string()),
                                 severity: DiagnosticSeverity::Error,
                                 relative_path: rel_path.clone(),
                                 schema_id: None,
                                 message: format!(
-                                    "SRS038-R13-DANGLING-REFERENCE: record '{}' typeId '{}'@{} (denormalized hint: '{}/{}') resolves to nothing in the definition set",
+                                    "dangling-reference: record '{}' typeId '{}'@{} (denormalized hint: '{}/{}') resolves to nothing in the definition set",
                                     record.instance_id,
                                     record.type_id,
                                     record.type_version,
@@ -1468,11 +1468,11 @@ pub fn validate_repository(
     if let Some((relations_path, _)) = &relations_source {
         if !store.rfc038_exempt() {
             diagnostics.push(ValidationDiagnostic {
- code: Some("SRS038-R11-COLLECTION-RETIRED".to_string()),
+ code: Some("collection-retired".to_string()),
                 severity: DiagnosticSeverity::Error,
                 relative_path: relations_path.clone(),
                 schema_id: None,
-                message: "SRS038-R11-COLLECTION-RETIRED: relations-collection files are                           retired at dataModelRevision >= 2 ([R11]) — run the                           rfc038-storage migration"
+                message: "collection-retired: relations-collection files are                           retired at dataModelRevision >= 2 ([R11]) — run the                           rfc038-storage migration"
                     .to_string(),
             });
         }
@@ -2619,7 +2619,7 @@ fn validate_value_against_schema(
 /// value about to be written, before the write happens, so a value that satisfies its Rust
 /// type but not the narrower published schema is refused with a precise diagnostic instead of
 /// being written to disk and bricking the repository at the next catalog load
-/// (`SRS038-R7-SCHEMA-VALIDATION`) — srs-rust#1098.
+/// (`schema-validation`) — srs-rust#1098.
 pub(crate) fn validate_definition_write_schema(
     schema_id: &'static str,
     value: &Value,
@@ -2794,7 +2794,7 @@ mod tests {
         }
         // RFC-038: the catalog schema-validates every definition candidate under
         // a package root — a definition fixture without its `$schema` (or a Field
-        // without description/aiGuidance) is a fatal SRS038-R8-SHAPE-NO-MATCH.
+        // without description/aiGuidance) is a fatal shape-no-match.
         // Complete minimal fixtures here so each test states only what it is
         // about; a test that *wants* an invalid definition passes the offending
         // properties explicitly (already-present keys are never overwritten).
@@ -2953,9 +2953,10 @@ mod tests {
         // this now surfaces as the catalog's own schema-validation diagnostic (folded
         // into the report) rather than validate_repository's separate tier-vs-schema
         // check, which never sees a catalog-rejected file.
-        let mismatch = report.diagnostics.iter().any(|d| {
-            d.message.contains("SRS038-R7-SCHEMA-VALIDATION") && d.message.contains("record.json")
-        });
+        let mismatch = report
+            .diagnostics
+            .iter()
+            .any(|d| d.message.contains("schema-validation") && d.message.contains("record.json"));
         assert!(
             mismatch,
             "expected a declared-schema validation diagnostic, got: {:?}",
@@ -3314,7 +3315,7 @@ mod tests {
         let report = validate_repository(&store).unwrap();
         let err = report.diagnostics.iter().find(|d| {
             d.severity == DiagnosticSeverity::Error
-                && d.message.contains("SRS038-R13-DANGLING-REFERENCE")
+                && d.message.contains("dangling-reference")
                 && d.message.contains(dangling_type_id)
         });
         assert!(
@@ -3325,8 +3326,8 @@ mod tests {
         // srs-rust#1264: the code the engine computed rides beside the text, and
         // the text is unchanged (the prefix is removed in srs-rust#1496).
         let err_d = err.unwrap();
-        assert_eq!(err_d.code.as_deref(), Some("SRS038-R13-DANGLING-REFERENCE"));
-        assert!(err_d.message.starts_with("SRS038-R13-DANGLING-REFERENCE: "));
+        assert_eq!(err_d.code.as_deref(), Some("dangling-reference"));
+        assert!(err_d.message.starts_with("dangling-reference: "));
         // srs-rust#1046: the typeId itself is unresolvable (that's the point of the
         // diagnostic) but the Record still carries denormalized typeNamespace/typeName
         // hints (`minimal_record_json` sets "com.test"/"test-type") — the message must
@@ -7410,7 +7411,7 @@ mod tests {
             .iter()
             .filter(|d| {
                 d.severity == DiagnosticSeverity::Error
-                    && (d.message.contains("I-80") || d.message.contains("SRS038-R13"))
+                    && (d.message.contains("I-80") || d.message.contains("dangling-reference"))
             })
             .collect();
         assert!(
@@ -7447,7 +7448,7 @@ mod tests {
             .iter()
             .filter(|d| {
                 d.severity == DiagnosticSeverity::Error
-                    && (d.message.contains("I-80") || d.message.contains("SRS038-R13"))
+                    && (d.message.contains("I-80") || d.message.contains("dangling-reference"))
             })
             .collect();
         assert!(
@@ -7708,7 +7709,7 @@ mod tests {
             .iter()
             .filter(|d| {
                 d.severity == DiagnosticSeverity::Error
-                    && (d.message.contains("I-81") || d.message.contains("SRS038-R13"))
+                    && (d.message.contains("I-81") || d.message.contains("dangling-reference"))
             })
             .collect();
         assert!(
@@ -8257,7 +8258,7 @@ mod tests {
         // RFC-038 [R25]: either the I-80 label or the catalog's own [R13]
         // dangling-reference diagnostic proves the same violation.
         let is_i80_like = |d: &&ValidationDiagnostic| {
-            d.message.contains("I-80") || d.message.contains("SRS038-R13")
+            d.message.contains("I-80") || d.message.contains("dangling-reference")
         };
         let file_i80: Vec<_> = file_report.diagnostics.iter().filter(is_i80_like).collect();
         let json_i80: Vec<_> = json_report.diagnostics.iter().filter(is_i80_like).collect();
@@ -9759,8 +9760,7 @@ mod tests {
         let report = validate_repository(&store).unwrap();
         assert!(
             report.diagnostics.iter().any(|d| {
-                d.severity == DiagnosticSeverity::Error
-                    && d.message.contains("SRS038-R11-COLLECTION-RETIRED")
+                d.severity == DiagnosticSeverity::Error && d.message.contains("collection-retired")
             }),
             "expected the [R11] collection deny, got: {:?}",
             report.diagnostics

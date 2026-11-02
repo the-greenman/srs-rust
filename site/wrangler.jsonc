@@ -1,0 +1,11 @@
+{
+  // engine.semanticops.com: the srs engine's install script, start page, llms.txt and CLI
+  // reference, served as plain static files from ./public. Assets-only Worker, deployed by
+  // Cloudflare Workers Builds on push to master (root directory: site, previews off).
+  // Never run `wrangler deploy` by hand.
+  "name": "srs-engine",
+  "compatibility_date": "2026-10-29",
+  "workers_dev": false,
+  "routes": [{ "pattern": "engine.semanticops.com", "custom_domain": true }],
+  "assets": { "directory": "./public" }
+}

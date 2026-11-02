@@ -115,51 +115,51 @@ pub struct CatalogDiagnostic {
 /// Stable diagnostic identifiers ([R24]).
 pub mod codes {
     /// `manifest.json` missing or unparseable ([R2]: it remains required).
-    pub const MANIFEST_INVALID: &str = "SRS038-MANIFEST-INVALID";
+    pub const MANIFEST_INVALID: &str = "manifest-invalid";
     /// A `package.json` that is SRS-shaped but fails `package-manifest.json` ([R4]).
-    pub const PACKAGE_MANIFEST_INVALID: &str = "SRS038-R4-PACKAGE-MANIFEST-INVALID";
+    pub const PACKAGE_MANIFEST_INVALID: &str = "package-manifest-invalid";
     /// A `package.json` that is not valid JSON, so SRS-ness cannot be determined.
     /// Warning: an npm manifest with a syntax error must not fail the load.
-    pub const PACKAGE_JSON_UNPARSEABLE: &str = "SRS038-R4-PACKAGE-JSON-UNPARSEABLE";
+    pub const PACKAGE_JSON_UNPARSEABLE: &str = "package-json-unparseable";
     /// Declared `$schema` does not resolve to a known entity schema ([R7]).
-    pub const SCHEMA_UNRESOLVABLE: &str = "SRS038-R7-SCHEMA-UNRESOLVABLE";
+    pub const SCHEMA_UNRESOLVABLE: &str = "schema-unresolvable";
     /// Declared `$schema` resolves to an entity not admissible at this location ([R7]).
-    pub const SCHEMA_INADMISSIBLE: &str = "SRS038-R7-SCHEMA-INADMISSIBLE";
+    pub const SCHEMA_INADMISSIBLE: &str = "schema-inadmissible";
     /// Object fails validation against its declared `$schema` ([R7]).
-    pub const SCHEMA_VALIDATION: &str = "SRS038-R7-SCHEMA-VALIDATION";
+    pub const SCHEMA_VALIDATION: &str = "schema-validation";
     /// No `$schema`, and the object validates as none of the admissible entities ([R8]).
-    pub const SHAPE_NO_MATCH: &str = "SRS038-R8-SHAPE-NO-MATCH";
+    pub const SHAPE_NO_MATCH: &str = "shape-no-match";
     /// No `$schema`, and the object validates as more than one admissible entity ([R8]).
-    pub const SHAPE_AMBIGUOUS: &str = "SRS038-R8-SHAPE-AMBIGUOUS";
+    pub const SHAPE_AMBIGUOUS: &str = "shape-ambiguous";
     /// The pairwise-discriminator standing check over the instance schemas failed ([R8]).
-    pub const SHAPE_DISCRIMINATOR_BROKEN: &str = "SRS038-R8-DISCRIMINATOR-BROKEN";
+    pub const SHAPE_DISCRIMINATOR_BROKEN: &str = "discriminator-broken";
     /// Malformed JSON in a candidate file under a reserved location ([R9]).
-    pub const CANDIDATE_MALFORMED: &str = "SRS038-R9-CANDIDATE-MALFORMED";
+    pub const CANDIDATE_MALFORMED: &str = "candidate-malformed";
     /// A non-candidate file under a reserved location's closed candidate policy ([R9]).
-    pub const CANDIDATE_UNRECOGNISED: &str = "SRS038-R9-CANDIDATE-UNRECOGNISED";
+    pub const CANDIDATE_UNRECOGNISED: &str = "candidate-unrecognised";
     /// RFC-043 [R16]: a container file still carries a revision-7 shape; run the
     /// `rfc043-container-entries` registry migration.
-    pub const RFC043_MIGRATION_NEEDED: &str = "SRS043-R16-MIGRATION-NEEDED";
+    pub const RFC043_MIGRATION_NEEDED: &str = "container-entries-migration-needed";
     /// RFC-052 [R1]: `manifest.rootContainerId` names no container in the container set.
     pub const ROOT_CONTAINER_MISSING: &str = "manifest-root-container-missing";
     /// Relation filename disagrees with the in-file `relationId` ([R11]).
-    pub const RELATION_FILENAME_MISMATCH: &str = "SRS038-R11-FILENAME-MISMATCH";
+    pub const RELATION_FILENAME_MISMATCH: &str = "filename-mismatch";
     /// A file nested in a subdirectory of `relations/`, which must be flat ([R11]).
-    pub const RELATIONS_NOT_FLAT: &str = "SRS038-R11-NOT-FLAT";
+    pub const RELATIONS_NOT_FLAT: &str = "not-flat";
 
     /// [R11]: at `dataModelRevision >= 2` a live repository must not contain a
     /// relations-collection file.
-    pub const RELATIONS_COLLECTION_RETIRED: &str = "SRS038-R11-COLLECTION-RETIRED";
+    pub const RELATIONS_COLLECTION_RETIRED: &str = "collection-retired";
     /// Two objects in the same authoritative set declaring the same logical id ([R12]).
-    pub const DUPLICATE_ID: &str = "SRS038-R12-DUPLICATE-ID";
+    pub const DUPLICATE_ID: &str = "duplicate-id";
     /// A reference resolving to nothing in the set it targets ([R13]).
-    pub const DANGLING_REFERENCE: &str = "SRS038-R13-DANGLING-REFERENCE";
+    pub const DANGLING_REFERENCE: &str = "dangling-reference";
     /// A source-document sidecar with no parseable `documentId` ([R15]).
-    pub const SIDECAR_NO_DOCUMENT_ID: &str = "SRS038-R15-SIDECAR-NO-DOCUMENT-ID";
+    pub const SIDECAR_NO_DOCUMENT_ID: &str = "sidecar-no-document-id";
     /// A path declared in a package manifest's definition arrays that resolves to no file.
-    pub const DEFINITION_PATH_MISSING: &str = "SRS038-DEFINITION-PATH-MISSING";
+    pub const DEFINITION_PATH_MISSING: &str = "definition-path-missing";
     /// An extension aggregate whose `{kind, id}` identity cannot be projected (Change L).
-    pub const EXTENSION_IDENTITY: &str = "SRS038-EXT-IDENTITY";
+    pub const EXTENSION_IDENTITY: &str = "ext-identity";
 }
 
 // ---------------------------------------------------------------------------
@@ -398,22 +398,100 @@ fn prepare_instance_candidates(
     paths: Vec<&String>,
     parallel: bool,
 ) -> BTreeMap<String, Prepared> {
-    let sources: Vec<(&String, Result<CandidateSource, RepositoryError>)> = paths
-        .into_iter()
-        .map(|p| (p, store.read_candidate_source(p)))
-        .collect();
-    let work = |(path, src): (&String, Result<CandidateSource, RepositoryError>)| {
-        (path.clone(), classify_source(src))
+    use crate::catalog_cache as cache;
+    // Derived cache (ADR-056): only for stores with a stable file identity.
+    let loaded = store.catalog_cache_read().and_then(|b| cache::load(&b));
+    let mut result: BTreeMap<String, Prepared> = BTreeMap::new();
+    let mut fresh: BTreeMap<String, cache::Entry> = BTreeMap::new();
+    let mut changed = false;
+    // Misses: path, source, stamp taken before the read (a later edit then
+    // shows as a different stamp, never as a stale hit).
+    let mut sources: Vec<(
+        &String,
+        Result<CandidateSource, RepositoryError>,
+        Option<crate::vfs::FileStamp>,
+    )> = Vec::new();
+    for p in paths {
+        let stamp = store.candidate_stamp(p);
+        let cached = stamp.zip(loaded.as_ref().and_then(|l| l.entries.get(p)));
+        if let (Some((s, e)), Some(l)) = (cached, loaded.as_ref()) {
+            if e.matches_stamp(s) {
+                if !l.needs_hash_check(s) {
+                    if let Some(c) = e.classification() {
+                        fresh.insert(p.clone(), e.clone());
+                        result.insert(p.clone(), Prepared::Classified(Ok(c)));
+                        continue;
+                    }
+                } else {
+                    // Racy: confirm by content.
+                    let src = store.read_candidate_source(p);
+                    if let Ok(CandidateSource::Text { text, .. }) = &src {
+                        if e.matches_text(text) {
+                            if let Some(c) = e.classification() {
+                                fresh.insert(p.clone(), e.clone());
+                                result.insert(p.clone(), Prepared::Classified(Ok(c)));
+                                continue;
+                            }
+                        }
+                    }
+                    sources.push((p, src, stamp));
+                    continue;
+                }
+            }
+        }
+        sources.push((p, store.read_candidate_source(p), stamp));
+    }
+    changed |= !sources.is_empty()
+        || loaded
+            .as_ref()
+            .is_none_or(|l| l.entries.len() != fresh.len());
+    let work = |(path, src, stamp): (
+        &String,
+        Result<CandidateSource, RepositoryError>,
+        Option<crate::vfs::FileStamp>,
+    )| {
+        let text = match &src {
+            Ok(CandidateSource::Text { text, .. }) => Some(text.clone()),
+            _ => None,
+        };
+        let prepared = classify_source(src);
+        let entry = match (&prepared, stamp, text) {
+            (Prepared::Classified(Ok((kind, tier, id))), Some(s), Some(t)) => {
+                Some(cache::Entry::new(s, &t, *kind, *tier, id))
+            }
+            _ => None,
+        };
+        (path.clone(), prepared, entry)
     };
+    #[allow(unused_mut)]
+    let mut done: Vec<(String, Prepared, Option<cache::Entry>)>;
     #[cfg(not(target_arch = "wasm32"))]
     {
         use rayon::prelude::*;
-        if parallel {
-            return sources.into_par_iter().map(work).collect();
+        done = if parallel {
+            sources.into_par_iter().map(work).collect()
+        } else {
+            sources.into_iter().map(work).collect()
+        };
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = parallel;
+        done = sources.into_iter().map(work).collect();
+    }
+    for (path, prepared, entry) in done {
+        if let Some(e) = entry {
+            fresh.insert(path.clone(), e);
+        }
+        result.insert(path, prepared);
+    }
+    // Write only when something changed and the store can cache at all.
+    if changed && !fresh.is_empty() {
+        if let Some(bytes) = cache::serialize(fresh) {
+            store.catalog_cache_write(&bytes);
         }
     }
-    let _ = parallel;
-    sources.into_iter().map(work).collect()
+    result
 }
 
 fn classify_source(src: Result<CandidateSource, RepositoryError>) -> Prepared {

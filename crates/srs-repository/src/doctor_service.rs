@@ -267,10 +267,20 @@ pub fn doctor(
                     break;
                 }
             };
-            let next = cat.diagnostics.iter().find(|d| {
+            // A filename mismatch is repaired before any other class: the
+            // other repairs address a relation by its file, so the file must
+            // carry its own id first. (The order used to fall out of the
+            // spelling of the codes; it is stated here instead.)
+            let is_unseen = |d: &&CatalogDiagnostic| {
                 d.code != codes::MANIFEST_INVALID
                     && !seen.contains(&(d.code, d.locators.clone(), d.message.clone()))
-            });
+            };
+            let next = cat
+                .diagnostics
+                .iter()
+                .filter(is_unseen)
+                .find(|d| d.code == codes::RELATION_FILENAME_MISMATCH)
+                .or_else(|| cat.diagnostics.iter().find(is_unseen));
             let Some(diag) = next else {
                 if progress {
                     // Something changed since some of these were shelved —

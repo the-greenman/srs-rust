@@ -200,8 +200,12 @@ pub fn create_theme(
         source: e,
     })?;
     store.ensure_themes_dir(&format!("{boundary_path}/themes"))?;
-    let rel_filename =
-        crate::package_service::definition_rel_path(DefinitionKind::Theme, &theme.name, &theme.id);
+    let rel_filename = crate::package_service::definition_rel_path(
+        DefinitionKind::Theme,
+        &theme.name,
+        &theme.id,
+        u64::from(theme.version),
+    );
     let full_path = format!("{boundary_path}/{rel_filename}");
     store.save_theme(&full_path, &theme)?;
     store.add_definition_to_boundary(&selector, DefinitionKind::Theme, &rel_filename)?;

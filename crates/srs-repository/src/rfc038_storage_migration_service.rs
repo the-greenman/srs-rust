@@ -129,7 +129,7 @@ fn strip_retired_properties(manifest: &mut Value) -> Vec<&'static str> {
 ///
 /// A probe, so it never fails on data it merely cannot read: an unreadable
 /// file under `relations/` is the catalog's to diagnose
-/// (`SRS038-R9-CANDIDATE-MALFORMED`, surfaced by `repo validate`), and
+/// (`candidate-malformed`, surfaced by `repo validate`), and
 /// propagating it from here would take `repo migrations` down for every
 /// migration. [`migrate_storage`] is where it aborts — and an unreadable file
 /// counts as "needed" precisely so a client is told there is something to run,

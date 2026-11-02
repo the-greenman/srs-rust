@@ -562,7 +562,12 @@ pub fn create_field_in_package(
     store.load_package_boundary(&selector)?;
 
     let boundary_path = selector.as_deref().unwrap_or("package");
-    let rel_filename = definition_rel_path(DefinitionKind::Field, &field.name, &field.id);
+    let rel_filename = definition_rel_path(
+        DefinitionKind::Field,
+        &field.name,
+        &field.id,
+        u64::from(field.version),
+    );
     let full_path = format!("{boundary_path}/{rel_filename}");
 
     store.ensure_fields_dir(&format!("{boundary_path}/fields"))?;
@@ -586,8 +591,9 @@ pub fn create_field_in_package(
     })
 }
 
-/// Update an existing field definition.
-/// Re-writes the field JSON file. Refused when it would leave records invalid
+/// Update an existing field definition. The same version is rewritten in place; a new
+/// version of an existing field is written beside the earlier ones and indexed
+/// (srs-rust#1473). Refused when either write would leave records invalid
 /// (`definition-change-breaks-records`, srs-rust#1484).
 pub fn update_field(
     store: &dyn RepositoryStore,
@@ -612,18 +618,26 @@ fn update_field_inner(
     check_records: bool,
 ) -> Result<UpdateFieldResult, RepositoryError> {
     ensure_field_type_conforms(&field)?;
-    let (relative_path, _owner) =
-        find_field_path(store, &field.id)?.ok_or_else(|| RepositoryError::FieldNotFound {
+    let same_version = find_field_path(store, &field.id, Some(field.version))?;
+    let (_, owner) =
+        find_field_path(store, &field.id, None)?.ok_or_else(|| RepositoryError::FieldNotFound {
             field_id: field.id.clone(),
         })?;
     if check_records {
+        // The package as either write leaves it: this version replaced in place, or added
+        // beside the earlier ones.
         refuse_if_records_stop_conforming(store, "field", &field.id, |package| {
-            for f in package.fields.iter_mut().filter(|f| f.id == field.id) {
-                *f = field.clone();
-            }
+            package
+                .fields
+                .retain(|f| !(f.id == field.id && f.version == field.version));
+            package.fields.push(field.clone());
         })?;
     }
-    store.update_field_file(&relative_path, &field)?;
+    if let Some((relative_path, _)) = same_version {
+        store.update_field_file(&relative_path, &field)?;
+        return Ok(UpdateFieldResult { field });
+    }
+    let field = create_field_in_package(store, field, owner)?.field;
     Ok(UpdateFieldResult { field })
 }
 
@@ -715,7 +729,7 @@ pub fn delete_field(
     id: &str,
 ) -> Result<DeleteFieldResult, RepositoryError> {
     let (full_path, owner) =
-        find_field_path(store, id)?.ok_or_else(|| RepositoryError::FieldNotFound {
+        find_field_path(store, id, None)?.ok_or_else(|| RepositoryError::FieldNotFound {
             field_id: id.to_string(),
         })?;
 
@@ -739,10 +753,12 @@ pub fn delete_field(
     Ok(DeleteFieldResult { id: id.to_string() })
 }
 
-/// Find the repo-root-relative path and owner boundary for a field by its ID.
+/// Find the repo-root-relative path and owner boundary for a field by its ID; with
+/// `version`, the file holding that version (srs-rust#1473).
 pub(crate) fn find_field_path(
     store: &dyn RepositoryStore,
     id: &str,
+    version: Option<u32>,
 ) -> Result<Option<(String, PackageSelector)>, RepositoryError> {
     let owner = match store.resolve_definition_owner(id, DefinitionKind::Field) {
         Ok(sel) => sel,
@@ -755,7 +771,9 @@ pub(crate) fn find_field_path(
     for rel_path in &boundary.field_paths {
         let full = format!("{prefix}/{rel_path}");
         if let Ok(val) = store.load_instance_json(&full) {
-            if val["id"].as_str() == Some(id) {
+            if val["id"].as_str() == Some(id)
+                && version.is_none_or(|v| val["version"].as_u64() == Some(u64::from(v)))
+            {
                 return Ok(Some((full, owner)));
             }
         }
@@ -764,12 +782,20 @@ pub(crate) fn find_field_path(
 }
 
 /// The shared filename scheme for a definition inside a package boundary (ADR-050):
-/// `{dir}/{slugify(slug_source)}-{id[..min(8)]}.json`, `dir` per kind. Used by the
-/// field/type/relation-type/view/composition/theme/blueprint/protocol/lifecycle/vocabulary
-/// creators and the `.srspkg` reader. This is the convention for NEW definition files
-/// (srs-rust#1209): existing files are found by their index and are never renamed, so a
-/// lifecycle or vocabulary written earlier may carry the retired `a_b` -> `a-b` slug.
-pub(crate) fn definition_rel_path(kind: DefinitionKind, slug_source: &str, id: &str) -> String {
+/// `{dir}/{slugify(slug_source)}-{id[..min(8)]}.json`, `dir` per kind, and for version
+/// N > 1 the same name with the `-v{N}` suffix ([`crate::package_bundle::version_suffixed`]),
+/// so each version of a definition keeps its own file beside the others (srs-rust#1473).
+/// Used by the field/type/relation-type/view/composition/theme/blueprint/protocol/
+/// lifecycle/vocabulary creators and the `.srspkg` reader. This is the convention for NEW
+/// definition files (srs-rust#1209): existing files are found by their index and are never
+/// renamed, so a lifecycle or vocabulary written earlier may carry the retired `a_b` -> `a-b`
+/// slug.
+pub(crate) fn definition_rel_path(
+    kind: DefinitionKind,
+    slug_source: &str,
+    id: &str,
+    version: u64,
+) -> String {
     let dir = match kind {
         DefinitionKind::Field => "fields",
         DefinitionKind::Type => "types",
@@ -783,7 +809,12 @@ pub(crate) fn definition_rel_path(kind: DefinitionKind, slug_source: &str, id: &
         DefinitionKind::Theme => "themes",
     };
     let id8 = id.get(..8).unwrap_or(id);
-    format!("{dir}/{}-{id8}.json", slugify(slug_source))
+    let path = format!("{dir}/{}-{id8}.json", slugify(slug_source));
+    if version > 1 {
+        crate::package_bundle::version_suffixed(&path, version)
+    } else {
+        path
+    }
 }
 
 /// Convert a name to a filesystem-friendly slug
@@ -844,66 +875,95 @@ pub fn create_type_in_package(
         }
     }
 
+    refuse_misconfigured_cross_field_rules(store, &record_type)?;
+
     if record_type.id.trim().is_empty() {
         record_type.id = new_instance_id();
-    } else if let Some((existing_path, _)) = find_type_path(store, &record_type.id)? {
-        refuse_if_version_orphaned(store, &existing_path, &record_type.id, record_type.version)?;
     }
-    let boundary_path = selector.as_deref().unwrap_or("package");
-    let rel_filename =
-        definition_rel_path(DefinitionKind::Type, &record_type.name, &record_type.id);
-    let full_path = format!("{boundary_path}/{rel_filename}");
+    let path = write_type_version(store, &record_type, &selector)?;
+    store.add_definition_to_boundary(
+        &selector,
+        DefinitionKind::Type,
+        path.strip_prefix(&format!("{}/", selector.as_deref().unwrap_or("package")))
+            .unwrap_or(&path),
+    )?;
 
-    let raw = serde_json::to_value(&record_type).map_err(|e| RepositoryError::Serialize {
+    Ok(CreateTypeResult { record_type })
+}
+
+/// I-92/94/95/96: the Type-level cross-field check `repo validate` runs, applied at the
+/// write boundary so a type whose rules silently do nothing is refused before anything is
+/// written (srs-rust#1533). Fields resolve against the package the store serves.
+fn refuse_misconfigured_cross_field_rules(
+    store: &dyn RepositoryStore,
+    record_type: &RecordType,
+) -> Result<(), RepositoryError> {
+    if record_type
+        .validation_rules
+        .as_ref()
+        .is_none_or(|rules| rules.is_empty())
+    {
+        return Ok(());
+    }
+    let package = store.load_package()?;
+    let reasons: Vec<String> =
+        srs_core::validation::record_type::validate_cross_field_rules_for_type(
+            record_type,
+            &package.fields,
+        )
+        .into_iter()
+        .map(|e| e.to_string())
+        .collect();
+    if reasons.is_empty() {
+        return Ok(());
+    }
+    Err(RepositoryError::InvalidInput {
+        message: format!(
+            "type '{}/{}@{}' has misconfigured cross-field rules (ext:cross-field-validation, I-92/94/95/96): {}",
+            record_type.namespace,
+            record_type.name,
+            record_type.version,
+            reasons.join("; ")
+        ),
+    })
+}
+
+/// Write one version of a type and return its repo-root-relative path. A version that
+/// already has a file is rewritten in place; a new version gets its own file beside the
+/// others ([`definition_rel_path`], `-v{N}`), so the versions records bind to stay on disk
+/// and no write can orphan them (srs-rust#1473, replacing the #1412 refusal).
+fn write_type_version(
+    store: &dyn RepositoryStore,
+    record_type: &RecordType,
+    selector: &PackageSelector,
+) -> Result<String, RepositoryError> {
+    let boundary_path = selector.as_deref().unwrap_or("package");
+    let full_path = match find_type_path(store, &record_type.id, Some(record_type.version))? {
+        Some((existing, _)) => existing,
+        None => format!(
+            "{boundary_path}/{}",
+            definition_rel_path(
+                DefinitionKind::Type,
+                &record_type.name,
+                &record_type.id,
+                u64::from(record_type.version)
+            )
+        ),
+    };
+
+    let raw = serde_json::to_value(record_type).map_err(|e| RepositoryError::Serialize {
         path: std::path::PathBuf::from(&full_path),
         source: e,
     })?;
     validate_definition_write_schema(TYPE_SCHEMA_ID, &raw, std::path::Path::new(&full_path))?;
 
     store.ensure_types_dir(&format!("{boundary_path}/types"))?;
-
-    store.save_type(&full_path, &record_type)?;
-    store.add_definition_to_boundary(&selector, DefinitionKind::Type, &rel_filename)?;
-
-    Ok(CreateTypeResult { record_type })
+    store.save_type(&full_path, record_type)?;
+    Ok(full_path)
 }
 
-/// Refuse a type write that would drop a version records still bind to (srs-rust#1412,
-/// RFC-039 [R19]). `type update` and `type create` of an existing id rewrite the type's
-/// single file, so the previous version vanishes; if any record binds to it, refuse and
-/// name those records instead of leaving them dangling ([R13]).
-fn refuse_if_version_orphaned(
-    store: &dyn RepositoryStore,
-    existing_path: &str,
-    type_id: &str,
-    new_version: u32,
-) -> Result<(), RepositoryError> {
-    let existing = store.load_instance_json(existing_path)?;
-    let Some(old_version) = existing["version"].as_u64().map(|v| v as u32) else {
-        return Ok(());
-    };
-    if old_version == new_version {
-        return Ok(());
-    }
-    let bound: Vec<String> = crate::record_store::list_all_records(store)?
-        .into_iter()
-        .filter(|r| r.type_id == type_id && r.type_version == old_version)
-        .map(|r| r.instance_id)
-        .collect();
-    if bound.is_empty() {
-        return Ok(());
-    }
-    Err(RepositoryError::CannotDeleteInUse {
-        entity_type: format!(
-            "type version {old_version} (writing version {new_version} would replace it)"
-        ),
-        id: type_id.to_string(),
-        used_by: bound,
-    })
-}
-
-/// Update an existing type definition.
-/// Re-writes the type JSON file.
+/// Update an existing type definition. The same version is rewritten in place; a new
+/// version of an existing type is written beside the earlier ones and indexed.
 pub fn update_type(
     store: &dyn RepositoryStore,
     record_type: RecordType,
@@ -925,12 +985,12 @@ fn update_type_inner(
     record_type: RecordType,
     check_records: bool,
 ) -> Result<UpdateTypeResult, RepositoryError> {
-    let (relative_path, _owner) =
-        find_type_path(store, &record_type.id)?.ok_or_else(|| RepositoryError::TypeNotFound {
+    let (_, owner) = find_type_path(store, &record_type.id, None)?.ok_or_else(|| {
+        RepositoryError::TypeNotFound {
             type_id: record_type.id.clone(),
             version: record_type.version,
-        })?;
-    refuse_if_version_orphaned(store, &relative_path, &record_type.id, record_type.version)?;
+        }
+    })?;
 
     // Same RFC-038 [R13] field-existence check `create_type_in_package` applies: `update_type`
     // had none (srs-rust#1291 owner ruling), so a hand-written update could introduce a
@@ -945,49 +1005,58 @@ fn update_type_inner(
         }
     }
 
-    let raw = serde_json::to_value(&record_type).map_err(|e| RepositoryError::Serialize {
-        path: std::path::PathBuf::from(&relative_path),
-        source: e,
-    })?;
-    validate_definition_write_schema(TYPE_SCHEMA_ID, &raw, std::path::Path::new(&relative_path))?;
+    refuse_misconfigured_cross_field_rules(store, &record_type)?;
+
     if check_records {
+        // The package as the write leaves it: this version replaced in place, or added
+        // beside the earlier ones (srs-rust#1473).
         refuse_if_records_stop_conforming(store, "type", &record_type.id, |package| {
-            package.record_types.retain(|t| t.id != record_type.id);
+            package
+                .record_types
+                .retain(|t| !(t.id == record_type.id && t.version == record_type.version));
             package.record_types.push(record_type.clone());
         })?;
     }
-    store.update_type_file(&relative_path, &record_type)?;
+
+    let path = write_type_version(store, &record_type, &owner)?;
+    let prefix = format!("{}/", owner.as_deref().unwrap_or("package"));
+    store.add_definition_to_boundary(
+        &owner,
+        DefinitionKind::Type,
+        path.strip_prefix(&prefix).unwrap_or(&path),
+    )?;
     Ok(UpdateTypeResult { record_type })
 }
 
-/// Returns the IDs of any Records whose `typeId` is `type_id`.
+/// Returns the IDs of any Records bound to `type_id` at `version`.
 fn find_records_of_type(
     store: &dyn RepositoryStore,
     type_id: &str,
+    version: u32,
 ) -> Result<Vec<String>, RepositoryError> {
     let refs: Vec<String> = crate::record_store::list_all_records(store)?
         .into_iter()
-        .filter(|r| r.type_id == type_id)
+        .filter(|r| r.type_id == type_id && r.type_version == version)
         .map(|r| r.instance_id)
         .collect();
     Ok(refs)
 }
 
-/// Delete a type definition.
-/// Removes the type JSON file and updates the boundary index.
-/// Returns `CannotDeleteInUse` if any Record instantiates this type (srs-rust#1345).
+/// Delete one version of a type definition.
+/// Removes that version's JSON file and updates the boundary index.
+/// Returns `CannotDeleteInUse` if any Record is bound to that version (srs-rust#1345).
 pub fn delete_type(
     store: &dyn RepositoryStore,
     id: &str,
     version: u32,
 ) -> Result<DeleteTypeResult, RepositoryError> {
     let (full_path, owner) =
-        find_type_path(store, id)?.ok_or_else(|| RepositoryError::TypeNotFound {
+        find_type_path(store, id, Some(version))?.ok_or_else(|| RepositoryError::TypeNotFound {
             type_id: id.to_string(),
             version,
         })?;
 
-    let refs = find_records_of_type(store, id)?;
+    let refs = find_records_of_type(store, id, version)?;
     if !refs.is_empty() {
         return Err(RepositoryError::CannotDeleteInUse {
             entity_type: "type".to_string(),
@@ -1007,10 +1076,12 @@ pub fn delete_type(
     Ok(DeleteTypeResult { id: id.to_string() })
 }
 
-/// Find the repo-root-relative path and owner for a type by its ID.
+/// Find the repo-root-relative path and owner for a type by its ID; with `version`, the
+/// file holding that version (a type may have several, srs-rust#1473).
 pub(crate) fn find_type_path(
     store: &dyn RepositoryStore,
     id: &str,
+    version: Option<u32>,
 ) -> Result<Option<(String, PackageSelector)>, RepositoryError> {
     let owner = match store.resolve_definition_owner(id, DefinitionKind::Type) {
         Ok(sel) => sel,
@@ -1022,7 +1093,9 @@ pub(crate) fn find_type_path(
     for rel_path in &boundary.type_paths {
         let full = format!("{prefix}/{rel_path}");
         if let Ok(val) = store.load_instance_json(&full) {
-            if val["id"].as_str() == Some(id) {
+            if val["id"].as_str() == Some(id)
+                && version.is_none_or(|v| val["version"].as_u64() == Some(u64::from(v)))
+            {
                 return Ok(Some((full, owner)));
             }
         }
@@ -1132,7 +1205,12 @@ pub fn create_relation_type(
     }
 
     let boundary_path = selector.as_deref().unwrap_or("package");
-    let rel_filename = definition_rel_path(DefinitionKind::RelationType, &def.key, &def.id);
+    let rel_filename = definition_rel_path(
+        DefinitionKind::RelationType,
+        &def.key,
+        &def.id,
+        u64::from(def.version),
+    );
     let full_path = format!("{boundary_path}/{rel_filename}");
 
     let mut raw = serde_json::to_value(&def).map_err(|e| RepositoryError::Serialize {
@@ -2113,6 +2191,60 @@ mod tests {
         );
     }
 
+    fn mixed_kind_rules() -> Vec<srs_core::types::record_type::CrossFieldRule> {
+        serde_json::from_value(serde_json::json!([{
+            "type": "mutual-exclusion",
+            "fieldIds": ["a", "b"],
+            "predicateFieldId": "a",
+            "predicateValue": "x",
+            "targetFieldId": "b",
+        }]))
+        .unwrap()
+    }
+
+    #[test]
+    fn type_create_refuses_cross_field_rule_with_another_kinds_property() {
+        let store = MemoryStore::default();
+        let mut rt = make_type("00000000-0000-0000-0000-000000000023", "mixed-rule");
+        rt.validation_rules = Some(mixed_kind_rules());
+
+        let result = create_type(&store, rt);
+        assert!(
+            matches!(
+                result,
+                Err(RepositoryError::InvalidInput { ref message })
+                    if message.contains("I-96") && message.contains("'predicateFieldId'")
+            ),
+            "expected InvalidInput naming the rule and property, got {result:?}"
+        );
+
+        let pkg = store.load_package_json().unwrap();
+        let types = pkg["types"].as_array().unwrap();
+        assert!(
+            !types
+                .iter()
+                .any(|t| t.as_str().unwrap().contains("mixed-rule")),
+            "no type file should have been registered after a refused create"
+        );
+    }
+
+    #[test]
+    fn type_update_refuses_cross_field_rule_with_another_kinds_property() {
+        let rt = make_type("00000000-0000-0000-0000-000000000024", "mixed-update");
+        let store = MemoryStore::with_type(rt.clone());
+        let mut updated = rt;
+        updated.validation_rules = Some(mixed_kind_rules());
+
+        let result = update_type(&store, updated);
+        assert!(
+            matches!(
+                result,
+                Err(RepositoryError::InvalidInput { ref message }) if message.contains("I-96")
+            ),
+            "expected InvalidInput, got {result:?}"
+        );
+    }
+
     #[test]
     fn type_create_accepts_implicit_core_field_id() {
         // The implicit core package (ADR-025) is merged into `load_package()` results on every
@@ -2675,8 +2807,10 @@ mod tests {
         assert_eq!(result.field.description, "updated description");
     }
 
+    /// srs-rust#1473: a new version is written beside the old one, so the version records
+    /// bind to stays on disk (this replaces the #1412 refusal).
     #[test]
-    fn update_type_to_new_version_blocked_when_records_bind_to_old_version() {
+    fn new_type_version_is_written_beside_the_version_records_bind_to() {
         use srs_core::types::record::{FieldValues, Record};
 
         let tid = "00000000-0000-0000-0000-000000000002";
@@ -2700,32 +2834,72 @@ mod tests {
 
         let mut v2 = make_type(tid, "test-type");
         v2.version = 2;
-        match update_type(&store, v2.clone()) {
-            Err(RepositoryError::CannotDeleteInUse { id, used_by, .. }) => {
-                assert_eq!(id, tid);
-                assert_eq!(
-                    used_by,
-                    vec!["00000000-0000-0000-0000-000000000003".to_string()]
-                );
-            }
-            other => panic!("expected CannotDeleteInUse, got {:?}", other),
-        }
+        update_type(&store, v2.clone()).unwrap();
+        let mut v3 = make_type(tid, "test-type");
+        v3.version = 3;
+        create_type(&store, v3).unwrap();
+
+        let (v1_path, _) = find_type_path(&store, tid, Some(1)).unwrap().unwrap();
+        let (v2_path, _) = find_type_path(&store, tid, Some(2)).unwrap().unwrap();
+        assert_eq!(
+            v2_path,
+            format!(
+                "package/{}",
+                definition_rel_path(DefinitionKind::Type, "test-type", tid, 2)
+            )
+        );
+        assert!(v2_path.ends_with("-v2.json"), "{v2_path}");
+        assert_ne!(v1_path, v2_path);
+        assert_eq!(store.load_instance_json(&v1_path).unwrap()["version"], 1);
+        let boundary = store.load_package_boundary(&None).unwrap();
+        assert_eq!(boundary.type_paths.len(), 3, "{:?}", boundary.type_paths);
+
+        // A same-version update rewrites that version in place and adds no file.
+        let mut v2b = v2;
+        v2b.description = "second write".to_string();
+        update_type(&store, v2b).unwrap();
+        assert_eq!(
+            store.load_instance_json(&v2_path).unwrap()["description"],
+            "second write"
+        );
+        assert_eq!(
+            store.load_package_boundary(&None).unwrap().type_paths.len(),
+            3
+        );
+
+        // Deleting is per version: v1 is in use, v2 is not.
         assert!(matches!(
-            create_type(&store, v2),
+            delete_type(&store, tid, 1),
             Err(RepositoryError::CannotDeleteInUse { .. })
         ));
-
-        // Same-version update is still allowed.
-        update_type(&store, make_type(tid, "test-type")).unwrap();
+        delete_type(&store, tid, 2).unwrap();
+        assert!(find_type_path(&store, tid, Some(1)).unwrap().is_some());
+        assert!(find_type_path(&store, tid, Some(2)).unwrap().is_none());
     }
 
     #[test]
-    fn update_type_to_new_version_allowed_when_no_records_bind() {
-        let tid = "00000000-0000-0000-0000-000000000002";
-        let store = MemoryStore::with_type(make_type(tid, "test-type"));
-        let mut v2 = make_type(tid, "test-type");
+    fn new_field_version_is_written_beside_the_old_one() {
+        let fid = "00000000-0000-0000-0000-000000000001";
+        let store = MemoryStore::with_field(make_field(fid, "test-field"));
+        let mut v2 = make_field(fid, "test-field");
         v2.version = 2;
-        update_type(&store, v2).unwrap();
+        update_field(&store, v2).unwrap();
+
+        let (v1_path, _) = find_field_path(&store, fid, Some(1)).unwrap().unwrap();
+        let (v2_path, _) = find_field_path(&store, fid, Some(2)).unwrap().unwrap();
+        assert!(
+            v2_path.ends_with("test-field-00000000-v2.json"),
+            "{v2_path}"
+        );
+        assert_ne!(v1_path, v2_path);
+        assert_eq!(
+            store
+                .load_package_boundary(&None)
+                .unwrap()
+                .field_paths
+                .len(),
+            2
+        );
     }
 
     #[test]
@@ -3357,8 +3531,12 @@ mod tests {
         // repository would hold it): `create_relation_type` now refuses a held key
         // (srs-rust#1474).
         let second = make_def("bbb2-shared-key-def");
-        let rel_filename =
-            definition_rel_path(DefinitionKind::RelationType, &second.key, &second.id);
+        let rel_filename = definition_rel_path(
+            DefinitionKind::RelationType,
+            &second.key,
+            &second.id,
+            u64::from(second.version),
+        );
         store
             .save_relation_type_definition(&format!("package/{rel_filename}"), &second)
             .unwrap();

@@ -35,6 +35,11 @@ jobs:
         working-directory: srs-rust
         run: cargo test --all
 
+      # The engine site's CLI reference is generated from `srs --help` (srs-rust#1516).
+      - name: Site CLI reference drift
+        working-directory: srs-rust
+        run: node scripts/site/build-site.mjs --check target/debug/srs
+
       # The release corpus gate's migration path (srs-rust#1145), against the binary just built.
       - name: Corpus gate self-check
         working-directory: srs-rust

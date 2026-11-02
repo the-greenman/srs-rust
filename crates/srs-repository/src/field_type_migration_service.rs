@@ -200,7 +200,7 @@ pub fn migrate_field_types(
         // Core-package fields are merged in from the embedded bundle (ADR-025)
         // and are not owned by this repository — migrating them here would
         // write a copy the repo never declared.
-        if crate::package_service::find_field_path(store, &field.id)?.is_none() {
+        if crate::package_service::find_field_path(store, &field.id, None)?.is_none() {
             fields_skipped_not_owned += 1;
             continue;
         }
@@ -538,7 +538,7 @@ pub fn migrate_substrate_properties_to_meta(
             // the substrate escape bag.
             continue;
         }
-        if crate::package_service::find_type_path(store, &record_type.id)?.is_none() {
+        if crate::package_service::find_type_path(store, &record_type.id, None)?.is_none() {
             types_with_inline_lifecycle_skipped_not_owned += 1;
             continue;
         }
