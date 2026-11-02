@@ -256,7 +256,7 @@ mod create_normalization_tests {
             "version": 1,
             "namespace": "com.test",
             "name": "test-lifecycle",
-            "states": [ { "key": "draft", "isInitial": true } ],
+            "states": [ { "key": "draft", "isInitial": true, "version": 1, "namespace": "com.test" } ],
             "transitions": [],
             "initialState": "draft"
         });

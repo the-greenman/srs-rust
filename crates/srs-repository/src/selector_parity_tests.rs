@@ -255,8 +255,8 @@ fn make_lifecycle(name: &str) -> Lifecycle {
         states: vec![
             LifecycleState {
                 id: Some("s1".to_string()),
-                version: None,
-                namespace: None,
+                version: Some(1),
+                namespace: Some("com.test".to_string()),
                 key: "draft".to_string(),
                 label: None,
                 description: None,
@@ -269,8 +269,8 @@ fn make_lifecycle(name: &str) -> Lifecycle {
             },
             LifecycleState {
                 id: Some("s2".to_string()),
-                version: None,
-                namespace: None,
+                version: Some(1),
+                namespace: Some("com.test".to_string()),
                 key: "active".to_string(),
                 label: None,
                 description: None,
