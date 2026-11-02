@@ -2351,6 +2351,64 @@ fn validate_definition_references(
     }
 }
 
+/// RFC-039 [R4] for one Type: every `Field.name` in its effective field set is distinct.
+/// Shared by `repo validate` and the `type create` / `type update` pre-write refusal
+/// (srs-rust#1543, ADR-048 rule 3: one way per goal). A Type whose field set cannot be
+/// resolved yields nothing here; `Package::effective_fields` reports that cause.
+pub(crate) fn type_duplicate_field_name_messages(
+    pkg: &crate::package::Package,
+    rt: &srs_core::types::record_type::RecordType,
+) -> Vec<String> {
+    let mut messages = Vec::new();
+    if let Ok(effective) = pkg.resolved_effective_fields(rt) {
+        let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for ef in &effective {
+            if ef.name.is_empty() {
+                continue; // dangling fieldId, reported separately
+            }
+            if !seen.insert(ef.name.as_str()) {
+                messages.push(format!(
+                    "type '{}/{}@{}': {}",
+                    rt.namespace,
+                    rt.name,
+                    rt.version,
+                    srs_core::error::CoreError::DuplicateEffectiveFieldName {
+                        name: ef.name.clone(),
+                    }
+                ));
+            }
+        }
+    }
+    messages
+}
+
+/// V9 / I-4 / I-5 for one Type's inline lifecycle: structural integrity, and
+/// `initialState` agreeing with the `isInitial` state. Shared by `repo validate` and the
+/// `type create` / `type update` pre-write refusal (srs-rust#1543).
+pub(crate) fn type_inline_lifecycle_messages(
+    rt: &srs_core::types::record_type::RecordType,
+) -> Vec<String> {
+    let mut messages = Vec::new();
+    if let Some(inline_lc) = &rt.lifecycle {
+        for diag in validate_type_lifecycle_v9(&inline_lc.states, &inline_lc.transitions, &rt.name)
+        {
+            messages.push(diag.message);
+        }
+        let initial_states: Vec<_> = inline_lc
+            .states
+            .iter()
+            .filter(|s| s.is_initial == Some(true))
+            .collect();
+        if initial_states.len() == 1 && initial_states[0].key != inline_lc.initial_state {
+            messages.push(format!(
+                "V9: inline lifecycle on type '{}' initialState '{}' does not match isInitial state key '{}'",
+                rt.name, inline_lc.initial_state, initial_states[0].key
+            ));
+        }
+    }
+    messages
+}
+
 fn validate_vocabulary_invariants(
     pkg: &crate::package::Package,
     diagnostics: &mut Vec<ValidationDiagnostic>,
@@ -2438,30 +2496,14 @@ fn validate_vocabulary_invariants(
     // Field.name must be distinct — name-keying makes a duplicate an instance
     // ambiguity, so it is rejected at definition time, not instance time.
     for rt in &pkg.record_types {
-        if let Ok(effective) = pkg.resolved_effective_fields(rt) {
-            let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
-            for ef in &effective {
-                if ef.name.is_empty() {
-                    continue; // dangling fieldId — reported separately
-                }
-                if !seen.insert(ef.name.as_str()) {
-                    diagnostics.push(ValidationDiagnostic {
-                        code: None,
-                        severity: DiagnosticSeverity::Error,
-                        relative_path: "package/package.json".to_string(),
-                        schema_id: None,
-                        message: format!(
-                            "type '{}/{}@{}': {}",
-                            rt.namespace,
-                            rt.name,
-                            rt.version,
-                            srs_core::error::CoreError::DuplicateEffectiveFieldName {
-                                name: ef.name.clone(),
-                            }
-                        ),
-                    });
-                }
-            }
+        for message in type_duplicate_field_name_messages(pkg, rt) {
+            diagnostics.push(ValidationDiagnostic {
+                code: None,
+                severity: DiagnosticSeverity::Error,
+                relative_path: "package/package.json".to_string(),
+                schema_id: None,
+                message,
+            });
         }
     }
 
@@ -2502,40 +2544,14 @@ fn validate_vocabulary_invariants(
         }
 
         // V9: structural checks on inline TypeLifecycle
-        if let Some(inline_lc) = &rt.lifecycle {
-            for diag in
-                validate_type_lifecycle_v9(&inline_lc.states, &inline_lc.transitions, &rt.name)
-            {
-                let severity = match diag.severity {
-                    LifecycleDiagnosticSeverity::Error => DiagnosticSeverity::Error,
-                };
-                diagnostics.push(ValidationDiagnostic {
-                    code: None,
-                    severity,
-                    relative_path: "package/package.json".to_string(),
-                    schema_id: None,
-                    message: diag.message,
-                });
-            }
-
-            // V9: initialState field must match the isInitial state's key
-            let initial_states: Vec<_> = inline_lc
-                .states
-                .iter()
-                .filter(|s| s.is_initial == Some(true))
-                .collect();
-            if initial_states.len() == 1 && initial_states[0].key != inline_lc.initial_state {
-                diagnostics.push(ValidationDiagnostic {
- code: None,
-                    severity: DiagnosticSeverity::Error,
-                    relative_path: "package/package.json".to_string(),
-                    schema_id: None,
-                    message: format!(
-                        "V9: inline lifecycle on type '{}' initialState '{}' does not match isInitial state key '{}'",
-                        rt.name, inline_lc.initial_state, initial_states[0].key
-                    ),
-                });
-            }
+        for message in type_inline_lifecycle_messages(rt) {
+            diagnostics.push(ValidationDiagnostic {
+                code: None,
+                severity: DiagnosticSeverity::Error,
+                relative_path: "package/package.json".to_string(),
+                schema_id: None,
+                message,
+            });
         }
     }
 

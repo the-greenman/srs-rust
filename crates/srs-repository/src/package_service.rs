@@ -876,6 +876,7 @@ pub fn create_type_in_package(
     }
 
     refuse_misconfigured_cross_field_rules(store, &record_type)?;
+    refuse_invalid_type_definition(store, &record_type)?;
 
     if record_type.id.trim().is_empty() {
         record_type.id = new_instance_id();
@@ -920,6 +921,49 @@ fn refuse_misconfigured_cross_field_rules(
     Err(RepositoryError::InvalidInput {
         message: format!(
             "type '{}/{}@{}' has misconfigured cross-field rules (ext:cross-field-validation, I-92/94/95/96): {}",
+            record_type.namespace,
+            record_type.name,
+            record_type.version,
+            reasons.join("; ")
+        ),
+    })
+}
+
+/// The Type-level checks `repo validate` runs for one Type, applied at the write boundary
+/// so a write cannot leave a repository that fails its own gate (srs-rust#1543): I-131
+/// distinct effective field names, I-4/I-5 inline lifecycle integrity, I-39 `extendsTypeId`
+/// resolution and acyclicity. The candidate is checked inside the package the store serves,
+/// replacing the stored copy of the same id and version, and the check functions are the
+/// ones `repo validate` calls. Nothing is written when this refuses.
+fn refuse_invalid_type_definition(
+    store: &dyn RepositoryStore,
+    record_type: &RecordType,
+) -> Result<(), RepositoryError> {
+    let mut package = store.load_package()?;
+    package
+        .record_types
+        .retain(|t| !(t.id == record_type.id && t.version == record_type.version));
+    package.record_types.push(record_type.clone());
+
+    let mut reasons: Vec<String> = Vec::new();
+    match package.effective_fields(record_type) {
+        Ok(_) => {
+            reasons.extend(crate::validation::type_duplicate_field_name_messages(
+                &package,
+                record_type,
+            ));
+        }
+        Err(e) => reasons.push(e.to_string()),
+    }
+    reasons.extend(crate::validation::type_inline_lifecycle_messages(
+        record_type,
+    ));
+    if reasons.is_empty() {
+        return Ok(());
+    }
+    Err(RepositoryError::InvalidInput {
+        message: format!(
+            "type '{}/{}@{}' would fail repo validate (I-131, I-4/I-5, I-39): {}",
             record_type.namespace,
             record_type.name,
             record_type.version,
@@ -1006,6 +1050,7 @@ fn update_type_inner(
     }
 
     refuse_misconfigured_cross_field_rules(store, &record_type)?;
+    refuse_invalid_type_definition(store, &record_type)?;
 
     if check_records {
         // The package as the write leaves it: this version replaced in place, or added
@@ -2189,6 +2234,100 @@ mod tests {
             !types.iter().any(|t| t.as_str().unwrap().contains("probe")),
             "no type file should have been registered after a rejected create"
         );
+    }
+
+    fn assert_type_refused_and_unwritten(
+        store: &MemoryStore,
+        result: Result<impl std::fmt::Debug, RepositoryError>,
+        needle: &str,
+        name: &str,
+    ) {
+        match result {
+            Err(RepositoryError::InvalidInput { message }) => assert!(
+                message.contains(needle),
+                "expected '{needle}' in refusal, got: {message}"
+            ),
+            other => panic!("expected InvalidInput naming '{needle}', got {other:?}"),
+        }
+        let pkg = store.load_package_json().unwrap();
+        assert!(
+            !pkg["types"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|t| t.as_str().unwrap().contains(name)),
+            "nothing may be written after a refused type write"
+        );
+    }
+
+    /// srs-rust#1543, I-4/I-5: an inline lifecycle `repo validate` rejects is refused at create.
+    #[test]
+    fn type_create_refuses_invalid_inline_lifecycle() {
+        let store = MemoryStore::default();
+        let mut rt = make_type("00000000-0000-0000-0000-000000000031", "bad-lifecycle");
+        rt.lifecycle = Some(
+            serde_json::from_value(serde_json::json!({
+                "initialState": "nope",
+                "states": [{"key": "draft"}],
+                "transitions": [{"name": "go", "from": "draft", "to": "gone"}]
+            }))
+            .unwrap(),
+        );
+        let result = create_type(&store, rt);
+        assert_type_refused_and_unwritten(&store, result, "unknown to-state", "bad-lifecycle");
+    }
+
+    /// srs-rust#1543, I-39: `extendsTypeId` naming no Type is refused at create.
+    #[test]
+    fn type_create_refuses_unresolved_extends() {
+        let store = MemoryStore::default();
+        let mut rt = make_type("00000000-0000-0000-0000-000000000032", "orphan-child");
+        rt.extends_type_id = Some("00000000-0000-0000-0000-0000000000aa".to_string());
+        let result = create_type(&store, rt);
+        assert_type_refused_and_unwritten(
+            &store,
+            result,
+            "would fail repo validate",
+            "orphan-child",
+        );
+    }
+
+    /// srs-rust#1543, I-39: an update that makes a Type extend itself (a cycle) is refused.
+    #[test]
+    fn type_update_refuses_extends_cycle() {
+        let id = "00000000-0000-0000-0000-000000000033";
+        let store = MemoryStore::with_type(make_type(id, "cyclic"));
+        let mut rt = make_type(id, "cyclic");
+        rt.extends_type_id = Some(id.to_string());
+        let result = update_type(&store, rt);
+        assert!(
+            matches!(result, Err(RepositoryError::InvalidInput { ref message }) if message.contains("would fail repo validate")),
+            "expected a refusal, got {result:?}"
+        );
+    }
+
+    /// srs-rust#1543, I-131: two Fields sharing a name in one Type's field set are refused.
+    #[test]
+    fn type_create_refuses_duplicate_effective_field_name() {
+        let store =
+            MemoryStore::with_field(make_field("aaaa0041-0000-0000-0000-000000000041", "title"));
+        let mut rt = make_type("00000000-0000-0000-0000-000000000034", "dup-names");
+        rt.fields = [
+            "aaaa0041-0000-0000-0000-000000000041",
+            "aaaa0041-0000-0000-0000-000000000041",
+        ]
+        .iter()
+        .enumerate()
+        .map(|(i, id)| srs_core::types::record_type::FieldAssignment {
+            field_id: id.to_string(),
+            order: i as u32,
+            required: false,
+            display_label: None,
+            description: None,
+        })
+        .collect();
+        let result = create_type(&store, rt);
+        assert_type_refused_and_unwritten(&store, result, "title", "dup-names");
     }
 
     fn mixed_kind_rules() -> Vec<srs_core::types::record_type::CrossFieldRule> {
