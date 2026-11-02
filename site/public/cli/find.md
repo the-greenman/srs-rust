@@ -94,6 +94,9 @@ Options:
           
           [default: full]
 
+      --fields <NAMES>
+          Add the values of these Fields (`Field.name`, comma-separated) to each record hit as `fieldValues`, in any projection. A name no Field defines is a `find-field-unknown` warning in `diagnostics`
+
       --similar <INSTANCE_ID>
           More like this: instances similar to this instance (Record or Note id), ranked by BM25 over its top-weighted terms, excluding itself. The other filters narrow the candidates; not combinable with --text
 
