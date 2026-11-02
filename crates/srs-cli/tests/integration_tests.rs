@@ -6238,7 +6238,7 @@ fn minimal_view_json() -> String {
         "version": 1,
         "description": "A test view",
         "compatibleTypes": ["core/decision"],
-        "fieldViews": [{ "fieldId": "f1", "order": 0 }],
+        "fieldViews": [{ "fieldId": "3b000001-0000-4000-a000-000000000001", "order": 0 }],
         "createdAt": "2026-01-01T00:00:00Z"
     })
     .to_string()
@@ -6324,7 +6324,7 @@ fn view_list_filters_by_namespace() {
         "version": 1,
         "description": "Other namespace view",
         "compatibleTypes": ["org.coop/governance_decision"],
-        "fieldViews": [{ "fieldId": "f1", "order": 0 }],
+        "fieldViews": [{ "fieldId": "3b000001-0000-4000-a000-000000000001", "order": 0 }],
         "createdAt": "2026-01-01T00:00:00Z"
     })
     .to_string();
@@ -6350,7 +6350,7 @@ fn view_list_filters_by_compatible_type_hint() {
         "version": 1,
         "description": "Other view",
         "compatibleTypes": ["org.coop/governance_decision"],
-        "fieldViews": [{ "fieldId": "f1", "order": 0 }],
+        "fieldViews": [{ "fieldId": "3b000001-0000-4000-a000-000000000001", "order": 0 }],
         "createdAt": "2026-01-01T00:00:00Z"
     })
     .to_string();
@@ -6377,7 +6377,7 @@ fn view_update_changes_description() {
         "version": 1,
         "description": "Updated description",
         "compatibleTypes": ["core/decision", "org.coop/emergency_decision"],
-        "fieldViews": [{ "fieldId": "f1", "order": 0 }],
+        "fieldViews": [{ "fieldId": "3b000001-0000-4000-a000-000000000001", "order": 0 }],
         "createdAt": "2026-01-01T00:00:00Z"
     })
     .to_string();

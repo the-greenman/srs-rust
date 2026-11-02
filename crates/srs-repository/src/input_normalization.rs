@@ -177,7 +177,7 @@ mod create_normalization_tests {
             "namespace": "com.test",
             "name": "test-view",
             "version": 1,
-            "fieldViews": [ { "fieldId": "f1", "order": 0 } ]
+            "fieldViews": [ { "fieldId": crate::core_package::core_package().fields[0].id, "order": 0 } ]
         });
         let result = crate::view_service::create_view_normalized(&store, raw, None)
             .expect("view create without createdAt should succeed");

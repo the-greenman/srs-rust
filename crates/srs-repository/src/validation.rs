@@ -1374,6 +1374,7 @@ pub fn validate_repository(
         validate_identity_field_invariants(pkg, &mut diagnostics);
         validate_field_type_conformance(pkg, &mut diagnostics);
         validate_title_field_id_eligibility(pkg, &mut diagnostics);
+        validate_definition_references(pkg, &mut diagnostics);
         validate_cross_field_rule_configuration(pkg, &mut diagnostics);
     } else if package_for_tier2.is_none() {
         // Only fresh-load when no tier-2 records were processed (note-only repo).
@@ -1383,6 +1384,7 @@ pub fn validate_repository(
             validate_identity_field_invariants(&pkg, &mut diagnostics);
             validate_field_type_conformance(&pkg, &mut diagnostics);
             validate_title_field_id_eligibility(&pkg, &mut diagnostics);
+            validate_definition_references(&pkg, &mut diagnostics);
             validate_cross_field_rule_configuration(&pkg, &mut diagnostics);
         }
     }
@@ -2266,6 +2268,85 @@ fn validate_title_field_id_eligibility(
                     });
                 }
             }
+        }
+    }
+}
+
+/// I-12 for one View: every `fieldViews[].fieldId` names a Field in the effective package
+/// set. The sites come from the RFC-003 reference-site table, so there is one list of paths
+/// (ADR-048 rule 3). Shared by `repo validate` and the pre-write refusal in `view_service`
+/// (srs-rust#1544).
+pub(crate) fn view_field_reference_messages(
+    pkg: &crate::package::Package,
+    view: &srs_core::types::view::View,
+) -> Vec<String> {
+    let Ok(value) = serde_json::to_value(view) else {
+        return Vec::new();
+    };
+    crate::reference_sites::followed_references(crate::package_types::DefinitionKind::View, &value)
+        .into_iter()
+        .filter(|r| r.path.starts_with("/fieldViews/") && r.path.ends_with("/fieldId"))
+        .filter(|r| pkg.resolve_field(&r.id).is_none())
+        .map(|r| {
+            format!(
+                "view '{}' ({}): I-12 fieldViews fieldId '{}' at {} names no Field in the effective package set",
+                view.name, view.id, r.id, r.path
+            )
+        })
+        .collect()
+}
+
+/// I-35 for one Composition: every `sections[].renderViewId` names a View in the effective
+/// package set (RFC-029 core definitions resolve without being carried). Shared by
+/// `repo validate` and the pre-write refusal in `view_service` (srs-rust#1544).
+pub(crate) fn composition_render_view_messages(
+    pkg: &crate::package::Package,
+    composition: &srs_core::types::view::Composition,
+) -> Vec<String> {
+    let Ok(value) = serde_json::to_value(composition) else {
+        return Vec::new();
+    };
+    crate::reference_sites::followed_references(
+        crate::package_types::DefinitionKind::Composition,
+        &value,
+    )
+    .into_iter()
+    .filter(|r| r.path.starts_with("/sections/") && r.path.ends_with("/renderViewId"))
+    .filter(|r| pkg.resolve_view(&r.id).is_none())
+    .map(|r| {
+        format!(
+            "composition '{}' ({}): I-35 renderViewId '{}' at {} names no View in the effective package set",
+            composition.name, composition.id, r.id, r.path
+        )
+    })
+    .collect()
+}
+
+/// I-12 and I-35 over every View and Composition of the package.
+fn validate_definition_references(
+    pkg: &crate::package::Package,
+    diagnostics: &mut Vec<ValidationDiagnostic>,
+) {
+    for view in &pkg.views {
+        for message in view_field_reference_messages(pkg, view) {
+            diagnostics.push(ValidationDiagnostic {
+                code: Some("view-field-unresolved".to_string()),
+                severity: DiagnosticSeverity::Error,
+                relative_path: "package/package.json".to_string(),
+                schema_id: None,
+                message,
+            });
+        }
+    }
+    for composition in &pkg.compositions {
+        for message in composition_render_view_messages(pkg, composition) {
+            diagnostics.push(ValidationDiagnostic {
+                code: Some("composition-render-view-unresolved".to_string()),
+                severity: DiagnosticSeverity::Error,
+                relative_path: "package/package.json".to_string(),
+                schema_id: None,
+                message,
+            });
         }
     }
 }
