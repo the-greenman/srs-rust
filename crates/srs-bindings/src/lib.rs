@@ -2031,6 +2031,15 @@ impl SrsRepository {
         to_js(&result)
     }
 
+    /// The repository's RFC-017 attachment policy (srs-rust#638), structured — the same shape
+    /// as the CLI `attachment policy-get` payload: `{policyRecordPresent, allowedMimeTypes?,
+    /// maxPerFileBytes?, maxDocBytes?, maxTotalBytes?}`. An absent limit means no limit.
+    pub fn get_attachment_policy(&self) -> Result<JsValue, JsValue> {
+        let result = srs_repository::attachment_policy_service::read_attachment_policy(&self.store)
+            .map_err(|e| js_err(&e))?;
+        to_js(&result)
+    }
+
     /// Store a source-document attachment from raw bytes.
     ///
     /// `input_json` is `{"fileName":"...","subdir"?:"...","title"?:"...","contentType"?:"..."}`.
@@ -2310,6 +2319,35 @@ mod tests {
 
     /// Native coverage of the non-JS half of `js_invalid_input`; the `Error`
     /// construction itself is covered by the wasm32 build only.
+    /// srs-rust#638: the policy result serialises flat and camelCase, as the CLI payload does.
+    #[test]
+    fn attachment_policy_serialises_like_the_cli_payload() {
+        use srs_repository::attachment_policy_service::{
+            read_attachment_policy, AttachmentPolicy, ReadAttachmentPolicyResult,
+        };
+        let store = super::create_blank_from_json(
+            r#"{"title":"T","description":"Why","namespace":"com.t.x"}"#,
+        )
+        .unwrap();
+        let blank = serde_json::to_value(read_attachment_policy(&store).unwrap()).unwrap();
+        assert_eq!(blank, serde_json::json!({"policyRecordPresent": false}));
+
+        let set = ReadAttachmentPolicyResult {
+            policy: AttachmentPolicy {
+                allowed_mime_types: Some(vec!["text/plain".into()]),
+                max_per_file_bytes: Some(1),
+                max_doc_bytes: Some(2),
+                max_total_bytes: Some(3),
+            },
+            policy_record_present: true,
+        };
+        assert_eq!(
+            serde_json::to_value(set).unwrap(),
+            serde_json::json!({"policyRecordPresent": true, "allowedMimeTypes": ["text/plain"],
+                "maxPerFileBytes": 1, "maxDocBytes": 2, "maxTotalBytes": 3})
+        );
+    }
+
     #[test]
     fn invalid_input_report_is_coded() {
         let r = srs_repository::error::RepositoryError::InvalidInput {
