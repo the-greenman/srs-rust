@@ -1,8 +1,14 @@
 use crate::error::RepositoryError;
 use serde::Deserialize;
-use srs_core::extensions::registry::{Registry, RegistryEntry};
+use srs_core::extensions::registry::{
+    self, EntryOutcome, LoadedRegistry, PackageEntry, RegistryEntry, RegistryRefusal,
+    REGISTRY_REVISION,
+};
 use std::path::PathBuf;
 
+/// Discovery criteria for `registry list` (RFC-049: lookup by display fields is
+/// discovery, never resolution). `publisher` and `tags` are package fields, so a
+/// set criterion excludes entries of every other kind.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RegistryListFilter {
@@ -11,7 +17,28 @@ pub struct RegistryListFilter {
     pub tags: Vec<String>,
 }
 
-fn read_registry_file(path: &std::path::Path) -> Result<Registry, RepositoryError> {
+fn refused(r: RegistryRefusal) -> RepositoryError {
+    match r {
+        RegistryRefusal::Malformed(message) => RepositoryError::RegistryMalformed { message },
+        RegistryRefusal::RevisionUnsupported { found } => {
+            RepositoryError::RegistryRevisionUnsupported {
+                found,
+                supported: REGISTRY_REVISION,
+            }
+        }
+    }
+}
+
+/// Parse and load a registry document (RFC-049 [R9], [R15]): the whole document is
+/// refused only when malformed or stamped too new; bad entries fail on their own.
+pub fn parse_registry_json(json: &str) -> Result<LoadedRegistry, RepositoryError> {
+    let doc = serde_json::from_str(json).map_err(|e| RepositoryError::RegistryMalformed {
+        message: e.to_string(),
+    })?;
+    registry::load(doc).map_err(refused)
+}
+
+fn read_registry_file(path: &std::path::Path) -> Result<LoadedRegistry, RepositoryError> {
     let content = std::fs::read_to_string(path).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             RepositoryError::NotFound {
@@ -24,40 +51,31 @@ fn read_registry_file(path: &std::path::Path) -> Result<Registry, RepositoryErro
             }
         }
     })?;
-    serde_json::from_str(&content).map_err(|source| RepositoryError::RegistryLoad {
-        path: path.to_path_buf(),
-        source,
-    })
+    parse_registry_json(&content)
 }
 
-/// Parse a registry JSON string into a `Registry`.
-/// Returns `RegistryParse` on deserialization failure.
-pub fn parse_registry_json(json: &str) -> Result<Registry, RepositoryError> {
-    serde_json::from_str(json).map_err(|source| RepositoryError::RegistryParse { source })
-}
-
-/// Apply a `RegistryListFilter` to a `Registry`, returning a new `Registry` with
-/// only entries that match all supplied filter criteria (absent = wildcard).
-pub fn filter_registry_entries(mut registry: Registry, filter: &RegistryListFilter) -> Registry {
-    registry.entries.retain(|entry| {
-        if let Some(pub_filter) = &filter.publisher {
-            if &entry.publisher != pub_filter {
-                return false;
+/// Keep the entries that match every supplied criterion (absent = wildcard).
+pub fn filter_registry_entries(
+    entries: Vec<RegistryEntry>,
+    filter: &RegistryListFilter,
+) -> Vec<RegistryEntry> {
+    let unfiltered = filter.publisher.is_none() && filter.tags.is_empty();
+    entries
+        .into_iter()
+        .filter(|entry| match entry {
+            RegistryEntry::Package(p) => {
+                filter
+                    .publisher
+                    .as_ref()
+                    .is_none_or(|pb| &p.publisher == pb)
+                    && filter
+                        .tags
+                        .iter()
+                        .all(|t| p.tags.as_ref().is_some_and(|ts| ts.contains(t)))
             }
-        }
-        for tag in &filter.tags {
-            match &entry.tags {
-                Some(tags) => {
-                    if !tags.contains(tag) {
-                        return false;
-                    }
-                }
-                None => return false,
-            }
-        }
-        true
-    });
-    registry
+            _ => unfiltered,
+        })
+        .collect()
 }
 
 #[derive(Debug)]
@@ -68,37 +86,37 @@ pub struct ListRegistryInput {
 
 #[derive(Debug)]
 pub struct ListRegistryResult {
-    pub registry_id: String,
-    pub registry_name: String,
-    pub catalog_version: String,
-    pub updated_at: String,
+    pub registry_revision: u64,
+    pub registry_id: Option<String>,
+    pub registry_name: Option<String>,
+    pub catalog_version: Option<String>,
+    pub updated_at: Option<String>,
     pub homepage: Option<String>,
     pub entries: Vec<RegistryEntry>,
+    pub outcomes: Vec<EntryOutcome>,
     pub total_count: usize,
     pub filtered_count: usize,
 }
 
-/// Load a registry from a file path, apply an optional filter, and return
-/// summary metadata alongside the matching entries and counts.
+/// Load a registry from a file path, apply an optional filter, and return the
+/// catalog fields alongside the matching entries, the per-entry load outcomes
+/// ([R15]) and counts (`totalCount` counts the entries that loaded).
 pub fn list_registry(input: ListRegistryInput) -> Result<ListRegistryResult, RepositoryError> {
-    let registry = read_registry_file(&input.path)?;
-    let total_count = registry.entries.len();
-    let registry_id = registry.registry_id.clone();
-    let registry_name = registry.registry_name.clone();
-    let catalog_version = registry.catalog_version.clone();
-    let updated_at = registry.updated_at.clone();
-    let homepage = registry.homepage.clone();
-    let filtered = filter_registry_entries(registry, &input.filter);
-    let filtered_count = filtered.entries.len();
+    let loaded = read_registry_file(&input.path)?;
+    let total_count = loaded.entries.len();
+    let doc = loaded.registry;
+    let entries = filter_registry_entries(loaded.entries, &input.filter);
     Ok(ListRegistryResult {
-        registry_id,
-        registry_name,
-        catalog_version,
-        updated_at,
-        homepage,
-        entries: filtered.entries,
+        registry_revision: doc.registry_revision.unwrap_or(REGISTRY_REVISION),
+        registry_id: doc.registry_id,
+        registry_name: doc.registry_name,
+        catalog_version: doc.catalog_version,
+        updated_at: doc.updated_at,
+        homepage: doc.homepage,
+        filtered_count: entries.len(),
+        entries,
+        outcomes: loaded.outcomes,
         total_count,
-        filtered_count,
     })
 }
 
@@ -110,235 +128,191 @@ pub struct GetRegistryEntryInput {
 
 #[derive(Debug)]
 pub struct GetRegistryEntryResult {
-    pub registry_id: String,
-    pub entry: RegistryEntry,
+    pub registry_id: Option<String>,
+    pub entries: Vec<PackageEntry>,
 }
 
-/// Load a registry from a file path and look up a single entry by `package_name`.
-/// Returns `RegistryEntryNotFound` when no match exists.
+/// Discovery by `packageName` (RFC-049 [R3]: a display field never resolves):
+/// every package entry with that name, one per version. Returns
+/// `RegistryEntryNotFound` when none matches.
 pub fn get_registry_entry(
     input: GetRegistryEntryInput,
 ) -> Result<GetRegistryEntryResult, RepositoryError> {
-    let registry = read_registry_file(&input.path)?;
-    let registry_id = registry.registry_id.clone();
-    registry
+    let loaded = read_registry_file(&input.path)?;
+    let entries: Vec<PackageEntry> = loaded
         .entries
         .into_iter()
-        .find(|e| e.package_name == input.package_name)
-        .map(|entry| GetRegistryEntryResult { registry_id, entry })
-        .ok_or_else(|| RepositoryError::RegistryEntryNotFound {
-            package_name: input.package_name,
+        .filter_map(|e| match e {
+            RegistryEntry::Package(p) if p.package_name == input.package_name => Some(p),
+            _ => None,
         })
+        .collect();
+    if entries.is_empty() {
+        return Err(RepositoryError::RegistryEntryNotFound {
+            package_name: input.package_name,
+        });
+    }
+    Ok(GetRegistryEntryResult {
+        registry_id: loaded.registry.registry_id,
+        entries,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use srs_core::extensions::registry::{Registry, RegistryEntry};
+    use serde_json::{json, Value};
     use std::io::Write;
 
-    fn make_entry(package_name: &str, publisher: &str, tags: Option<Vec<&str>>) -> RegistryEntry {
-        RegistryEntry {
-            package_id: format!("00000000-0000-4000-a000-{:012}", package_name.len()),
-            package_name: package_name.to_string(),
-            package_version: "1.0.0".to_string(),
-            publisher: publisher.to_string(),
-            description: None,
-            published_at: "2026-01-01T00:00:00Z".to_string(),
-            homepage: None,
-            tags: tags.map(|ts| ts.into_iter().map(|t| t.to_string()).collect()),
-            field_count: 5,
-            type_count: 2,
-            view_count: None,
-            schema_count: None,
-            protocol_count: None,
-            relation_type_count: None,
-            download_url: None,
-            checksum: None,
-        }
+    fn package(name: &str, version: &str, publisher: &str, tags: &[&str]) -> Value {
+        json!({
+            "kind": "package", "locator": {"mode": "remote", "url": "https://example.com/p.srspkg"},
+            "packageId": format!("00000000-0000-4000-a000-{:012}", name.bytes().map(u64::from).sum::<u64>()),
+            "packageName": name, "packageVersion": version, "publisher": publisher,
+            "publishedAt": "2026-01-01T00:00:00Z", "fieldCount": 5, "typeCount": 2,
+            "tags": tags
+        })
     }
 
-    fn make_registry(entries: Vec<RegistryEntry>) -> Registry {
-        Registry {
-            schema_version: "1.0".to_string(),
-            registry_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".to_string(),
-            registry_name: "Test Registry".to_string(),
-            catalog_version: "1.0.0".to_string(),
-            updated_at: "2026-07-01T00:00:00Z".to_string(),
-            homepage: None,
-            entries,
-        }
+    fn repository() -> Value {
+        json!({"kind": "repository", "id": "00000009-0000-4000-a000-000000000009",
+               "locator": {"mode": "local", "path": "../research"}, "readOnly": true})
     }
 
-    fn registry_to_json(registry: &Registry) -> String {
-        serde_json::to_string(registry).unwrap()
-    }
-
-    fn write_registry_file(registry: &Registry) -> tempfile::NamedTempFile {
+    fn write_registry_file(entries: Vec<Value>) -> tempfile::NamedTempFile {
         let mut f = tempfile::NamedTempFile::new().unwrap();
-        write!(f, "{}", registry_to_json(registry)).unwrap();
+        let doc = json!({"registryRevision": 1, "registryId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                         "registryName": "Test Registry", "entries": entries});
+        write!(f, "{doc}").unwrap();
         f
     }
 
-    #[test]
-    fn list_registry_no_filter_returns_all_entries() {
-        let entries = vec![
-            make_entry("com.a.pkg", "a.com", None),
-            make_entry("com.b.pkg", "b.com", None),
-        ];
-        let registry = make_registry(entries);
-        let f = write_registry_file(&registry);
-        let result = list_registry(ListRegistryInput {
+    fn list(entries: Vec<Value>, filter: RegistryListFilter) -> ListRegistryResult {
+        let f = write_registry_file(entries);
+        list_registry(ListRegistryInput {
             path: f.path().to_path_buf(),
-            filter: RegistryListFilter::default(),
+            filter,
         })
-        .unwrap();
-        assert_eq!(result.total_count, 2);
-        assert_eq!(result.filtered_count, 2);
-        assert_eq!(result.entries.len(), 2);
-        assert_eq!(result.registry_id, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+        .unwrap()
+    }
+
+    fn names(r: &ListRegistryResult) -> Vec<&str> {
+        r.entries
+            .iter()
+            .map(|e| match e {
+                RegistryEntry::Package(p) => p.package_name.as_str(),
+                RegistryEntry::Repository(_) => "repository",
+            })
+            .collect()
     }
 
     #[test]
-    fn list_registry_filter_by_publisher() {
+    fn list_registry_no_filter_returns_every_kind() {
+        let r = list(
+            vec![package("com.a.pkg", "1.0.0", "a.com", &[]), repository()],
+            RegistryListFilter::default(),
+        );
+        assert_eq!((r.total_count, r.filtered_count), (2, 2));
+        assert_eq!(names(&r), vec!["com.a.pkg", "repository"]);
+        assert_eq!(
+            r.registry_id.as_deref(),
+            Some("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+        );
+        assert_eq!(r.registry_revision, 1);
+    }
+
+    #[test]
+    fn list_registry_filters_match_package_fields_only() {
         let entries = vec![
-            make_entry("com.a.pkg", "a.com", None),
-            make_entry("com.b.pkg", "b.com", None),
-            make_entry("com.c.pkg", "a.com", None),
+            package("com.a.pkg", "1.0.0", "a.com", &["official", "governance"]),
+            package("com.b.pkg", "1.0.0", "a.com", &["official"]),
+            package("com.c.pkg", "1.0.0", "c.com", &["official", "governance"]),
+            repository(),
         ];
-        let registry = make_registry(entries);
-        let f = write_registry_file(&registry);
-        let result = list_registry(ListRegistryInput {
-            path: f.path().to_path_buf(),
-            filter: RegistryListFilter {
-                publisher: Some("a.com".to_string()),
+        let by_publisher = list(
+            entries.clone(),
+            RegistryListFilter {
+                publisher: Some("a.com".into()),
                 tags: vec![],
             },
-        })
-        .unwrap();
-        assert_eq!(result.total_count, 3);
-        assert_eq!(result.filtered_count, 2);
-        assert!(result.entries.iter().all(|e| e.publisher == "a.com"));
-    }
-
-    #[test]
-    fn list_registry_filter_by_tag() {
-        let entries = vec![
-            make_entry("com.a.pkg", "a.com", Some(vec!["governance"])),
-            make_entry("com.b.pkg", "b.com", Some(vec!["risk"])),
-            make_entry("com.c.pkg", "c.com", None),
-        ];
-        let registry = make_registry(entries);
-        let f = write_registry_file(&registry);
-        let result = list_registry(ListRegistryInput {
-            path: f.path().to_path_buf(),
-            filter: RegistryListFilter {
-                publisher: None,
-                tags: vec!["governance".to_string()],
+        );
+        assert_eq!(names(&by_publisher), vec!["com.a.pkg", "com.b.pkg"]);
+        let by_both = list(
+            entries,
+            RegistryListFilter {
+                publisher: Some("a.com".into()),
+                tags: vec!["official".into(), "governance".into()],
             },
-        })
-        .unwrap();
-        assert_eq!(result.total_count, 3);
-        assert_eq!(result.filtered_count, 1);
-        assert_eq!(result.entries[0].package_name, "com.a.pkg");
+        );
+        assert_eq!(names(&by_both), vec!["com.a.pkg"]);
+        assert_eq!(by_both.total_count, 4);
     }
 
     #[test]
-    fn list_registry_filter_both_publisher_and_tag() {
-        let entries = vec![
-            make_entry("com.a.pkg", "a.com", Some(vec!["governance"])),
-            make_entry("com.b.pkg", "a.com", Some(vec!["risk"])),
-            make_entry("com.c.pkg", "b.com", Some(vec!["governance"])),
-        ];
-        let registry = make_registry(entries);
-        let f = write_registry_file(&registry);
-        let result = list_registry(ListRegistryInput {
-            path: f.path().to_path_buf(),
-            filter: RegistryListFilter {
-                publisher: Some("a.com".to_string()),
-                tags: vec!["governance".to_string()],
-            },
-        })
-        .unwrap();
-        assert_eq!(result.total_count, 3);
-        assert_eq!(result.filtered_count, 1);
-        assert_eq!(result.entries[0].package_name, "com.a.pkg");
+    fn list_registry_reports_entry_outcomes_without_failing() {
+        let mut bad = repository();
+        bad["readOnly"] = json!("yes");
+        let r = list(
+            vec![bad, package("com.a.pkg", "1.0.0", "a.com", &[])],
+            RegistryListFilter::default(),
+        );
+        assert_eq!(names(&r), vec!["com.a.pkg"]);
+        assert_eq!(r.outcomes[0].code, "entry-malformed");
     }
 
     #[test]
-    fn list_registry_filter_by_multiple_tags_and_conjunction() {
-        let entries = vec![
-            make_entry("com.a.pkg", "a.com", Some(vec!["governance", "risk"])),
-            make_entry("com.b.pkg", "b.com", Some(vec!["governance"])),
-            make_entry("com.c.pkg", "c.com", Some(vec!["risk"])),
-        ];
-        let registry = make_registry(entries);
-        let f = write_registry_file(&registry);
-        let result = list_registry(ListRegistryInput {
-            path: f.path().to_path_buf(),
-            filter: RegistryListFilter {
-                publisher: None,
-                tags: vec!["governance".to_string(), "risk".to_string()],
-            },
-        })
-        .unwrap();
-        assert_eq!(result.total_count, 3);
-        assert_eq!(result.filtered_count, 1);
-        assert_eq!(result.entries[0].package_name, "com.a.pkg");
-    }
-
-    #[test]
-    fn parse_registry_json_roundtrip() {
-        let registry = make_registry(vec![make_entry("com.x.pkg", "x.com", None)]);
-        let json = registry_to_json(&registry);
-        let parsed = parse_registry_json(&json).unwrap();
-        assert_eq!(parsed.registry_id, registry.registry_id);
-        assert_eq!(parsed.entries[0].package_name, "com.x.pkg");
+    fn parse_registry_json_refusals_carry_codes() {
+        let malformed = parse_registry_json("not json").unwrap_err();
+        assert_eq!(malformed.code(), "registry-malformed");
+        let too_new = parse_registry_json(r#"{"registryRevision": 9, "entries": []}"#).unwrap_err();
+        assert_eq!(too_new.code(), "registry-revision-unsupported");
     }
 
     #[test]
     fn read_registry_file_missing_returns_error() {
         let result = list_registry(ListRegistryInput {
-            path: PathBuf::from("/nonexistent/path/registry.json"),
+            path: PathBuf::from("/nonexistent/registry.json"),
             filter: RegistryListFilter::default(),
         });
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            RepositoryError::NotFound { .. }
-        ));
+        assert!(matches!(result, Err(RepositoryError::NotFound { .. })));
     }
 
     #[test]
-    fn get_registry_entry_found() {
-        let entries = vec![
-            make_entry("com.a.pkg", "a.com", None),
-            make_entry("com.b.pkg", "b.com", None),
-        ];
-        let registry = make_registry(entries);
-        let f = write_registry_file(&registry);
+    fn get_registry_entry_is_discovery_returning_every_version() {
+        let f = write_registry_file(vec![
+            package("com.a.pkg", "1.0.0", "a.com", &[]),
+            package("com.b.pkg", "1.0.0", "b.com", &[]),
+            package("com.a.pkg", "2.0.0", "a.com", &[]),
+        ]);
         let result = get_registry_entry(GetRegistryEntryInput {
             path: f.path().to_path_buf(),
-            package_name: "com.a.pkg".to_string(),
+            package_name: "com.a.pkg".into(),
         })
         .unwrap();
-        assert_eq!(result.entry.package_name, "com.a.pkg");
-        assert_eq!(result.registry_id, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+        let versions: Vec<_> = result
+            .entries
+            .iter()
+            .map(|p| p.package_version.as_str())
+            .collect();
+        assert_eq!(versions, vec!["1.0.0", "2.0.0"]);
+        assert_eq!(
+            result.registry_id.as_deref(),
+            Some("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+        );
     }
 
     #[test]
     fn get_registry_entry_not_found() {
-        let registry = make_registry(vec![make_entry("com.a.pkg", "a.com", None)]);
-        let f = write_registry_file(&registry);
+        let f = write_registry_file(vec![package("com.a.pkg", "1.0.0", "a.com", &[])]);
         let err = get_registry_entry(GetRegistryEntryInput {
             path: f.path().to_path_buf(),
-            package_name: "com.missing.pkg".to_string(),
+            package_name: "com.z.pkg".into(),
         })
         .unwrap_err();
         assert_eq!(
             err,
             RepositoryError::RegistryEntryNotFound {
-                package_name: "com.missing.pkg".to_string()
+                package_name: "com.z.pkg".into()
             }
         );
     }

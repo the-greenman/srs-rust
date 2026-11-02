@@ -506,20 +506,19 @@ pub enum RepositoryError {
     },
 
     // ── ext:registry errors ───────────────────────────────────────────────────
-    #[error("failed to load registry at {path:?}: {source}")]
-    RegistryLoad {
-        path: PathBuf,
-        #[source]
-        #[serde(skip)]
-        source: serde_json::Error,
-    },
+    /// RFC-049 [R15]: the document is not a JSON object with an `entries` array.
+    #[error("registry is malformed: {message}")]
+    RegistryMalformed { message: String },
 
-    #[error("registry parse error: {source}")]
-    RegistryParse {
-        #[source]
-        #[serde(skip)]
-        source: serde_json::Error,
-    },
+    /// RFC-049 [R9]/[R15]: the registry is stamped above the supported revision.
+    #[error(
+        "registry revision {found} is not supported (this implementation reads up to {supported})"
+    )]
+    RegistryRevisionUnsupported { found: u64, supported: u64 },
+
+    /// RFC-049 [R5]/[R8]: the repository id is not in this implementation's boundary.
+    #[error("repository '{repository_id}' is not in this server's boundary")]
+    NotInBoundary { repository_id: String },
 
     #[error("registry entry not found: {package_name}")]
     RegistryEntryNotFound { package_name: String },
@@ -1177,10 +1176,23 @@ impl PartialEq for RepositoryError {
                 },
             ) => ka == kb && ia == ib && qa == qb,
             (
-                RepositoryError::RegistryLoad { path: a, .. },
-                RepositoryError::RegistryLoad { path: b, .. },
+                RepositoryError::RegistryMalformed { message: a },
+                RepositoryError::RegistryMalformed { message: b },
             ) => a == b,
-            (RepositoryError::RegistryParse { .. }, RepositoryError::RegistryParse { .. }) => true,
+            (
+                RepositoryError::RegistryRevisionUnsupported {
+                    found: a,
+                    supported: sa,
+                },
+                RepositoryError::RegistryRevisionUnsupported {
+                    found: b,
+                    supported: sb,
+                },
+            ) => a == b && sa == sb,
+            (
+                RepositoryError::NotInBoundary { repository_id: a },
+                RepositoryError::NotInBoundary { repository_id: b },
+            ) => a == b,
             (
                 RepositoryError::RegistryEntryNotFound { package_name: a },
                 RepositoryError::RegistryEntryNotFound { package_name: b },
@@ -1341,8 +1353,9 @@ impl RepositoryError {
             Self::VocabularyPromotionBlocked { .. } => "vocabulary-promotion-blocked",
             Self::InvalidInput { .. } => "invalid-input",
             Self::CorePackageConflict { .. } => "core-package-conflict",
-            Self::RegistryLoad { .. } => "registry-load",
-            Self::RegistryParse { .. } => "registry-parse",
+            Self::RegistryMalformed { .. } => "registry-malformed",
+            Self::RegistryRevisionUnsupported { .. } => "registry-revision-unsupported",
+            Self::NotInBoundary { .. } => "not-in-boundary",
             Self::RegistryEntryNotFound { .. } => "registry-entry-not-found",
             Self::RegistryIo { .. } => "registry-io",
             Self::RunInvalidState { .. } => "run-invalid-state",
@@ -1700,11 +1713,16 @@ mod tests {
                 id: "x".into(),
                 qualified_name: "x".into(),
             },
-            R::RegistryLoad {
-                path: PathBuf::new(),
-                source: je(),
+            R::RegistryMalformed {
+                message: "x".into(),
             },
-            R::RegistryParse { source: je() },
+            R::RegistryRevisionUnsupported {
+                found: 2,
+                supported: 1,
+            },
+            R::NotInBoundary {
+                repository_id: "x".into(),
+            },
             R::RegistryEntryNotFound {
                 package_name: "x".into(),
             },
@@ -1763,7 +1781,7 @@ mod tests {
         let all = all_variants();
         assert_eq!(
             all.len(),
-            104,
+            105,
             "all_variants() is out of step with the enum"
         );
         let mut seen = std::collections::HashSet::new();
