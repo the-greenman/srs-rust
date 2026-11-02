@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/registry.json",
+  "title": "SRS Registry",
+  "description": "An ext:registry registry (RFC-049): one catalog of entries by kind, each mapping an identity to a locator, held outside everything it lists. A published catalog fills in its catalog fields; an operator's own list of repositories carries entries only. The entry rules (RFC-049 [R3], [R4], [R14]) are rules, not schema constraints, so that a malformed entry fails only itself ([R15]) and an entry of a kind defined later still validates. The held form and the travelling form are this one document, written by RFC-003 [C5]'s canonical JSON rules ([R9]). The top level is closed, as every production schema is (rfc-decision-2e0cd70a); a writer still keeps top-level properties it does not understand on rewrite, and the validation complaint is their diagnostic.",
+  "type": "object",
+  "required": [
+    "entries"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "entries": {
+      "type": "array",
+      "description": "The registry's entries. Each states its kind and a locator in the LOCATOR shape; its other fields are defined by its kind (RFC-049 [R14]): package (identity packageId and packageVersion) or repository (identity id; optional readOnly). Ordered by kind, then by the kind's identity fields, then by the entry's own canonical serialization ([R9]).",
+      "items": {
+        "type": "object"
+      }
+    },
+    "registryRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "The registry's own generation counter, counting registry shapes only (RFC-049 [R9]). This shape is 1; an absent stamp reads as 0, a catalog written before RFC-049, which a reader brings forward by the 0-to-1 transformer. A reader refuses a registry stamped above its supported revision."
+    },
+    "schemaVersion": {
+      "type": "string",
+      "description": "SRS spec version the catalog was written against, e.g. '2.0'. Nothing gates on it; the generation is registryRevision alone."
+    },
+    "registryId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Optional catalog metadata. Nothing resolves by it."
+    },
+    "registryName": {
+      "type": "string",
+      "description": "Display name of a published catalog."
+    },
+    "catalogVersion": {
+      "type": "string",
+      "description": "A published catalog's own version (semver)."
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When a published catalog was last updated."
+    },
+    "homepage": {
+      "type": "string",
+      "description": "A published catalog's homepage."
+    }
+  }
+}
