@@ -14,7 +14,7 @@
 //! Idempotent: re-running on a stamped repository is a no-op.
 
 use crate::error::RepositoryError;
-use crate::package_service::update_field;
+use crate::package_service::update_field_for_migration;
 use crate::store::RepositoryStore;
 use serde::Serialize;
 
@@ -204,7 +204,7 @@ pub fn migrate_field_types(
             fields_skipped_not_owned += 1;
             continue;
         }
-        update_field(store, field.clone())?;
+        update_field_for_migration(store, field.clone())?;
         fields_migrated += 1;
     }
 
@@ -542,7 +542,7 @@ pub fn migrate_substrate_properties_to_meta(
             types_with_inline_lifecycle_skipped_not_owned += 1;
             continue;
         }
-        crate::package_service::update_type(store, record_type.clone())?;
+        crate::package_service::update_type_for_migration(store, record_type.clone())?;
         types_with_inline_lifecycle_migrated += 1;
     }
 
