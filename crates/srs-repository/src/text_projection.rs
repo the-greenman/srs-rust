@@ -65,6 +65,11 @@ impl FieldTextIndex {
         self.closed_names.contains(name)
     }
 
+    /// Whether a Field of this name exists in the effective package.
+    pub(crate) fn has_field_name(&self, name: &str) -> bool {
+        self.ids_by_name.contains_key(name)
+    }
+
     /// Borrow the prebuilt `field_id → field_name` map (no per-call allocation).
     pub(crate) fn names(&self) -> &HashMap<String, String> {
         &self.names
