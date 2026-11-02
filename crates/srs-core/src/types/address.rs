@@ -69,11 +69,14 @@ impl Address {
         }
     }
 
-    /// RFC-049 [R0]: `repositoryId` is a UUID; a document address names a container
-    /// or a record, and a field only within a record.
+    /// RFC-049 [R0]: `repositoryId` is a UUID in its 36-character hyphenated text
+    /// (any case; `urn:` and braced forms are not); a document address names a
+    /// container or a record, and a field only within a record.
     pub fn validate(&self) -> Result<(), String> {
         if let Some(id) = self.repository_id() {
-            uuid::Uuid::parse_str(id).map_err(|_| format!("repositoryId '{id}' is not a UUID"))?;
+            if id.len() != 36 || uuid::Uuid::parse_str(id).is_err() {
+                return Err(format!("repositoryId '{id}' is not a UUID"));
+            }
         }
         if let Address::Document(a) = self {
             if a.container_id.is_none() && a.record_id.is_none() {
@@ -89,6 +92,8 @@ impl Address {
     /// RFC-049 [R12]: equality of what two addresses name. An absent `repositoryId`
     /// stands for `holder`, the repository that holds the address (or that a request
     /// is made against); with a `recordId`, `containerId` is context and is ignored.
+    /// Every id component is a UUID and compares without regard to case; `stageId`
+    /// is a protocol stage key, not a UUID, and compares exactly.
     pub fn same_as(&self, other: &Address, holder: &str) -> bool {
         let repo = |a: &Address| Some(a.repository_id().unwrap_or(holder).to_string());
         if !same_id(&repo(self), &repo(other)) {
@@ -172,6 +177,12 @@ mod tests {
         assert!(doc(None, None, None, None).validate().is_err());
         assert!(doc(None, Some("c"), None, Some("f")).validate().is_err());
         assert!(doc(Some("not-a-uuid"), Some("c"), None, None)
+            .validate()
+            .is_err());
+        let urn = format!("urn:uuid:{REPO}");
+        let braced = format!("{{{REPO}}}");
+        assert!(doc(Some(&urn), Some("c"), None, None).validate().is_err());
+        assert!(doc(Some(&braced), Some("c"), None, None)
             .validate()
             .is_err());
         assert!(doc(Some(&REPO.to_uppercase()), Some("c"), None, None)
@@ -330,5 +341,18 @@ mod tests {
         let parsed: AttentionState = serde_json::from_value(v).unwrap();
         assert_eq!(parsed.protocol_run_id.as_deref(), Some("run-1"));
         assert_eq!(parsed.stage_id.as_deref(), Some("stage-a"));
+    }
+
+    #[test]
+    fn r12_stage_key_compares_exactly_and_run_id_ignores_case() {
+        let p = |run: &str, stage: &str| {
+            Address::Process(ProcessAddress {
+                repository_id: None,
+                run_id: run.into(),
+                stage_id: Some(stage.into()),
+            })
+        };
+        assert!(p("abc", "draft").same_as(&p("ABC", "draft"), REPO));
+        assert!(!p("abc", "draft").same_as(&p("abc", "Draft"), REPO));
     }
 }

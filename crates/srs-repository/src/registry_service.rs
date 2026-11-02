@@ -17,9 +17,12 @@ pub struct RegistryListFilter {
     pub tags: Vec<String>,
 }
 
-fn refused(r: RegistryRefusal) -> RepositoryError {
+fn refused(r: RegistryRefusal, path: Option<&std::path::Path>) -> RepositoryError {
     match r {
-        RegistryRefusal::Malformed(message) => RepositoryError::RegistryMalformed { message },
+        RegistryRefusal::Malformed(message) => RepositoryError::RegistryMalformed {
+            path: path.map(|p| p.to_path_buf()),
+            message,
+        },
         RegistryRefusal::RevisionUnsupported { found } => {
             RepositoryError::RegistryRevisionUnsupported {
                 found,
@@ -32,10 +35,16 @@ fn refused(r: RegistryRefusal) -> RepositoryError {
 /// Parse and load a registry document (RFC-049 [R9], [R15]): the whole document is
 /// refused only when malformed or stamped too new; bad entries fail on their own.
 pub fn parse_registry_json(json: &str) -> Result<LoadedRegistry, RepositoryError> {
-    let doc = serde_json::from_str(json).map_err(|e| RepositoryError::RegistryMalformed {
-        message: e.to_string(),
-    })?;
-    registry::load(doc).map_err(refused)
+    load_json(json, None)
+}
+
+fn load_json(
+    json: &str,
+    path: Option<&std::path::Path>,
+) -> Result<LoadedRegistry, RepositoryError> {
+    let doc = serde_json::from_str(json)
+        .map_err(|e| refused(RegistryRefusal::Malformed(e.to_string()), path))?;
+    registry::load(doc).map_err(|r| refused(r, path))
 }
 
 fn read_registry_file(path: &std::path::Path) -> Result<LoadedRegistry, RepositoryError> {
@@ -51,7 +60,7 @@ fn read_registry_file(path: &std::path::Path) -> Result<LoadedRegistry, Reposito
             }
         }
     })?;
-    parse_registry_json(&content)
+    load_json(&content, Some(path))
 }
 
 /// Keep the entries that match every supplied criterion (absent = wildcard).
@@ -266,6 +275,18 @@ mod tests {
         assert_eq!(malformed.code(), "registry-malformed");
         let too_new = parse_registry_json(r#"{"registryRevision": 9, "entries": []}"#).unwrap_err();
         assert_eq!(too_new.code(), "registry-revision-unsupported");
+    }
+
+    #[test]
+    fn malformed_file_reports_its_path() {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        write!(f, "[]").unwrap();
+        let err = list_registry(ListRegistryInput {
+            path: f.path().to_path_buf(),
+            filter: RegistryListFilter::default(),
+        })
+        .unwrap_err();
+        assert_eq!(err.report().details.unwrap()["path"], json!(f.path()));
     }
 
     #[test]

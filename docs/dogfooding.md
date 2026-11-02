@@ -1264,16 +1264,16 @@ $SRS_BIN repo validate --repo "$SCRATCH" --pretty
 
 ---
 
-## S25 — Browse a package registry catalog (`srs registry`, ext:registry, #244)
+## S25 — Browse a registry catalog (`srs registry`, ext:registry, #244, RFC-049 #1547)
 
-**Intention.** I want to discover which packages are available from a registry catalog, filter by publisher and topic tag, and look up a specific package — so I can decide which one to install into my repository.
+**Intention.** I want to discover which packages are available from a registry catalog, filter by publisher and topic tag, and look up a package by name — so I can decide which version to install. The same catalog can also list repositories (RFC-049): entries are kinded, every entry has a LOCATOR `locator`, and an entry that is wrong fails on its own without taking the catalog down.
 
-**Preparation.** Create a catalog file with several entries spanning two publishers and multiple tags.
+**Preparation.** Create a catalog with three package entries spanning two publishers and several tags, one repository entry, and one malformed entry.
 
 ```bash
 cat > /tmp/catalog.json <<'EOF'
 {
-  "schemaVersion": "1.0",
+  "registryRevision": 1,
   "registryId": "11111111-1111-4111-8111-111111111111",
   "registryName": "SemanticOps Public Registry",
   "catalogVersion": "2.0.0",
@@ -1281,6 +1281,8 @@ cat > /tmp/catalog.json <<'EOF'
   "homepage": "https://registry.semanticops.com",
   "entries": [
     {
+      "kind": "package",
+      "locator": {"mode": "remote", "url": "https://registry.semanticops.com/packages/governance-3.1.0.srspkg"},
       "packageId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       "packageName": "com.semanticops.governance",
       "packageVersion": "3.1.0",
@@ -1292,10 +1294,11 @@ cat > /tmp/catalog.json <<'EOF'
       "typeCount": 6,
       "viewCount": 3,
       "protocolCount": 2,
-      "downloadUrl": "https://registry.semanticops.com/packages/governance-3.1.0.tar.gz",
       "checksum": "sha256:abc123def456"
     },
     {
+      "kind": "package",
+      "locator": {"mode": "remote", "url": "https://registry.semanticops.com/packages/research-1.0.0.srspkg"},
       "packageId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       "packageName": "com.semanticops.research",
       "packageVersion": "1.0.0",
@@ -1305,10 +1308,11 @@ cat > /tmp/catalog.json <<'EOF'
       "tags": ["research", "evidence"],
       "fieldCount": 9,
       "typeCount": 3,
-      "downloadUrl": "https://registry.semanticops.com/packages/research-1.0.0.tar.gz",
       "checksum": "sha256:def789ghi012"
     },
     {
+      "kind": "package",
+      "locator": {"mode": "remote", "url": "https://example.com/packages/hrpolicies-2.3.0.srspkg"},
       "packageId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
       "packageName": "com.example.hrpolicies",
       "packageVersion": "2.3.0",
@@ -1318,21 +1322,32 @@ cat > /tmp/catalog.json <<'EOF'
       "tags": ["hr", "compliance", "policies"],
       "fieldCount": 22,
       "typeCount": 8,
-      "downloadUrl": "https://example.com/packages/hrpolicies-2.3.0.tar.gz",
       "checksum": "sha256:ghi345jkl678"
+    },
+    {
+      "kind": "repository",
+      "locator": {"mode": "local", "path": "../reference-copy"},
+      "id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      "label": "External reference copy",
+      "readOnly": true
+    },
+    {
+      "kind": "repository",
+      "locator": {"mode": "bundled", "id": "x"},
+      "id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
     }
   ]
 }
 EOF
 ```
 
-1. **List all entries.** Confirm `totalCount` and `filteredCount` are both 3; all three entries appear.
+1. **List all entries.** Confirm `ok: true`, `registryRevision` 1, `totalCount` and `filteredCount` both 4 (three packages and the repository), each entry carrying its `kind`, and one `outcomes` item: index 4, `entry-malformed` (a registry carries no `bundled` locator, RFC-049 [R3]).
 
 ```bash
 srs registry list --path /tmp/catalog.json --pretty
 ```
 
-2. **Filter by publisher.** Confirm only `com.semanticops.*` entries appear; `totalCount` stays 3 and `filteredCount` is 2.
+2. **Filter by publisher.** Confirm only `com.semanticops.*` packages appear; `totalCount` stays 4 and `filteredCount` is 2. `publisher` is a package field, so the repository entry drops out.
 
 ```bash
 srs registry list --path /tmp/catalog.json --publisher com.semanticops --pretty
@@ -1344,7 +1359,7 @@ srs registry list --path /tmp/catalog.json --publisher com.semanticops --pretty
 srs registry list --path /tmp/catalog.json --tag governance --pretty
 ```
 
-4. **Multi-tag AND-conjunction (#542).** Pass two `--tag` flags — both `governance` AND `risk` must be present. Only the governance entry carries both; `filteredCount` is 1. The research entry (`["research","evidence"]`) and hr entry (`["hr","compliance","policies"]`) are excluded.
+4. **Multi-tag AND-conjunction (#542).** Pass two `--tag` flags — both `governance` AND `risk` must be present. Only the governance entry carries both; `filteredCount` is 1.
 
 ```bash
 srs registry list --path /tmp/catalog.json --tag governance --tag risk --pretty
@@ -1356,30 +1371,44 @@ srs registry list --path /tmp/catalog.json --tag governance --tag risk --pretty
 srs registry list --path /tmp/catalog.json --publisher com.semanticops --tag risk --pretty
 ```
 
-6. **Get a specific entry.** Confirm `ok: true` and the returned `entry.packageName` matches.
+6. **Find a package by name (discovery).** Confirm `ok: true` and `entries` holds every version of the package (here one), each with `kind: "package"`. A name is a display field: it finds, it never resolves (RFC-049 [R3]).
 
 ```bash
 srs registry get --path /tmp/catalog.json --package-name com.semanticops.governance --pretty
 ```
 
-7. **Negative case — package not found.** Confirm `ok: false` with diagnostic `"registry entry not found: com.missing.package"`. Exit code must be 1.
+7. **A pre-RFC catalog migrates on read.** A catalog with no `registryRevision` and entries without `kind` (the old shape, `downloadUrl` instead of `locator`) loads: confirm `registryRevision` 1 and the entry's `locator` is `{"mode":"remote","url":…}`.
+
+```bash
+cat > /tmp/old-catalog.json <<'EOF'
+{"registryName": "Old", "entries": [{"packageId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "packageName": "com.old.pkg", "packageVersion": "1.0.0", "publisher": "old", "publishedAt": "2026-01-01T00:00:00Z", "fieldCount": 1, "typeCount": 1, "downloadUrl": "https://example.com/old.srspkg"}]}
+EOF
+srs registry list --path /tmp/old-catalog.json --pretty
+```
+
+8. **Negative case — package not found.** Confirm `ok: false` with code `registry-entry-not-found`. Exit code must be 1.
 
 ```bash
 srs registry get --path /tmp/catalog.json --package-name com.missing.package --pretty
 ```
 
-8. **Negative case — missing file.** Confirm `ok: false` with a "not found" diagnostic. Exit code must be 1.
+9. **Negative case — a registry too new.** Confirm `ok: false` with code `registry-revision-unsupported`; nothing is loaded.
+
+```bash
+echo '{"registryRevision": 9, "entries": []}' > /tmp/new-catalog.json
+srs registry list --path /tmp/new-catalog.json --pretty
+```
+
+10. **Negative case — missing file.** Confirm `ok: false` with a "not found" diagnostic. Exit code must be 1.
 
 ```bash
 srs registry list --path /tmp/nonexistent-registry.json --pretty
 ```
 
 **Done when:**
-- `filteredCount` ≤ `totalCount` in all list responses
-- Optional fields (`homepage`, `tags`, `viewCount`, `protocolCount`, etc.) appear only when populated in the catalog
-- Steps 7 and 8 return `ok: false` with a descriptive diagnostic — no crash, no null entry
-- Combined filter (step 5) is strictly AND — only entries matching both criteria appear
-- Multi-tag step (step 4): passing `--tag governance --tag risk` returns only entries that carry **both** tags (`filteredCount` 1); entries missing either tag are excluded
+- `filteredCount` ≤ `totalCount` in all list responses, and a malformed entry appears only in `outcomes`
+- Optional fields (`homepage`, `tags`, `viewCount`, `protocolCount`, `readOnly`, etc.) appear only when populated in the catalog
+- Steps 8, 9 and 10 return `ok: false` with a coded error — no crash, no null entry
 
 **Verified 2026-07-20 (#542):** All eight steps passed. Step 4 (multi-tag AND: `--tag governance --tag risk`) returned `filteredCount=1` with only `com.semanticops.governance` (the only entry carrying both tags). Steps 7 and 8 produce correct `ok: false` envelopes with exit code 1. `filter_json` for WASM callers uses `"tags": [...]`; passing the old `"tag": "..."` key now produces an explicit parse error (`deny_unknown_fields`).
 
@@ -3511,7 +3540,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `repo migrations` / `repo apply-migration` (enumerable migration registry with per-repo status, #461) | S30; service `migration_registry_service` verified in `crates/srs-repository/src/migration_registry_service.rs` (unit + cross-store roundtrip tests); WASM bindings (`available_migrations`, `apply_migration` on `SrsRepository`) verified in `crates/srs-bindings/tests/migration_registry.rs` (#461); **`core-relation-type-reference-cleanup` (#1341)** removes an identical reference copy of a core relation type from the repository's own (primary) package only, never an installed dependency's — see S59 |
 | `type` `validationRules` (ext:cross-field-validation — conditional-required / field-ordering / mutual-exclusion, #242); **CFR violations are now hard errors at `record create`/`record update` write time (#437)** — `repo validate` still enforces for any pre-existing records | S23 |
 | `tag` (definition) | _gap — being deprecated; see open issues_ |
-| `registry` (ext:registry — `registry list`, `registry get`) | S25; WASM free functions (`parse_registry`, `list_registry_entries`) verified via `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#244) |
+| `registry` (ext:registry — `registry list`, `registry get`; kinded entries, per-entry outcomes, the 0→1 migration, RFC-049 #1547) | S25; WASM free functions (`parse_registry`, `list_registry_entries`) verified via `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#244) |
 | `federation` (ext:federation) | _removed — srs decision 4f1e12e5 + owner disposition srs-rust#878 (2026-09-01); return is committed, see the spec roadmap's federation entry; S26 retired with it_ |
 | `relation neighbours` (bounded neighbour page, #1229) | S50 |
 | `context` (ext:addressability — `context field`, `context record`) | S48 (`context record` both-direction relations + `--container` subtree, #1134); S27 (historical — `context revision`/revision-tracing removed srs-rust#917); WASM bindings (`context_field`, `context_record` on `SrsRepository`) verified via native integration tests in `crates/srs-bindings/tests/context_query.rs` (#251) |

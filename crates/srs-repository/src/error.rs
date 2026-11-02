@@ -507,14 +507,18 @@ pub enum RepositoryError {
 
     // ── ext:registry errors ───────────────────────────────────────────────────
     /// RFC-049 [R15]: the document is not a JSON object with an `entries` array.
-    #[error("registry is malformed: {message}")]
-    RegistryMalformed { message: String },
+    #[error("registry{} is malformed: {message}", path.as_ref().map(|p| format!(" at {p:?}")).unwrap_or_default())]
+    RegistryMalformed {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        path: Option<PathBuf>,
+        message: String,
+    },
 
     /// RFC-049 [R9]/[R15]: the registry is stamped above the supported revision.
     #[error(
         "registry revision {found} is not supported (this implementation reads up to {supported})"
     )]
-    RegistryRevisionUnsupported { found: u64, supported: u64 },
+    RegistryRevisionUnsupported { found: String, supported: u64 },
 
     /// RFC-049 [R5]/[R8]: the repository id is not in this implementation's boundary.
     #[error("repository '{repository_id}' is not in this server's boundary")]
@@ -1176,9 +1180,15 @@ impl PartialEq for RepositoryError {
                 },
             ) => ka == kb && ia == ib && qa == qb,
             (
-                RepositoryError::RegistryMalformed { message: a },
-                RepositoryError::RegistryMalformed { message: b },
-            ) => a == b,
+                RepositoryError::RegistryMalformed {
+                    path: pa,
+                    message: a,
+                },
+                RepositoryError::RegistryMalformed {
+                    path: pb,
+                    message: b,
+                },
+            ) => pa == pb && a == b,
             (
                 RepositoryError::RegistryRevisionUnsupported {
                     found: a,
@@ -1714,10 +1724,11 @@ mod tests {
                 qualified_name: "x".into(),
             },
             R::RegistryMalformed {
+                path: None,
                 message: "x".into(),
             },
             R::RegistryRevisionUnsupported {
-                found: 2,
+                found: "2".into(),
                 supported: 1,
             },
             R::NotInBoundary {

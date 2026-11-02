@@ -75,7 +75,12 @@ pub enum RegistryEntry {
 }
 
 /// The registry document. Catalog fields are optional and resolve nothing;
-/// `entries` and unknown top-level properties are kept verbatim ([R9]).
+/// `entries` and unknown top-level properties are kept verbatim ([R9]). A catalog
+/// field of the wrong type reads as absent and is kept, unchanged, in `extra`.
+///
+/// ponytail: numbers are held as f64/i64/u64 (no `arbitrary_precision`), so a number
+/// in an unknown field or entry beyond f64 precision changes on rewrite; enable
+/// serde_json's `arbitrary_precision` if a registry ever needs exact large numbers.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Registry {
@@ -113,8 +118,9 @@ pub struct EntryOutcome {
 pub enum RegistryRefusal {
     /// `registry-malformed`: not a JSON object with an `entries` array.
     Malformed(String),
-    /// `registry-revision-unsupported`: stamped above the supported revision.
-    RevisionUnsupported { found: u64 },
+    /// `registry-revision-unsupported`: stamped above the supported revision, or
+    /// with a stamp that is not a non-negative integer.
+    RevisionUnsupported { found: String },
 }
 
 /// A loaded registry: the document (brought to [`REGISTRY_REVISION`]), its usable
@@ -153,6 +159,21 @@ fn migrate_0_to_1(entries: &mut [Value]) {
     }
 }
 
+/// A UUID in the 36-character hyphenated text form (any case).
+fn is_uuid_text(s: &str) -> bool {
+    s.len() == 36 && uuid::Uuid::parse_str(s).is_ok()
+}
+
+/// Catalog fields typed as strings on [`Registry`].
+const CATALOG_FIELDS: [&str; 6] = [
+    "schemaVersion",
+    "registryId",
+    "registryName",
+    "catalogVersion",
+    "updatedAt",
+    "homepage",
+];
+
 fn type_entry(raw: &Value) -> Result<RegistryEntry, (&'static str, String)> {
     let kind = raw.get("kind").and_then(Value::as_str);
     match kind {
@@ -163,12 +184,15 @@ fn type_entry(raw: &Value) -> Result<RegistryEntry, (&'static str, String)> {
         Some(_) => {
             let entry: RegistryEntry = serde_json::from_value(raw.clone())
                 .map_err(|e| ("entry-malformed", e.to_string()))?;
-            let empty = match &entry {
-                RegistryEntry::Package(p) => p.package_id.is_empty() || locator_empty(&p.locator),
-                RegistryEntry::Repository(r) => r.id.is_empty() || locator_empty(&r.locator),
+            let (id, locator) = match &entry {
+                RegistryEntry::Package(p) => (&p.package_id, &p.locator),
+                RegistryEntry::Repository(r) => (&r.id, &r.locator),
             };
-            if empty {
-                return Err(("entry-malformed", "empty identity or locator".into()));
+            if !is_uuid_text(id) {
+                return Err(("entry-malformed", format!("identity '{id}' is not a UUID")));
+            }
+            if locator_empty(locator) {
+                return Err(("entry-malformed", "empty locator".into()));
             }
             Ok(entry)
         }
@@ -204,17 +228,39 @@ fn identity_key(raw: &Value) -> Option<(String, Vec<String>)> {
 /// is not an object with `entries` or is stamped too new; migrate an unstamped
 /// (revision 0) document; then type each entry, failing only the entries involved.
 pub fn load(doc: Value) -> Result<LoadedRegistry, RegistryRefusal> {
+    let Value::Object(mut doc) = doc else {
+        return Err(RegistryRefusal::Malformed("not a JSON object".into()));
+    };
     if !doc.get("entries").is_some_and(Value::is_array) {
-        return Err(RegistryRefusal::Malformed(
-            "not a JSON object with an `entries` array".into(),
-        ));
+        return Err(RegistryRefusal::Malformed("no `entries` array".into()));
     }
-    let mut registry: Registry =
-        serde_json::from_value(doc).map_err(|e| RegistryRefusal::Malformed(e.to_string()))?;
-    match registry.registry_revision.unwrap_or(0) {
+    let revision = match doc.remove("registryRevision") {
+        None => 0,
+        Some(v) => v
+            .as_u64()
+            .ok_or_else(|| RegistryRefusal::RevisionUnsupported {
+                found: v.to_string(),
+            })?,
+    };
+    // A wrongly typed catalog field never refuses the document ([R15]): it is set
+    // aside, reads as absent, and goes back into `extra` to survive a rewrite.
+    let mut mistyped = Map::new();
+    for f in CATALOG_FIELDS {
+        if doc.get(f).is_some_and(|v| !v.is_string()) {
+            mistyped.extend(doc.remove_entry(f));
+        }
+    }
+    let mut registry: Registry = serde_json::from_value(Value::Object(doc))
+        .map_err(|e| RegistryRefusal::Malformed(e.to_string()))?;
+    registry.extra.extend(mistyped);
+    match revision {
         0 => migrate_0_to_1(&mut registry.entries),
         REGISTRY_REVISION => {}
-        found => return Err(RegistryRefusal::RevisionUnsupported { found }),
+        found => {
+            return Err(RegistryRefusal::RevisionUnsupported {
+                found: found.to_string(),
+            })
+        }
     }
     registry.registry_revision = Some(REGISTRY_REVISION);
 
@@ -356,8 +402,14 @@ mod tests {
         ));
         assert_eq!(
             load(json!({"registryRevision": 2, "entries": []})),
-            Err(RegistryRefusal::RevisionUnsupported { found: 2 })
+            Err(RegistryRefusal::RevisionUnsupported { found: "2".into() })
         );
+        for bad in [json!(-1), json!(1.5), json!("1")] {
+            assert!(matches!(
+                load(json!({"registryRevision": bad, "entries": []})),
+                Err(RegistryRefusal::RevisionUnsupported { .. })
+            ));
+        }
     }
 
     #[test]
@@ -455,5 +507,77 @@ mod tests {
             "members sorted at the top level"
         );
         assert!(once.contains(r#""zeta":{"a":2,"b":1}"#));
+    }
+
+    #[test]
+    fn r15_mistyped_catalog_fields_read_as_absent_and_survive() {
+        let l = load(
+            json!({"schemaVersion": 1, "homepage": {}, "registryName": "R",
+                            "entries": []}),
+        )
+        .unwrap();
+        assert_eq!(l.registry.schema_version, None);
+        assert_eq!(l.registry.registry_name.as_deref(), Some("R"));
+        let out = l.registry.to_canonical_json();
+        assert!(out.contains(r#""homepage":{}"#) && out.contains(r#""schemaVersion":1"#));
+    }
+
+    #[test]
+    fn r14_identities_must_be_uuids() {
+        let mut urn = repository(REPO);
+        urn["id"] = json!(format!("urn:uuid:{REPO}"));
+        let l = load(json!({"registryRevision": 1, "entries": [
+            repository("not-a-uuid"), urn, package("x", "1.0.0"),
+            repository(&REPO.to_uppercase())
+        ]}))
+        .unwrap();
+        assert_eq!(
+            codes(&l),
+            vec![
+                (0, "entry-malformed"),
+                (1, "entry-malformed"),
+                (2, "entry-malformed")
+            ]
+        );
+        assert_eq!(l.entries.len(), 1);
+    }
+
+    #[test]
+    fn r9_member_and_entry_order_do_not_change_the_bytes() {
+        let a = json!({"registryRevision": 1, "registryName": "R", "entries": [
+            repository(REPO), package(PKG, "1.0.0")
+        ]});
+        let mut pkg = Map::new();
+        for (k, v) in package(PKG, "1.0.0").as_object().unwrap().iter().rev() {
+            pkg.insert(k.clone(), v.clone());
+        }
+        let b = json!({"entries": [Value::Object(pkg), repository(REPO)],
+                       "registryName": "R", "registryRevision": 1});
+        let bytes = |d| load(d).unwrap().registry.to_canonical_json();
+        assert_eq!(bytes(a), bytes(b));
+    }
+
+    #[test]
+    fn r9_explicit_revision_zero_migrates() {
+        let l = load(json!({"registryRevision": 0, "entries": [{
+            "packageId": PKG, "packageName": "p", "packageVersion": "1.0.0",
+            "publisher": "e", "publishedAt": "2026-01-01T00:00:00Z",
+            "fieldCount": 0, "typeCount": 0, "downloadUrl": "https://e/p.srspkg"
+        }]}))
+        .unwrap();
+        assert!(l.outcomes.is_empty());
+        assert_eq!(l.registry.registry_revision, Some(1));
+    }
+
+    #[test]
+    fn ponytail_large_numbers_in_unknown_fields_lose_precision() {
+        // Pins the documented limit (no `arbitrary_precision`): 2^64 + 1 is read as f64.
+        let l = load(json!({"entries": [],
+            "future": serde_json::from_str::<Value>("18446744073709551617").unwrap()}))
+        .unwrap();
+        assert!(!l
+            .registry
+            .to_canonical_json()
+            .contains("18446744073709551617"));
     }
 }

@@ -2109,8 +2109,9 @@ pub fn parse_registry(catalog_json: &str) -> Result<JsValue, JsValue> {
 /// tag. (Note: the initial cut used a singular `"tag"` string key; that key is
 /// now rejected — use `"tags": [...]` instead.)
 ///
-/// Returns the same `{registry, entries, outcomes}` shape as `parse_registry`,
-/// with `entries` holding only the matching ones (all if no criteria are set).
+/// Returns the `{registry, entries, outcomes}` shape of `parse_registry`, with
+/// `entries` holding only the matching ones (all if no criteria are set) and the
+/// document's raw, unfiltered `registry.entries` left out.
 /// `publisher` and `tags` are package fields, so a set criterion excludes every
 /// other kind.
 ///
@@ -2120,9 +2121,13 @@ pub fn list_registry_entries(catalog_json: &str, filter_json: &str) -> Result<Js
     let registry = parse_registry_json(catalog_json).map_err(|e| js_err(&e))?;
     let filter: RegistryListFilter = serde_json::from_str(filter_json)
         .map_err(|e| js_invalid_input(format!("invalid filter: {e}")))?;
-    let mut registry = registry;
-    registry.entries = filter_registry_entries(registry.entries, &filter);
-    to_js(&registry)
+    let mut loaded = registry;
+    loaded.entries = filter_registry_entries(loaded.entries, &filter);
+    let mut value = serde_json::to_value(&loaded).map_err(|e| js_serialize("registry", e))?;
+    if let Some(doc) = value.get_mut("registry").and_then(|d| d.as_object_mut()) {
+        doc.remove("entries");
+    }
+    to_js(&value)
 }
 
 /// Input shape for `list_compositions` — parsed from caller-supplied JSON.
