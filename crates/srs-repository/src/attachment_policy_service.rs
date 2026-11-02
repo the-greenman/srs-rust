@@ -20,7 +20,12 @@ pub struct AttachmentPolicy {
     pub max_total_bytes: Option<u64>,
 }
 
+/// Serialises flat, as the CLI `attachment policy-get` payload does:
+/// `{policyRecordPresent, allowedMimeTypes?, maxPerFileBytes?, maxDocBytes?, maxTotalBytes?}`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ReadAttachmentPolicyResult {
+    #[serde(flatten)]
     pub policy: AttachmentPolicy,
     pub policy_record_present: bool,
 }
@@ -30,8 +35,6 @@ pub struct ReadAttachmentPolicyResult {
 /// when no `repo_settings` record exists, or when the package cannot be loaded.
 ///
 /// Never returns `Err` due to a missing or absent policy — the absence of a policy is not an error.
-///
-/// TODO(#638): expose via `srs-bindings` WASM binding.
 pub fn read_attachment_policy(
     store: &dyn RepositoryStore,
 ) -> Result<ReadAttachmentPolicyResult, RepositoryError> {
