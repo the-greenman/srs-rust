@@ -51,6 +51,9 @@ pub enum RepositoryError {
     #[error("lifecycle validation failed: {}", violations.join("; "))]
     LifecycleValidation { violations: Vec<String> },
 
+    #[error("vocabulary validation failed: {}", violations.join("; "))]
+    VocabularyValidation { violations: Vec<String> },
+
     #[error("failed to load record at {path:?}: {source}")]
     RecordLoad {
         path: PathBuf,
@@ -735,6 +738,10 @@ impl PartialEq for RepositoryError {
                 RepositoryError::LifecycleValidation { violations: b },
             ) => a == b,
             (
+                RepositoryError::VocabularyValidation { violations: a },
+                RepositoryError::VocabularyValidation { violations: b },
+            ) => a == b,
+            (
                 RepositoryError::RecordLoad { path: a, source: _ },
                 RepositoryError::RecordLoad { path: b, source: _ },
             ) => a == b,
@@ -1320,6 +1327,7 @@ impl RepositoryError {
             Self::LifecycleNotFound { .. } => "lifecycle-not-found",
             Self::LifecycleIdMismatch { .. } => "lifecycle-id-mismatch",
             Self::LifecycleValidation { .. } => "lifecycle-validation",
+            Self::VocabularyValidation { .. } => "vocabulary-validation",
             Self::RecordLoad { .. } => "record-load",
             Self::RecordWrite { .. } => "record-write",
             Self::RecordValidation { .. } => "record-validation",
@@ -1491,6 +1499,7 @@ mod tests {
                 body_id: "x".into(),
             },
             R::LifecycleValidation { violations: vec![] },
+            R::VocabularyValidation { violations: vec![] },
             R::RecordLoad {
                 path: PathBuf::new(),
                 source: je(),
