@@ -480,7 +480,8 @@ impl SrsRepository {
     /// (default: every content word must occur) or `"any"` (any significant word, as a whole
     /// token, for natural-language queries; always ranked) — srs-rust#1284. `facets` returns
     /// the facets (default: only when `limit` is 0); `projection` is `"full"` (default),
-    /// `"card"` or `"label"` — srs-rust#1286. All are trailing and optional, so existing
+    /// `"card"` or `"label"` — srs-rust#1286; `fields` names Fields (`Field.name`) whose values
+    /// each record hit carries as `fieldValues` — srs-rust#1380. All are trailing and optional, so existing
     /// callers are unchanged.
     /// Returns a `DiscoveryResult` as a JS value.
     #[allow(clippy::too_many_arguments)]
@@ -494,6 +495,7 @@ impl SrsRepository {
         match_mode: Option<String>,
         facets: Option<bool>,
         projection: Option<String>,
+        fields: Option<Vec<String>>,
     ) -> Result<JsValue, JsValue> {
         let query: DiscoveryQuery = serde_json::from_str(query_json)
             .map_err(|e| js_invalid_input(format!("invalid query: {e}")))?;
@@ -509,6 +511,7 @@ impl SrsRepository {
             by_type_limit,
             facets,
             projection: parse_projection(projection)?,
+            fields,
         };
         let result = discovery_service::find(&self.store, query, page).map_err(|e| js_err(&e))?;
         to_js(&result)

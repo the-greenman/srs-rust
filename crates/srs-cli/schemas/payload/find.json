@@ -51,6 +51,11 @@
             "type": "string"
           }
         },
+        "fieldValues": {
+          "description": "The values of the requested `fields`, keyed by `Field.name`; absent without `--fields`.",
+          "type": "object",
+          "additionalProperties": true
+        },
         "instanceId": {
           "type": "string"
         },

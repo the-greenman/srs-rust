@@ -103,7 +103,7 @@ fn make_view(name: &str) -> View {
             editor_hint_override: None,
             label_mode: None,
             composite_renderer: None,
-            field_id: "f1".to_string(),
+            field_id: crate::core_package::core_package().fields[0].id.clone(),
             order: 0,
             required: None,
             visible: None,
@@ -255,8 +255,8 @@ fn make_lifecycle(name: &str) -> Lifecycle {
         states: vec![
             LifecycleState {
                 id: Some("s1".to_string()),
-                version: None,
-                namespace: None,
+                version: Some(1),
+                namespace: Some("com.test".to_string()),
                 key: "draft".to_string(),
                 label: None,
                 description: None,
@@ -269,8 +269,8 @@ fn make_lifecycle(name: &str) -> Lifecycle {
             },
             LifecycleState {
                 id: Some("s2".to_string()),
-                version: None,
-                namespace: None,
+                version: Some(1),
+                namespace: Some("com.test".to_string()),
                 key: "active".to_string(),
                 label: None,
                 description: None,

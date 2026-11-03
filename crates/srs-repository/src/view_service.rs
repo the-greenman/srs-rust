@@ -513,6 +513,54 @@ pub fn compositions_showing(
     })
 }
 
+/// Refuse a View whose `fieldViews[].fieldId` names no Field (I-12), the check `repo validate`
+/// runs, so a write cannot leave a repository that fails its own gate (srs-rust#1544).
+/// Nothing is written when this refuses.
+fn refuse_dangling_view_fields(
+    store: &dyn RepositoryStore,
+    view: &View,
+) -> Result<(), RepositoryError> {
+    let package = store.load_package()?;
+    let reasons = crate::validation::view_field_reference_messages(&package, view);
+    if reasons.is_empty() {
+        return Ok(());
+    }
+    Err(RepositoryError::InvalidInput {
+        message: format!(
+            "view '{}' would fail repo validate (I-12): {}",
+            view.name,
+            reasons.join("; ")
+        ),
+    })
+}
+
+/// Refuse a Composition whose `sections[].renderViewId` names no View (I-35); see
+/// [`refuse_dangling_view_fields`].
+fn refuse_dangling_render_views(
+    store: &dyn RepositoryStore,
+    composition: &Composition,
+) -> Result<(), RepositoryError> {
+    if composition
+        .sections
+        .iter()
+        .all(|s| s.render_view_id.is_none())
+    {
+        return Ok(()); // no reference to resolve: do not load the package
+    }
+    let package = store.load_package()?;
+    let reasons = crate::validation::composition_render_view_messages(&package, composition);
+    if reasons.is_empty() {
+        return Ok(());
+    }
+    Err(RepositoryError::InvalidInput {
+        message: format!(
+            "composition '{}' would fail repo validate (I-35): {}",
+            composition.name,
+            reasons.join("; ")
+        ),
+    })
+}
+
 // ── View CRUD ─────────────────────────────────────────────────────────────────
 
 /// Create a View from a raw JSON value with normalized defaults (issue #511).
@@ -559,6 +607,7 @@ pub fn create_view(
         path: std::path::PathBuf::from(format!("{boundary_path}/views")),
         source: e,
     })?;
+    refuse_dangling_view_fields(store, &view)?;
     store.ensure_views_dir(&format!("{boundary_path}/views"))?;
     let rel_filename = crate::package_service::definition_rel_path(
         DefinitionKind::View,
@@ -588,6 +637,7 @@ pub fn update_view(
         path: std::path::PathBuf::from("package/views"),
         source: e,
     })?;
+    refuse_dangling_view_fields(store, &view)?;
     let (path, _owner) =
         find_view_path(store, view_id)?.ok_or_else(|| RepositoryError::ViewNotFound {
             view_id: view_id.to_string(),
@@ -689,6 +739,7 @@ pub fn create_composition(
         path: std::path::PathBuf::from(format!("{boundary_path}/compositions")),
         source: e,
     })?;
+    refuse_dangling_render_views(store, &composition)?;
     store.ensure_compositions_dir(&format!("{boundary_path}/compositions"))?;
     let rel_filename = crate::package_service::definition_rel_path(
         DefinitionKind::Composition,
@@ -725,6 +776,7 @@ pub fn update_composition(
         path: std::path::PathBuf::from("package/compositions"),
         source: e,
     })?;
+    refuse_dangling_render_views(store, &composition)?;
     let (path, _owner) = find_composition_path(store, composition_id)?.ok_or_else(|| {
         RepositoryError::CompositionNotFoundById {
             composition_id: composition_id.to_string(),
@@ -805,7 +857,7 @@ mod tests {
                 editor_hint_override: None,
                 label_mode: None,
                 composite_renderer: None,
-                field_id: "f1".to_string(),
+                field_id: crate::core_package::core_package().fields[0].id.clone(),
                 order: 0,
                 required: None,
                 visible: None,
@@ -865,6 +917,109 @@ mod tests {
     }
 
     // ── View tests ────────────────────────────────────────────────────────────
+
+    const MISSING_ID: &str = "00000000-0000-4000-8000-0000000000ff";
+
+    fn package_views(store: &FileStore) -> usize {
+        store.load_package_json().unwrap()["views"]
+            .as_array()
+            .unwrap()
+            .len()
+    }
+
+    /// srs-rust#1544, I-12: a View naming a Field that does not exist is refused and nothing is written.
+    #[test]
+    fn create_and_update_view_refuse_dangling_field_id() {
+        let temp = tempfile::TempDir::new().unwrap();
+        setup_minimal_repo(temp.path());
+        let store = FileStore::new(temp.path());
+
+        let mut bad = minimal_view("bad-view");
+        bad.field_views[0] = FieldView {
+            display_hint: None,
+            editor_hint_override: None,
+            label_mode: None,
+            composite_renderer: None,
+            field_id: MISSING_ID.to_string(),
+            order: 0,
+            required: None,
+            visible: None,
+            display_label: None,
+        }
+        .into();
+        match create_view(&store, bad.clone(), None) {
+            Err(RepositoryError::InvalidInput { message }) => {
+                assert!(
+                    message.contains("I-12") && message.contains(MISSING_ID),
+                    "{message}"
+                )
+            }
+            Ok(_) => panic!("expected InvalidInput naming I-12"),
+            Err(e) => panic!("expected InvalidInput naming I-12, got {e:?}"),
+        }
+        assert_eq!(package_views(&store), 0, "nothing written");
+
+        // A core field resolves, so the good view is created; updating it to the bad one is refused.
+        let good = create_view(&store, minimal_view("good-view"), None)
+            .unwrap()
+            .view;
+        bad.id = good.id.clone();
+        assert!(matches!(
+            update_view(&store, &good.id, bad),
+            Err(RepositoryError::InvalidInput { .. })
+        ));
+    }
+
+    /// srs-rust#1544, I-35: a Composition whose `renderViewId` names no View is refused;
+    /// one naming an existing View is accepted; `repo validate` reports a hand-placed dangling one.
+    #[test]
+    fn composition_refuses_dangling_render_view_id_and_validate_reports_it() {
+        let temp = tempfile::TempDir::new().unwrap();
+        setup_minimal_repo(temp.path());
+        let store = FileStore::new(temp.path());
+
+        let mut comp = minimal_composition("dangling");
+        comp.sections[0].render_view_id = Some(MISSING_ID.to_string());
+        match create_composition(&store, comp.clone(), None) {
+            Err(RepositoryError::InvalidInput { message }) => {
+                assert!(
+                    message.contains("I-35") && message.contains(MISSING_ID),
+                    "{message}"
+                )
+            }
+            Ok(_) => panic!("expected InvalidInput naming I-35"),
+            Err(e) => panic!("expected InvalidInput naming I-35, got {e:?}"),
+        }
+        let comps = store.load_package_json().unwrap()["compositions"]
+            .as_array()
+            .unwrap()
+            .len();
+        assert_eq!(comps, 0, "nothing written");
+
+        let view = create_view(&store, minimal_view("v"), None).unwrap().view;
+        comp.sections[0].render_view_id = Some(view.id.clone());
+        let made = create_composition(&store, comp, None).unwrap().composition;
+
+        // Remove the View behind the validator's back (delete_view would refuse it).
+        let (path, owner) = find_view_path(&store, &view.id).unwrap().unwrap();
+        let rel = path.strip_prefix("package/").unwrap().to_string();
+        store.delete_view_file(&path).unwrap();
+        store
+            .remove_definition_from_boundary(&owner, DefinitionKind::View, &rel)
+            .unwrap();
+        let report = crate::validation::validate_repository(&store).unwrap();
+        let hits: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("I-35"))
+            .collect();
+        assert_eq!(hits.len(), 1, "{:?}", report.diagnostics);
+        assert_eq!(
+            hits[0].code.as_deref(),
+            Some("composition-render-view-unresolved")
+        );
+        assert!(hits[0].message.contains(&made.id));
+    }
 
     #[test]
     fn create_view_assigns_id_and_registers_in_package_json() {
