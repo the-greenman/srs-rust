@@ -1846,7 +1846,7 @@ mod tests {
         let all = all_variants();
         assert_eq!(
             all.len(),
-            106,
+            107,
             "all_variants() is out of step with the enum"
         );
         let mut seen = std::collections::HashSet::new();
