@@ -1,12 +1,13 @@
-//! The MCP server handler: repository identity, capabilities, and store access.
+//! The MCP server handler: the boundary it serves, capabilities, and store access.
 //!
-//! `SrsMcpServer` holds only the repository path and its identity — a fresh
-//! `FileStore` is constructed per request (`open_store`), mirroring the CLI's
+//! `SrsMcpServer` holds only its boundary (RFC-049 [R8]): one repository, or the
+//! `repository` entries of a registry. A fresh `FileStore` is constructed per
+//! request for the repository that request names (`open_app`), mirroring the CLI's
 //! per-invocation `with_store` semantics: no shared mutable state, and on-disk
 //! changes are visible between calls (ADR-037).
 
 use std::future::{ready, Future};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use rmcp::model::{
     CallToolRequestParams, CallToolResult, GetPromptRequestParams, GetPromptResult,
@@ -16,18 +17,18 @@ use rmcp::model::{
 use rmcp::service::RequestContext;
 use rmcp::ErrorData as McpError;
 use rmcp::{RoleServer, ServerHandler};
+use srs_repository::boundary_service::{Access, Boundary};
 use srs_repository::error::RepositoryError;
 use srs_repository::store::{FileStore, RepositoryStore};
 
-use srs_mcp_core::SrsMcpApplication;
+use srs_mcp_core::{McpApplicationError, SrsMcpApplication};
 
 use crate::application;
 
-/// MCP server over a single SRS repository.
+/// MCP server over one SRS repository, or over the repositories of a registry.
 #[derive(Debug)]
 pub struct SrsMcpServer {
-    repo_path: PathBuf,
-    repository_id: String,
+    boundary: Boundary,
     /// RFC-046 host-supplied session actor, applied to every per-request store.
     session_actor: Option<serde_json::Value>,
     /// The tools advertised and accepted (srs-rust#1287); `full` by default.
@@ -46,7 +47,7 @@ impl SrsMcpServer {
     /// (srs-rust#858).
     pub fn new(repo_path: PathBuf) -> anyhow::Result<Self> {
         let store = FileStore::new(&repo_path);
-        let manifest = store.load_manifest().map_err(|e| match &e {
+        store.load_manifest().map_err(|e| match &e {
             RepositoryError::StorageGenerationUnsupported { .. }
             | RepositoryError::RetiredManifestProperty { .. } => anyhow::anyhow!(
                 "data-model generation mismatch at {}: {e} — if this srs-mcp binary predates \
@@ -56,18 +57,37 @@ impl SrsMcpServer {
             ),
             _ => anyhow::anyhow!("not an SRS repository at {}: {}", repo_path.display(), e),
         })?;
-        let repository_id = manifest
-            .extra
-            .get("repositoryId")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown")
-            .to_string();
-        Ok(Self {
-            repo_path,
-            repository_id,
+        Ok(Self::with_boundary(Boundary::single(&repo_path)?))
+    }
+
+    /// Serve the `repository` entries of the registry at `registry_path` (RFC-049
+    /// [R8]); `default_id` names the default repository ([R13]), else the first
+    /// repository entry. Entries that fail to load, and a default that did not load,
+    /// are reported on stderr before serving.
+    pub fn from_registry(registry_path: &Path, default_id: Option<&str>) -> anyhow::Result<Self> {
+        let (boundary, outcomes) = Boundary::from_registry(registry_path, default_id)?;
+        for o in &outcomes {
+            eprintln!(
+                "srs mcp serve: registry entry {}: {} ({})",
+                o.index, o.message, o.code
+            );
+        }
+        if !boundary.default_loaded() {
+            eprintln!(
+                "srs mcp serve: the default repository '{}' has no usable registry entry; \
+                 requests that rely on the default are refused (not-in-boundary)",
+                boundary.default_id()
+            );
+        }
+        Ok(Self::with_boundary(boundary))
+    }
+
+    fn with_boundary(boundary: Boundary) -> Self {
+        Self {
+            boundary,
             session_actor: None,
             tool_profile: Default::default(),
-        })
+        }
     }
 
     /// Set the RFC-046 session actor stamped on everything this server creates.
@@ -82,25 +102,66 @@ impl SrsMcpServer {
         self
     }
 
-    /// The repository identity from the manifest (`repositoryId`).
+    /// The default repository's identity (`repositoryId`); with one repository, that one.
     pub fn repository_id(&self) -> &str {
-        &self.repository_id
+        self.boundary.default_id()
     }
 
-    /// A fresh application (and `FileStore`) for one request — per-invocation
-    /// semantics, like the CLI.
-    pub(crate) fn open_app(&self) -> application::App {
-        let mut app =
-            SrsMcpApplication::new(FileStore::new(&self.repo_path), self.repository_id.clone());
+    /// A fresh application (and `FileStore`) for one request, over the repository it
+    /// names (absent = the default) — per-invocation semantics, like the CLI.
+    pub(crate) fn open_app(
+        &self,
+        repository_id: Option<&str>,
+        access: Access,
+    ) -> Result<application::App, RepositoryError> {
+        let target = self.boundary.resolve(repository_id, access)?;
+        let mut app = SrsMcpApplication::new(FileStore::new(&target.path), target.id);
         app.set_session_actor(self.session_actor.clone());
         app.set_tool_profile(self.tool_profile);
-        app
+        Ok(app)
+    }
+
+    /// One tool call routed to the repository it names (RFC-049 [R16], [R17]). An unknown
+    /// tool is reported as unknown before any routing.
+    fn route_tool(&self, request: CallToolRequestParams) -> Result<CallToolResult, McpError> {
+        if !srs_mcp_core::routing::known_tool(self.tool_profile, &request.name) {
+            return Err(application::invalid(McpApplicationError::invalid_params(
+                format!(
+                    "unknown tool '{}' (not in the '{}' tool profile)",
+                    request.name,
+                    self.tool_profile.as_str()
+                ),
+            )));
+        }
+        let (repository_id, arguments) =
+            srs_mcp_core::routing::take_repository_id(&request.name, request.arguments)
+                .map_err(application::invalid)?;
+        let access = if srs_mcp_core::routing::is_write(&request.name) {
+            Access::Write
+        } else {
+            Access::Read
+        };
+        match self.open_app(repository_id.as_deref(), access) {
+            Ok(mut app) => application::call_tool(&mut app, &request.name, arguments, access),
+            Err(e) => Ok(application::tool_refusal(e)),
+        }
+    }
+
+    /// Run `f` on the default repository's application.
+    fn on_default<T>(
+        &self,
+        f: impl FnOnce(&mut application::App) -> Result<T, McpError>,
+    ) -> Result<T, McpError> {
+        let mut app = self
+            .open_app(None, Access::Read)
+            .map_err(application::boundary_error)?;
+        f(&mut app)
     }
 }
 
 impl ServerHandler for SrsMcpServer {
     fn get_info(&self) -> ServerInfo {
-        application::server_info(self.tool_profile)
+        application::server_info(self.tool_profile, &self.boundary)
     }
 
     // Handlers are synchronous service calls wrapped in ready futures: the
@@ -112,8 +173,7 @@ impl ServerHandler for SrsMcpServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListResourcesResult, McpError>> + Send + '_ {
-        let mut app = self.open_app();
-        ready(application::list_resources(&mut app))
+        ready(self.on_default(application::list_resources))
     }
 
     fn list_resource_templates(
@@ -121,8 +181,9 @@ impl ServerHandler for SrsMcpServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListResourceTemplatesResult, McpError>> + Send + '_ {
-        let mut app = self.open_app();
-        ready(application::list_resource_templates(&mut app))
+        ready(application::list_resource_templates(
+            self.boundary.default_id(),
+        ))
     }
 
     fn read_resource(
@@ -130,8 +191,12 @@ impl ServerHandler for SrsMcpServer {
         request: ReadResourceRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ReadResourceResult, McpError>> + Send + '_ {
-        let mut app = self.open_app();
-        ready(application::read_resource(&mut app, &request.uri))
+        let repository_id = srs_mcp_core::uri::repository_segment(&request.uri);
+        ready(
+            self.open_app(repository_id, Access::Read)
+                .map_err(application::boundary_error)
+                .and_then(|mut app| application::read_resource(&mut app, &request.uri)),
+        )
     }
 
     fn list_tools(
@@ -139,8 +204,10 @@ impl ServerHandler for SrsMcpServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListToolsResult, McpError>> + Send + '_ {
-        let mut app = self.open_app();
-        ready(application::list_tools(&mut app))
+        ready(application::list_tools(
+            self.tool_profile,
+            self.boundary.is_registry(),
+        ))
     }
 
     fn call_tool(
@@ -148,12 +215,7 @@ impl ServerHandler for SrsMcpServer {
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<CallToolResult, McpError>> + Send + '_ {
-        let mut app = self.open_app();
-        ready(application::call_tool(
-            &mut app,
-            &request.name,
-            request.arguments,
-        ))
+        ready(self.route_tool(request))
     }
 
     fn list_prompts(
@@ -161,8 +223,7 @@ impl ServerHandler for SrsMcpServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListPromptsResult, McpError>> + Send + '_ {
-        let mut app = self.open_app();
-        ready(application::list_prompts(&mut app))
+        ready(self.on_default(application::list_prompts))
     }
 
     fn get_prompt(
@@ -170,12 +231,9 @@ impl ServerHandler for SrsMcpServer {
         request: GetPromptRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<GetPromptResult, McpError>> + Send + '_ {
-        let mut app = self.open_app();
-        ready(application::get_prompt(
-            &mut app,
-            &request.name,
-            request.arguments.as_ref(),
-        ))
+        ready(self.on_default(|app| {
+            application::get_prompt(app, &request.name, request.arguments.as_ref())
+        }))
     }
 }
 
@@ -184,15 +242,19 @@ mod tests {
     use super::*;
     use srs_repository::manifest::MIN_SUPPORTED_DATA_MODEL_REVISION;
 
+    fn test_server() -> SrsMcpServer {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("manifest.json"),
+            r#"{"repositoryId": "test", "dataModelRevision": 11}"#,
+        )
+        .unwrap();
+        SrsMcpServer::with_boundary(Boundary::single(dir.path()).unwrap())
+    }
+
     #[test]
     fn server_info_reports_name_and_capabilities() {
-        let info = SrsMcpServer {
-            repo_path: PathBuf::from("/nonexistent"),
-            repository_id: "test".into(),
-            session_actor: None,
-            tool_profile: Default::default(),
-        }
-        .get_info();
+        let info = test_server().get_info();
         assert_eq!(info.server_info.name, "srs-mcp");
         assert!(info.capabilities.prompts.is_some());
         assert!(info.capabilities.resources.is_some());
@@ -206,13 +268,7 @@ mod tests {
     /// test` run has no `SRS_BUILD_NUMBER`, so it exercises the `+dev` path.
     #[test]
     fn server_info_carries_build_and_generation() {
-        let info = SrsMcpServer {
-            repo_path: PathBuf::from("/nonexistent"),
-            repository_id: "test".into(),
-            session_actor: None,
-            tool_profile: Default::default(),
-        }
-        .get_info();
+        let info = test_server().get_info();
         assert_eq!(
             info.server_info.version,
             format!("{}+dev", env!("CARGO_PKG_VERSION")),

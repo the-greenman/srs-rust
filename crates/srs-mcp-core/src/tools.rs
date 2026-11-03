@@ -1602,7 +1602,8 @@ fn tool_ok<T: serde::Serialize>(value: &T) -> Result<Value, McpApplicationError>
 }
 
 /// Service rejection → tool-level error the model can read (not a protocol error).
-pub(crate) fn tool_err(report: srs_repository::ErrorReport) -> Value {
+/// A tool error result carrying the report's code as `structuredContent`.
+pub fn tool_err(report: srs_repository::ErrorReport) -> Value {
     json!({ "content": [{ "type": "text", "text": report.message }], "structuredContent": report, "isError": true })
 }
 

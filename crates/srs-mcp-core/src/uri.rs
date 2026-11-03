@@ -152,10 +152,17 @@ impl fmt::Display for UriError {
 
 impl std::error::Error for UriError {}
 
+/// The repository segment of an `srs://<repositoryId>/…` uri, if it has one.
+pub fn repository_segment(uri: &str) -> Option<&str> {
+    uri.strip_prefix(SCHEME)?
+        .split_once('/')
+        .map(|(repo, _)| repo)
+}
+
 /// RFC-049 [R5]/[R8]: the repository segment of `uri` when it names a repository
 /// other than this server's (ids compare without regard to case).
 pub fn foreign_repository<'a>(uri: &'a str, repository_id: &str) -> Option<&'a str> {
-    let (repo, _) = uri.strip_prefix(SCHEME)?.split_once('/')?;
+    let repo = repository_segment(uri)?;
     (!repo.eq_ignore_ascii_case(repository_id)).then_some(repo)
 }
 
