@@ -9,7 +9,7 @@ Usage: srs registry [OPTIONS] <COMMAND>
 
 Commands:
   list  List entries from a registry catalog JSON file, with optional filtering
-  get   Get a single registry entry by package name
+  get   Find package entries by package name (discovery: every version that matches)
   help  Print this message or the help of the given subcommand(s)
 
 Options:
@@ -95,7 +95,7 @@ Options:
 ## `srs registry get`
 
 ```text
-Get a single registry entry by package name
+Find package entries by package name (discovery: every version that matches)
 
 Usage: srs registry get [OPTIONS] --path <PATH> --package-name <PACKAGE_NAME>
 

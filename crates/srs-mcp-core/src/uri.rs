@@ -152,6 +152,13 @@ impl fmt::Display for UriError {
 
 impl std::error::Error for UriError {}
 
+/// RFC-049 [R5]/[R8]: the repository segment of `uri` when it names a repository
+/// other than this server's (ids compare without regard to case).
+pub fn foreign_repository<'a>(uri: &'a str, repository_id: &str) -> Option<&'a str> {
+    let (repo, _) = uri.strip_prefix(SCHEME)?.split_once('/')?;
+    (!repo.eq_ignore_ascii_case(repository_id)).then_some(repo)
+}
+
 pub fn parse(uri: &str, repository_id: &str) -> Result<SrsUri, UriError> {
     let rest = uri
         .strip_prefix(SCHEME)
@@ -159,7 +166,7 @@ pub fn parse(uri: &str, repository_id: &str) -> Result<SrsUri, UriError> {
     let (repo, path) = rest
         .split_once('/')
         .ok_or_else(|| UriError(format!("missing path after repository id in '{uri}'")))?;
-    if repo != repository_id {
+    if !repo.eq_ignore_ascii_case(repository_id) {
         return Err(UriError(format!(
             "uri names repository '{repo}' but this server serves '{repository_id}'"
         )));
