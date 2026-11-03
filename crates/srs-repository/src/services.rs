@@ -202,9 +202,9 @@ pub fn list_notes(
             }
         }
 
-        if let Some(ref filter_tag) = filter.tag {
-            match store.load_note_by_id(&r.instance_id) {
-                Ok(note) => {
+        match store.load_note_by_id(&r.instance_id) {
+            Ok(note) => {
+                if let Some(ref filter_tag) = filter.tag {
                     let has_tag = note
                         .tags
                         .as_ref()
@@ -212,20 +212,19 @@ pub fn list_notes(
                     if !has_tag {
                         continue;
                     }
-                    notes.push(NoteSummary {
-                        instance_id: r.instance_id.clone(),
-                        title: r.title.clone(),
-                        tags: note.tags.unwrap_or_default(),
-                    });
                 }
-                Err(_) => continue,
+                notes.push(NoteSummary {
+                    instance_id: r.instance_id.clone(),
+                    title: r.title.clone(),
+                    tags: note.tags.unwrap_or_default(),
+                });
             }
-        } else {
-            notes.push(NoteSummary {
+            Err(_) if filter.tag.is_some() => continue,
+            Err(_) => notes.push(NoteSummary {
                 instance_id: r.instance_id.clone(),
                 title: r.title.clone(),
                 tags: Vec::new(),
-            });
+            }),
         }
     }
 
@@ -1021,6 +1020,14 @@ mod tests {
             result.notes[0].instance_id,
             "11111111-1111-1111-8111-111111111111"
         );
+    }
+
+    #[test]
+    fn list_notes_unfiltered_carries_tags() {
+        let note = make_note("11111111-1111-1111-8111-111111111111", "Test Note");
+        let store = store_with_note(&note, "records/notes/test-note.json");
+        let result = list_notes(&store, ListNotesFilter::default()).unwrap();
+        assert_eq!(result.notes[0].tags, vec!["test", "sample"]);
     }
 
     #[test]
