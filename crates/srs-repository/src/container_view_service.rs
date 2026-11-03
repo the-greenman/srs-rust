@@ -16,6 +16,7 @@
 //! `docs/architecture/capability-layering.md`). Clients add presentation only.
 
 use crate::container_service;
+use crate::diagnostic::{Diagnostic, Diagnostics};
 use crate::error::RepositoryError;
 use crate::record_label;
 use crate::record_store;
@@ -117,6 +118,9 @@ pub struct ContainerView {
     pub exclude_lifecycle_states: Vec<String>,
     /// Non-fatal notes (skipped unknown-tier members, unresolved view/field references).
     pub diagnostics: Vec<String>,
+    /// The same findings as structured entries (srs-rust#1491, ADR-057).
+    #[serde(default)]
+    pub diagnostics_structured: Vec<Diagnostic>,
 }
 
 /// Resolve a container into root + ordered members + Composition-driven column spec.
@@ -133,7 +137,7 @@ pub fn resolve_container_view(
     input: ResolveContainerViewInput,
 ) -> Result<ContainerView, RepositoryError> {
     let container_id = input.container_id.clone();
-    let mut diagnostics: Vec<String> = Vec::new();
+    let mut diagnostics = Diagnostics::new();
 
     // Validate the container exists and read its root binding directly. Composition
     // matching and member ordering below go through `compositions_for_container` and
@@ -176,9 +180,10 @@ pub fn resolve_container_view(
         Some(id) => match view_service::get_composition_by_id(store, id)? {
             GetCompositionResult::Found(dv) => Some(*dv),
             GetCompositionResult::NotFound => {
-                diagnostics.push(format!(
-                    "resolve-container-view: composition {id} not found"
-                ));
+                diagnostics.warning(
+                    "resolve-container-view/composition-not-found",
+                    format!("resolve-container-view: composition {id} not found"),
+                );
                 None
             }
         },
@@ -300,6 +305,7 @@ pub fn resolve_container_view(
         m.section_container_id = section_containers.get(&m.instance_id).cloned();
     }
 
+    let (diagnostics, diagnostics_structured) = diagnostics.into_parts();
     Ok(ContainerView {
         container_id,
         composition_id,
@@ -308,6 +314,7 @@ pub fn resolve_container_view(
         columns,
         exclude_lifecycle_states,
         diagnostics,
+        diagnostics_structured,
     })
 }
 
@@ -330,7 +337,7 @@ fn resolve_member(
     field_name_index: &HashMap<String, String>,
     exclude_lifecycle_states: &[String],
     kind: &str,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<Option<ResolvedMember>, RepositoryError> {
     match tier_by_id.get(id) {
         Some(t @ 0) => {
@@ -368,22 +375,25 @@ fn resolve_member(
                 }))
             }
             None => {
-                diagnostics.push(format!(
-                    "resolve-container-view: {kind} {id} does not resolve"
-                ));
+                diagnostics.warning(
+                    "resolve-container-view/instance-unresolved",
+                    format!("resolve-container-view: {kind} {id} does not resolve"),
+                );
                 Ok(None)
             }
         },
         Some(t) => {
-            diagnostics.push(format!(
-                "resolve-container-view: {kind} {id} has unknown tier {t} — skipped"
-            ));
+            diagnostics.warning(
+                "resolve-container-view/unknown-tier",
+                format!("resolve-container-view: {kind} {id} has unknown tier {t} — skipped"),
+            );
             Ok(None)
         }
         None => {
-            diagnostics.push(format!(
-                "resolve-container-view: {kind} {id} not in manifest index — skipped"
-            ));
+            diagnostics.warning(
+                "resolve-container-view/not-in-manifest-index",
+                format!("resolve-container-view: {kind} {id} not in manifest index — skipped"),
+            );
             Ok(None)
         }
     }
@@ -428,7 +438,7 @@ fn resolve_columns(
     container_id: &str,
     identity_field_index: &HashMap<(String, u32), String>,
     field_name_index: &HashMap<String, String>,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<Vec<ColumnSpec>, RepositoryError> {
     let view_id = match select_column_view_id(dv, container_id) {
         Some(id) => id,
@@ -437,10 +447,13 @@ fn resolve_columns(
     let view = match view_service::get_view_by_id(store, &view_id)? {
         GetViewResult::Found(v) => *v,
         GetViewResult::NotFound => {
-            diagnostics.push(format!(
-                "resolve-container-view: view {view_id} referenced by composition {} not found",
-                dv.id
-            ));
+            diagnostics.warning(
+                "resolve-container-view/view-not-found",
+                format!(
+                    "resolve-container-view: view {view_id} referenced by composition {} not found",
+                    dv.id
+                ),
+            );
             return Ok(Vec::new());
         }
     };
@@ -462,10 +475,13 @@ fn resolve_columns(
         let field_name = match field_name_index.get(&fv.field_id) {
             Some(n) => n.clone(),
             None => {
-                diagnostics.push(format!(
-                    "resolve-container-view: field {} not in package index",
-                    fv.field_id
-                ));
+                diagnostics.warning(
+                    "resolve-container-view/field-not-in-package",
+                    format!(
+                        "resolve-container-view: field {} not in package index",
+                        fv.field_id
+                    ),
+                );
                 fv.field_id.clone()
             }
         };
@@ -1003,6 +1019,11 @@ mod tests {
             .diagnostics
             .iter()
             .any(|d| d.contains("composition no-such-dv not found")));
+        crate::diagnostic::assert_parallel(&result.diagnostics, &result.diagnostics_structured);
+        assert_eq!(
+            result.diagnostics_structured[0].code,
+            "resolve-container-view/composition-not-found"
+        );
         // Members/root still returned.
         assert!(result.root.is_some());
     }

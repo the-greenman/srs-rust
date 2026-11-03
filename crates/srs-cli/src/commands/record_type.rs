@@ -150,6 +150,11 @@ fn cmd_type_schema(ctx: CliContext, id: String, type_version: Option<u32>) -> Re
         Ok(result) => {
             let payload = serde_json::to_value(TypeSchemaPayload {
                 schema: result.schema,
+                diagnostics_structured: result
+                    .diagnostics_structured
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
             })?;
             let dto = OutputDTO {
                 ok: true,

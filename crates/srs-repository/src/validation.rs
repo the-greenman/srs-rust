@@ -78,7 +78,7 @@ impl serde::Serialize for ValidationDiagnostic {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DiagnosticSeverity {
     Error,

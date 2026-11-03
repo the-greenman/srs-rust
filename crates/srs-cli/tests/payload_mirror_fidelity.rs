@@ -64,12 +64,19 @@ fn find_full_and_empty_facets_match() {
             }],
         }),
         diagnostics: vec!["d".into()],
+        diagnostics_structured: vec![srs_repository::diagnostic::Diagnostic {
+            severity: srs_repository::validation::DiagnosticSeverity::Warning,
+            code: "find-field-unknown".into(),
+            message: "d".into(),
+            instance_id: Some("i".into()),
+        }],
     });
     find_roundtrip(DiscoveryResult {
         hits: vec![],
         total: 0,
         facets: Some(DiscoveryFacets::default()),
         diagnostics: vec![],
+        diagnostics_structured: vec![],
     });
     // Facets not asked for (srs-rust#1286): the key is absent on both sides.
     find_roundtrip(DiscoveryResult {
@@ -77,6 +84,7 @@ fn find_full_and_empty_facets_match() {
         total: 1,
         facets: None,
         diagnostics: vec![],
+        diagnostics_structured: vec![],
     });
 }
 
@@ -204,6 +212,7 @@ fn render_goldens_accept_output_with_skipped_keys_absent() {
         let v = to_value(RenderCompositionPayload {
             rendered: "r".into(),
             diagnostics: vec![],
+            diagnostics_structured: vec![],
             projection: Some(svc_projection(full).into()),
         })
         .unwrap();
@@ -217,6 +226,7 @@ fn render_goldens_accept_output_with_skipped_keys_absent() {
     let v = to_value(RenderCompositionPayload {
         rendered: "r".into(),
         diagnostics: vec![],
+        diagnostics_structured: vec![],
         projection: None,
     })
     .unwrap();

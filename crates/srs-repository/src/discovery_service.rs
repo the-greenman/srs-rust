@@ -21,6 +21,7 @@
 //! apply uniformly.
 
 use crate::container_service;
+use crate::diagnostic::{Diagnostic, Diagnostics};
 use crate::discovery_index::{Bm25Index, DiscoveryIndex};
 use crate::error::RepositoryError;
 use crate::projection::Projection;
@@ -52,6 +53,9 @@ pub struct DiscoveryResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub facets: Option<DiscoveryFacets>,
     pub diagnostics: Vec<String>,
+    /// The same findings as structured entries (srs-rust#1491, ADR-057).
+    #[serde(default)]
+    pub diagnostics_structured: Vec<Diagnostic>,
 }
 
 /// Values kept per facet; the rest are summed into `other`.
@@ -427,13 +431,15 @@ pub fn find(
     query: DiscoveryQuery,
     page: FindPage,
 ) -> Result<DiscoveryResult, RepositoryError> {
-    let mut diagnostics = Vec::new();
+    let mut diagnostics = Diagnostics::new();
     if !unresolved_filters(store, &query, &mut diagnostics)? {
+        let (diagnostics, diagnostics_structured) = diagnostics.into_parts();
         return Ok(DiscoveryResult {
             hits: Vec::new(),
             total: 0,
             facets: page.wants_facets().then(DiscoveryFacets::default),
             diagnostics,
+            diagnostics_structured,
         });
     }
 
@@ -485,7 +491,7 @@ fn finish_page(
     hits: Vec<DiscoveryHit>,
     facets: Option<DiscoveryFacets>,
     page: FindPage,
-    mut diagnostics: Vec<String>,
+    mut diagnostics: Diagnostics,
     field_text_index: &FieldTextIndex,
 ) -> Result<DiscoveryResult, RepositoryError> {
     let total = hits.len();
@@ -538,11 +544,13 @@ fn finish_page(
             hit.snippet = None;
         }
     }
+    let (diagnostics, diagnostics_structured) = diagnostics.into_parts();
     Ok(DiscoveryResult {
         hits,
         total,
         facets,
         diagnostics,
+        diagnostics_structured,
     })
 }
 
@@ -551,7 +559,7 @@ fn finish_page(
 fn requested_fields<'a>(
     page: &'a FindPage,
     index: &FieldTextIndex,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Vec<&'a str> {
     let mut known: Vec<&str> = Vec::new();
     let mut seen = HashSet::new();
@@ -562,9 +570,12 @@ fn requested_fields<'a>(
         if index.has_field_name(name) {
             known.push(name);
         } else {
-            diagnostics.push(format!(
+            diagnostics.warning(
+                FIND_FIELD_UNKNOWN,
+                format!(
                 "warning: {FIND_FIELD_UNKNOWN}: no Field named '{name}' in the effective package"
-            ));
+            ),
+            );
         }
     }
     known
@@ -616,13 +627,15 @@ pub fn similar(
             id: instance_id.to_string(),
         });
     }
-    let mut diagnostics = Vec::new();
+    let mut diagnostics = Diagnostics::new();
     if !unresolved_filters(store, &query, &mut diagnostics)? {
+        let (diagnostics, diagnostics_structured) = diagnostics.into_parts();
         return Ok(DiscoveryResult {
             hits: Vec::new(),
             total: 0,
             facets: page.wants_facets().then(DiscoveryFacets::default),
             diagnostics,
+            diagnostics_structured,
         });
     }
     let field_text_index = text_projection::build_field_text_index(store)?;
@@ -634,9 +647,10 @@ pub fn similar(
     })?;
 
     if words.is_empty() {
-        diagnostics.push(format!(
-            "warning: {instance_id} has no similarity terms (no word of 3+ characters)"
-        ));
+        diagnostics.warning(
+            "find-similar-no-terms",
+            format!("warning: {instance_id} has no similarity terms (no word of 3+ characters)"),
+        );
     }
     let mut candidates = collect_candidates(store, &query, &field_text_index, None)?;
     candidates.retain(|c| c.hit.instance_id != instance_id);
@@ -846,7 +860,7 @@ fn match_content(segments: Vec<TextSegment>, needle: Needle) -> (Vec<String>, Op
 fn unresolved_filters(
     store: &dyn RepositoryStore,
     query: &DiscoveryQuery,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<bool, RepositoryError> {
     let mut resolvable = true;
     if let Some(cid) = &query.container_id {
@@ -856,9 +870,10 @@ fn unresolved_filters(
             Err(e) => return Err(e),
         };
         if missing {
-            diagnostics.push(format!(
-                "warning: containerId '{cid}' names no container; no instances can match"
-            ));
+            diagnostics.warning(
+                "find-container-unknown",
+                format!("warning: containerId '{cid}' names no container; no instances can match"),
+            );
             resolvable = false;
         }
     }
@@ -867,7 +882,10 @@ fn unresolved_filters(
         let known = |f: &dyn Fn(&crate::package_service::TypeSummary) -> bool| types.iter().any(f);
         if let Some(id) = &query.type_id {
             if !known(&|t| &t.id == id) {
-                diagnostics.push(format!("warning: typeId '{id}' names no type"));
+                diagnostics.warning(
+                    "find-type-unknown",
+                    format!("warning: typeId '{id}' names no type"),
+                );
             }
         }
         if query.type_namespace.is_some() || query.type_name.is_some() {
@@ -879,11 +897,14 @@ fn unresolved_filters(
                     && query.type_name.as_ref().is_none_or(|n| &t.name == n)
             });
             if !hit {
-                diagnostics.push(format!(
-                    "warning: type '{}/{}' names no type (expected namespace/name)",
-                    query.type_namespace.as_deref().unwrap_or("*"),
-                    query.type_name.as_deref().unwrap_or("*")
-                ));
+                diagnostics.warning(
+                    "find-type-name-unknown",
+                    format!(
+                        "warning: type '{}/{}' names no type (expected namespace/name)",
+                        query.type_namespace.as_deref().unwrap_or("*"),
+                        query.type_name.as_deref().unwrap_or("*")
+                    ),
+                );
             }
         }
     }
@@ -1976,6 +1997,8 @@ mod tests {
         )
         .unwrap();
         assert!(r.diagnostics.iter().any(|d| d.contains("typeId 'nope'")));
+        crate::diagnostic::assert_parallel(&r.diagnostics, &r.diagnostics_structured);
+        assert_eq!(r.diagnostics_structured[0].code, "find-type-unknown");
         let r = find(
             &store,
             DiscoveryQuery {
