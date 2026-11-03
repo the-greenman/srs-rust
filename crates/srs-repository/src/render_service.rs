@@ -214,6 +214,8 @@ struct RenderContext<'a> {
     /// RFC-036 — Composition.compositeRenderers, the lowest-precedence
     /// composite dispatch site ([CR-036-6]).
     doc_composite_renderers: Option<Vec<srs_core::types::view::CompositeRendererDirective>>,
+    /// srs-rust#1503: `exclude_instance_ids`, which binds the `contains` recursion too.
+    exclude: &'a [String],
 }
 
 // ── RFC-042 Revision 5 [R20]-[R25]: container-subset nested-section plan ──────
@@ -259,13 +261,17 @@ fn retain_type_filtered_children(
     section: &DocumentSection,
     children: Vec<LoadedInstance>,
     relations: &[Relation],
+    exclude: &[String],
 ) -> Result<Vec<LoadedInstance>, RepositoryError> {
-    let Some(filter) = relation_graph::section_ordering_inputs(&section.source) else {
+    let filter = relation_graph::section_ordering_inputs(&section.source);
+    if filter.is_none() && exclude.is_empty() {
         return Ok(children);
-    };
+    }
     let mut kept = Vec::with_capacity(children.len());
     for child in children {
-        if relation_graph::passes_type_filter(&child, filter, package) {
+        let removed = exclude.iter().any(|x| x == child.instance_id())
+            || filter.is_some_and(|f| !relation_graph::passes_type_filter(&child, f, package));
+        if !removed {
             kept.push(child);
         } else {
             let grandchildren = relation_graph::children_by_relation_type(
@@ -280,6 +286,7 @@ fn retain_type_filtered_children(
                 section,
                 grandchildren,
                 relations,
+                exclude,
             )?);
         }
     }
@@ -405,6 +412,7 @@ pub fn render_composition(
         status_field_name: package.find_field_by_name("status").map(|f| f.name.clone()),
         active_theme,
         doc_composite_renderers: dv.composite_renderers.clone(),
+        exclude: opts.exclude_instance_ids,
     };
 
     let mut rendered = String::new();
@@ -628,6 +636,7 @@ fn project_section_json(
         &entries,
         rank.as_ref(),
         relations,
+        exclude,
         diagnostics,
     )?;
 
@@ -647,6 +656,7 @@ fn project_section_json(
 /// recursion, so JSON's tree shape and markdown/html/adoc's tree shape
 /// (`render_section_entries`) are built from the one resolved
 /// [`SectionEntry`] sequence and cannot drift apart.
+#[allow(clippy::too_many_arguments)]
 fn project_entries_json(
     store: &dyn RepositoryStore,
     package: &Package,
@@ -654,6 +664,7 @@ fn project_entries_json(
     entries: &[SectionEntry],
     rank: Option<&ArrangedRank>,
     relations: &[Relation],
+    exclude: &[String],
     diagnostics: &mut Vec<String>,
 ) -> Result<(Vec<ProjectedRecord>, Vec<ProjectedSection>), RepositoryError> {
     let mut records = Vec::new();
@@ -667,6 +678,7 @@ fn project_entries_json(
                     section,
                     record,
                     relations,
+                    exclude,
                     ChildOrdering::On(rank),
                     diagnostics,
                 )?);
@@ -678,6 +690,7 @@ fn project_entries_json(
                     section,
                     record,
                     relations,
+                    exclude,
                     ChildOrdering::On(rank),
                     diagnostics,
                 )?;
@@ -706,6 +719,7 @@ fn project_entries_json(
                     section,
                     nested,
                     relations,
+                    exclude,
                     idx as i32,
                     diagnostics,
                 )?);
@@ -729,6 +743,7 @@ fn project_nested_section_json(
     section: &DocumentSection,
     nested: &NestedSectionPlan,
     relations: &[Relation],
+    exclude: &[String],
     order: i32,
     diagnostics: &mut Vec<String>,
 ) -> Result<ProjectedSection, RepositoryError> {
@@ -742,6 +757,7 @@ fn project_nested_section_json(
                     section,
                     record,
                     relations,
+                    exclude,
                     ChildOrdering::On(None),
                     diagnostics,
                 )?);
@@ -762,6 +778,7 @@ fn project_nested_section_json(
         &nested.entries,
         None,
         relations,
+        exclude,
         diagnostics,
     )?;
     records.append(&mut body_records);
@@ -775,12 +792,14 @@ fn project_nested_section_json(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn project_record_json(
     store: &dyn RepositoryStore,
     package: &Package,
     section: &DocumentSection,
     record: &Record,
     relations: &[Relation],
+    exclude: &[String],
     apply_ordering_to_children: ChildOrdering<'_>,
     diagnostics: &mut Vec<String>,
 ) -> Result<ProjectedRecord, RepositoryError> {
@@ -958,6 +977,7 @@ fn project_record_json(
         section,
         record,
         relations,
+        exclude,
         apply_ordering_to_children,
         diagnostics,
     )?;
@@ -990,12 +1010,14 @@ fn project_record_json(
 /// the JSON projection (same rule as a Note direct member, see
 /// `project_entries_json`) and is skipped with a diagnostic rather than
 /// dropped silently.
+#[allow(clippy::too_many_arguments)]
 fn project_contains_children_json(
     store: &dyn RepositoryStore,
     package: &Package,
     section: &DocumentSection,
     record: &Record,
     relations: &[Relation],
+    exclude: &[String],
     apply_ordering_to_children: ChildOrdering<'_>,
     diagnostics: &mut Vec<String>,
 ) -> Result<Vec<ProjectedRecord>, RepositoryError> {
@@ -1008,7 +1030,8 @@ fn project_contains_children_json(
         relations,
         store,
     )?;
-    let mut children = retain_type_filtered_children(store, package, section, children, relations)?;
+    let mut children =
+        retain_type_filtered_children(store, package, section, children, relations, exclude)?;
     // srs-rust#1130: see the matching comment in `render_record_at_level` —
     // the same single-anchor-container gap applies to the JSON projection's
     // parallel recursion, and the same one-level-only scoping.
@@ -1044,6 +1067,7 @@ fn project_contains_children_json(
                     section,
                     child_record,
                     relations,
+                    exclude,
                     ChildOrdering::Off,
                     diagnostics,
                 )?);
@@ -2254,22 +2278,64 @@ fn resolve_section_instances(
 /// member unrelated to any other member is trivially a root. Order is
 /// preserved (a `Vec`, not a `HashSet`) — the caller applies [R20] ordering
 /// afterward.
-fn filter_contains_roots(members: &[String], relations: &[Relation]) -> Vec<String> {
-    let member_set: HashSet<&str> = members.iter().map(String::as_str).collect();
-    let non_root_ids: HashSet<&str> = relations
-        .iter()
-        .filter(|r| {
-            r.relation_type == "contains"
-                && member_set.contains(r.source_instance_id.as_str())
-                && member_set.contains(r.target_instance_id.as_str())
-        })
-        .map(|r| r.target_instance_id.as_str())
-        .collect();
+fn filter_contains_roots(
+    members: &[String],
+    relations: &[Relation],
+    eligible: &HashSet<String>,
+) -> Vec<String> {
+    // srs-rust#1503: an entry is a non-root only when a `contains`-ancestor that will
+    // actually render (`eligible`: survives `typeFilter` and `exclude`) carries it
+    // through the recursion. A filtered-out or excluded ancestor renders nothing, so it
+    // must not claim its descendants.
+    let mut parents: std::collections::HashMap<&str, Vec<&str>> = std::collections::HashMap::new();
+    for r in relations.iter().filter(|r| r.relation_type == "contains") {
+        parents
+            .entry(r.target_instance_id.as_str())
+            .or_default()
+            .push(r.source_instance_id.as_str());
+    }
+    let has_eligible_ancestor = |id: &str| -> bool {
+        let mut seen: HashSet<&str> = HashSet::new();
+        let mut stack: Vec<&str> = parents.get(id).cloned().unwrap_or_default();
+        while let Some(a) = stack.pop() {
+            if a == id || !seen.insert(a) {
+                continue;
+            }
+            if eligible.contains(a) {
+                return true;
+            }
+            stack.extend(parents.get(a).into_iter().flatten().copied());
+        }
+        false
+    };
     members
         .iter()
-        .filter(|id| !non_root_ids.contains(id.as_str()))
+        .filter(|id| !has_eligible_ancestor(id.as_str()))
         .cloned()
         .collect()
+}
+
+/// srs-rust#1503: the members that will render, i.e. that load and survive `typeFilter`
+/// and `exclude`. Only these can carry a `contains` descendant through the recursion.
+fn eligible_member_ids(
+    store: &dyn RepositoryStore,
+    members: &[String],
+    type_filter: Option<&[String]>,
+    exclude: &[String],
+    package: &Package,
+) -> Result<HashSet<String>, RepositoryError> {
+    let mut eligible = HashSet::new();
+    for id in members {
+        if exclude.iter().any(|x| x == id) {
+            continue;
+        }
+        if let Some(inst) = get_instance_by_id(store, id)? {
+            if type_filter.is_none_or(|f| relation_graph::passes_type_filter(&inst, f, package)) {
+                eligible.insert(id.clone());
+            }
+        }
+    }
+    Ok(eligible)
 }
 
 /// srs-rust#1271: [`filter_contains_roots`]'s dedup is sound only where its premise
@@ -2286,13 +2352,14 @@ fn dedupe_contains_roots(
     section_id: &str,
     members: &[String],
     relations: &[Relation],
+    eligible: &HashSet<String>,
     dedupe_for_recursion: bool,
     diagnostics: &mut Vec<String>,
 ) -> Vec<String> {
     if !dedupe_for_recursion {
         return members.to_vec();
     }
-    let roots = filter_contains_roots(members, relations);
+    let roots = filter_contains_roots(members, relations, eligible);
     if roots.len() != members.len() {
         let root_set: HashSet<&str> = roots.iter().map(String::as_str).collect();
         for id in members {
@@ -2320,16 +2387,19 @@ fn ordered_direct_members(
     section_id: &str,
     ordering: Option<&srs_core::types::view::SectionOrdering>,
     type_filter: Option<&[String]>,
+    exclude: &[String],
     package: &Package,
     relations: &[Relation],
     dedupe_for_recursion: bool,
     diagnostics: &mut Vec<String>,
 ) -> Result<Vec<LoadedInstance>, RepositoryError> {
     let members = list_direct_members_degraded(store, container_id, section_id, diagnostics)?;
+    let eligible = eligible_member_ids(store, &members, type_filter, exclude, package)?;
     let roots = dedupe_contains_roots(
         section_id,
         &members,
         relations,
+        &eligible,
         dedupe_for_recursion,
         diagnostics,
     );
@@ -2388,10 +2458,12 @@ fn arranged_direct_members(
         .map(|(i, e)| (e.instance_id.clone(), i))
         .collect();
     let ids: Vec<String> = entries.iter().map(|e| e.instance_id.clone()).collect();
+    let eligible = eligible_member_ids(store, &ids, type_filter, exclude, package)?;
     let roots: HashSet<String> = dedupe_contains_roots(
         section_id,
         &ids,
         relations,
+        &eligible,
         dedupe_for_recursion,
         diagnostics,
     )
@@ -2525,6 +2597,7 @@ fn resolve_section_entries(
                 &section.section_id,
                 section.ordering.as_ref(),
                 type_filter_slice,
+                exclude,
                 package,
                 relations,
                 dedupe_for_recursion,
@@ -2598,6 +2671,7 @@ fn build_container_subset_entries(
         section_id,
         ordering,
         type_filter,
+        &[],
         package,
         relations,
         dedupe_for_recursion,
@@ -3264,8 +3338,14 @@ fn render_record_at_level(
             relations,
             store,
         )?;
-        let mut subsections =
-            retain_type_filtered_children(store, ctx.package, section, subsections, relations)?;
+        let mut subsections = retain_type_filtered_children(
+            store,
+            ctx.package,
+            section,
+            subsections,
+            relations,
+            ctx.exclude,
+        )?;
         // srs-rust#1130: for a single-anchor container (e.g. a Part), `direct(C)`
         // collapses to just the anchor (`filter_contains_roots`), so the anchor's
         // own `contains` children — the concepts a Part's arrangement
@@ -3389,6 +3469,7 @@ pub(crate) fn render_record_rows(
         status_field_name: None,
         active_theme: None,
         doc_composite_renderers: None,
+        exclude: &[],
     });
     let mut out = String::new();
     for (field_id, name, display_label) in rows {
@@ -5521,6 +5602,7 @@ mod tests {
             status_field_name: None,
             active_theme: Some(theme),
             doc_composite_renderers: None,
+            exclude: &[],
         };
 
         let classes = css_classes_for_record(&record, &ctx);
@@ -10419,6 +10501,93 @@ mod tests {
             assert!(
                 out.contains("Promoted"),
                 "{format:?}: the filtered table's child is promoted, not lost; got:\n{out}"
+            );
+        }
+    }
+
+    /// Shared by the srs-rust#1503 tests: one `contains` edge between the two members.
+    fn contain(store: &crate::store::memory::MemoryStore, source: &str, target: &str) {
+        crate::relation_service::create_relation_auto(
+            store,
+            Relation {
+                created_by: None,
+                relation_id: String::new(),
+                relation_type: "contains".to_string(),
+                source_instance_id: source.to_string(),
+                target_instance_id: target.to_string(),
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                notes: None,
+                source_refs: None,
+                meta: None,
+            },
+        )
+        .unwrap();
+    }
+
+    /// srs-rust#1503 case 1: the table (filtered out) `contains` the text member. The
+    /// dedupe must not drop the text member on the premise that the table's recursion
+    /// renders it: the table is not rendered, so the text member must render itself.
+    #[test]
+    fn type_filter_keeps_matching_member_under_filtered_out_parent() {
+        let view = rfc008_doc_view(Some(vec!["com.test/section.text".to_string()]), None, None);
+        let (store, text_id, table_id) = make_rfc008_store(view);
+        contain(&store, &table_id, &text_id);
+        for format in [None, Some("json")] {
+            let result = render_composition(RenderCompositionOptions {
+                store: &store,
+                view_id: "dv-rfc008",
+                format,
+                theme_variant: None,
+                container_id: None,
+                instance_id_filter: None,
+                exclude_instance_ids: &[],
+            })
+            .expect("render should succeed");
+            let out = match &result.projection {
+                Some(p) => serde_json::to_string(p).unwrap(),
+                None => result.rendered.clone(),
+            };
+            assert_eq!(
+                out.matches("The introduction body.").count(),
+                1,
+                "{format:?}: the matching member renders exactly once; got:\n{out}"
+            );
+            assert!(
+                !out.contains("Summary Table"),
+                "{format:?}: the filtered-out parent stays out; got:\n{out}"
+            );
+        }
+    }
+
+    /// srs-rust#1503 case 2: an excluded member that another member `contains` must not
+    /// render through the recursion.
+    #[test]
+    fn exclude_binds_contains_recursion() {
+        let view = rfc008_doc_view(None, None, None);
+        let (store, text_id, table_id) = make_rfc008_store(view);
+        contain(&store, &text_id, &table_id);
+        for format in [None, Some("json")] {
+            let result = render_composition(RenderCompositionOptions {
+                store: &store,
+                view_id: "dv-rfc008",
+                format,
+                theme_variant: None,
+                container_id: None,
+                instance_id_filter: None,
+                exclude_instance_ids: std::slice::from_ref(&table_id),
+            })
+            .expect("render should succeed");
+            let out = match &result.projection {
+                Some(p) => serde_json::to_string(p).unwrap(),
+                None => result.rendered.clone(),
+            };
+            assert!(
+                out.contains("Introduction"),
+                "{format:?}: the parent renders; got:\n{out}"
+            );
+            assert!(
+                !out.contains("Summary Table"),
+                "{format:?}: the excluded member must not render nested; got:\n{out}"
             );
         }
     }
