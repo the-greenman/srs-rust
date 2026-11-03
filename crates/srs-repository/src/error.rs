@@ -414,6 +414,20 @@ pub enum RepositoryError {
         used_by: Vec<String>,
     },
 
+    /// A `field update` / `type update` refused because records bound to the definition
+    /// would stop conforming under it (RFC-039 [R1]/[R3]/[R5]; srs-rust#1484). `used_by`
+    /// is capped; `count` is the total; `first_diagnostic` is the first record's first
+    /// diagnostic.
+    #[error("cannot change {entity_type} '{id}': {count} record(s) would stop conforming [{used_by}]; first: {first_diagnostic}",
+            used_by = used_by.join(", "))]
+    DefinitionChangeBreaksRecords {
+        entity_type: String,
+        id: String,
+        count: usize,
+        used_by: Vec<String>,
+        first_diagnostic: String,
+    },
+
     // ── ext:type-inheritance errors ───────────────────────────────────────────
     #[error("type inheritance cycle detected involving type '{type_id}'")]
     TypeInheritanceCycle { type_id: String },
@@ -1011,6 +1025,22 @@ impl PartialEq for RepositoryError {
                 },
             ) => eta == etb && ia == ib && ua == ub,
             (
+                RepositoryError::DefinitionChangeBreaksRecords {
+                    entity_type: ea,
+                    id: ia,
+                    count: ca,
+                    used_by: ua,
+                    first_diagnostic: fa,
+                },
+                RepositoryError::DefinitionChangeBreaksRecords {
+                    entity_type: eb,
+                    id: ib,
+                    count: cb,
+                    used_by: ub,
+                    first_diagnostic: fb,
+                },
+            ) => ea == eb && ia == ib && ca == cb && ua == ub && fa == fb,
+            (
                 RepositoryError::RelationTypeRetireInUse {
                     id: ia,
                     key: ka,
@@ -1318,6 +1348,7 @@ impl RepositoryError {
             Self::CannotDeleteInUse { .. } => "cannot-delete-in-use",
             Self::RelationTypeRetireInUse { .. } => "relation-type-retire-in-use",
             Self::RelationTypeRekeyInUse { .. } => "relation-type-rekey-in-use",
+            Self::DefinitionChangeBreaksRecords { .. } => "definition-change-breaks-records",
             Self::TypeInheritanceCycle { .. } => "type-inheritance-cycle",
             Self::InheritedFieldDuplicate { .. } => "inherited-field-duplicate",
             Self::FieldOrderMismatch { .. } => "field-order-mismatch",
@@ -1629,6 +1660,13 @@ mod tests {
                 id: "x".into(),
                 used_by: vec![],
             },
+            R::DefinitionChangeBreaksRecords {
+                entity_type: "x".into(),
+                id: "x".into(),
+                count: 0,
+                used_by: vec![],
+                first_diagnostic: "x".into(),
+            },
             R::RelationTypeRetireInUse {
                 id: "x".into(),
                 key: "x".into(),
@@ -1763,7 +1801,7 @@ mod tests {
         let all = all_variants();
         assert_eq!(
             all.len(),
-            104,
+            105,
             "all_variants() is out of step with the enum"
         );
         let mut seen = std::collections::HashSet::new();
