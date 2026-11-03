@@ -1371,6 +1371,7 @@ pub fn validate_repository(
     // shape) — so it shares this same resolution branch rather than the narrower Inv-43 guard.
     if let Some(Some(ref pkg)) = package_for_tier2 {
         validate_vocabulary_invariants(pkg, &mut diagnostics);
+        validate_type_inheritance_invariants(pkg, &mut diagnostics);
         validate_identity_field_invariants(pkg, &mut diagnostics);
         validate_field_type_conformance(pkg, &mut diagnostics);
         validate_title_field_id_eligibility(pkg, &mut diagnostics);
@@ -1381,6 +1382,7 @@ pub fn validate_repository(
         // When package_for_tier2 is Some(None), the load already failed; don't retry.
         if let Ok(pkg) = store.load_package() {
             validate_vocabulary_invariants(&pkg, &mut diagnostics);
+            validate_type_inheritance_invariants(&pkg, &mut diagnostics);
             validate_identity_field_invariants(&pkg, &mut diagnostics);
             validate_field_type_conformance(&pkg, &mut diagnostics);
             validate_title_field_id_eligibility(&pkg, &mut diagnostics);
@@ -2060,6 +2062,48 @@ pub fn validate_repository(
     })
 }
 
+/// ext:type-inheritance I-39..I-42 over every Type, independent of `identityFieldId`.
+///
+/// Resolves each Type's effective field set once and reports the cause with the error's
+/// own stable code (`type-not-found`, `type-inheritance-cycle`, `inherited-field-duplicate`,
+/// `field-order-mismatch`, `override-targets-own-field`, `override-relaxes-required`).
+/// Non-inheriting Types are covered too: their `fieldOrder` must match their own fields
+/// (I-41) and any override is dangling (I-42). The identity check skips a Type whose field
+/// set cannot be resolved, so each cause is reported once (srs-rust#1542).
+fn validate_type_inheritance_invariants(
+    pkg: &crate::package::Package,
+    diagnostics: &mut Vec<ValidationDiagnostic>,
+) {
+    for rt in pkg.record_types() {
+        if let Err(e) = pkg.effective_fields(rt) {
+            let invariant = match e.code() {
+                "inherited-field-duplicate" => "I-40",
+                "field-order-mismatch" => "I-41",
+                "override-targets-own-field" | "override-relaxes-required" => "I-42",
+                _ => "I-39",
+            };
+            // An unresolved base may live in another package. Until cross-package
+            // resolution exists (srs-rust#1388) it is advisory, never an error
+            // (owner ruling on #1173, Option A; on #1549, 2026-11-03).
+            let severity = if e.code() == "type-not-found" {
+                DiagnosticSeverity::Info
+            } else {
+                DiagnosticSeverity::Error
+            };
+            diagnostics.push(ValidationDiagnostic {
+                code: Some(e.code().to_string()),
+                severity,
+                relative_path: "package/package.json".to_string(),
+                schema_id: None,
+                message: format!(
+                    "ext:type-inheritance ({}): type '{}/{}@{}': {}",
+                    invariant, rt.namespace, rt.name, rt.version, e
+                ),
+            });
+        }
+    }
+}
+
 /// RFC-020 Rule [N+33] — every Type's effective `identityFieldId` (own or inherited) must
 /// reference a `fieldId` present in that Type's effective field set. Accumulates diagnostics
 /// (does not fail fast): a resolution error on one Type (e.g. an unrelated inheritance cycle)
@@ -2069,48 +2113,25 @@ fn validate_identity_field_invariants(
     diagnostics: &mut Vec<ValidationDiagnostic>,
 ) {
     for rt in pkg.record_types() {
-        match pkg.effective_identity_field_id(rt) {
-            Ok(Some(field_id)) => match pkg.effective_fields(rt) {
-                Ok(fields) => {
-                    if !fields.iter().any(|fa| fa.field_id == field_id) {
-                        diagnostics.push(ValidationDiagnostic {
- code: None,
-                            severity: DiagnosticSeverity::Error,
-                            relative_path: "package/package.json".to_string(),
-                            schema_id: None,
-                            message: format!(
-                                "RFC-020 (Rule [N+33]): type '{}/{}@{}' identityFieldId '{}' is not in the effective field set",
-                                rt.namespace, rt.name, rt.version, fmt_field_ref(pkg, &field_id)
-                            ),
-                        });
-                    }
-                }
-                Err(e) => {
-                    diagnostics.push(ValidationDiagnostic {
- code: None,
-                        severity: DiagnosticSeverity::Error,
-                        relative_path: "package/package.json".to_string(),
-                        schema_id: None,
-                        message: format!(
-                            "RFC-020 (Rule [N+33]): type '{}/{}@{}' effective field set could not be resolved to validate identityFieldId: {}",
-                            rt.namespace, rt.name, rt.version, e
-                        ),
-                    });
-                }
-            },
-            Ok(None) => {}
-            Err(e) => {
-                diagnostics.push(ValidationDiagnostic {
- code: None,
-                    severity: DiagnosticSeverity::Error,
-                    relative_path: "package/package.json".to_string(),
-                    schema_id: None,
-                    message: format!(
-                        "RFC-020 (Rule [N+33]): type '{}/{}@{}' identityFieldId could not be resolved: {}",
-                        rt.namespace, rt.name, rt.version, e
-                    ),
-                });
-            }
+        // An unresolvable chain (I-39) or field set (I-40..I-42) is reported once by the
+        // type-inheritance pass, so it is skipped here.
+        let Ok(Some(field_id)) = pkg.effective_identity_field_id(rt) else {
+            continue;
+        };
+        let Ok(fields) = pkg.effective_fields(rt) else {
+            continue;
+        };
+        if !fields.iter().any(|fa| fa.field_id == field_id) {
+            diagnostics.push(ValidationDiagnostic {
+                code: None,
+                severity: DiagnosticSeverity::Error,
+                relative_path: "package/package.json".to_string(),
+                schema_id: None,
+                message: format!(
+                    "RFC-020 (Rule [N+33]): type '{}/{}@{}' identityFieldId '{}' is not in the effective field set",
+                    rt.namespace, rt.name, rt.version, fmt_field_ref(pkg, &field_id)
+                ),
+            });
         }
     }
 }
@@ -4563,9 +4584,25 @@ mod tests {
             .iter()
             .filter(|d| d.message.contains("N+33"))
             .collect();
+        // srs-rust#1542: the cycle is reported once, by the I-39..I-42 pass with its own
+        // code, not as an identity-field message for a Type that declares none.
+        let cycle: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.code.as_deref() == Some("type-inheritance-cycle"))
+            .collect();
+        assert_eq!(
+            cycle.len(),
+            1,
+            "expected one cycle diagnostic, got: {:?}",
+            report.diagnostics
+        );
+        assert!(cycle[0].message.contains("I-39"));
         assert!(
-            n33_errors.iter().any(|d| d.message.contains(cyclic_type_id)),
-            "expected a Rule [N+33] diagnostic reporting the cyclic type's resolution error, got: {:?}",
+            !n33_errors
+                .iter()
+                .any(|d| d.message.contains(cyclic_type_id)),
+            "identity check must not repeat the cycle, got: {:?}",
             report.diagnostics
         );
         // The "other" type's diagnostic uses namespace/name@version, not the raw UUID, so check
@@ -4575,6 +4612,86 @@ mod tests {
                 && d.message.contains("effective field set")),
             "the cyclic type's error must not suppress diagnostics collection for the unrelated type; diagnostics: {:?}",
             report.diagnostics
+        );
+    }
+
+    // --- ext:type-inheritance I-39..I-42 at Type level (srs-rust#1542) ---
+
+    fn type_with(id: &str, name: &str, extra: Value) -> Value {
+        let mut t = json!({
+            "id": id, "namespace": "com.test", "name": name, "version": 1,
+            "description": "t", "fields": [], "createdAt": "2026-01-01T00:00:00Z"
+        });
+        for (k, v) in extra.as_object().unwrap() {
+            t[k] = v.clone();
+        }
+        t
+    }
+
+    fn validate_types(types: &[(&str, Value)]) -> Vec<ValidationDiagnostic> {
+        let temp = TempDir::new().unwrap();
+        let files: Vec<String> = types
+            .iter()
+            .map(|(n, _)| format!("types/{n}.json"))
+            .collect();
+        let refs: Vec<&str> = files.iter().map(String::as_str).collect();
+        setup_package_only_repo(&temp, &minimal_package_json_full(&[], &refs, &[], &[]));
+        for (n, v) in types {
+            write_json(temp.path(), &format!("package/types/{n}.json"), v);
+        }
+        let store = crate::store::FileStore::new(temp.path());
+        validate_repository(&store).unwrap().diagnostics
+    }
+
+    fn coded<'a>(d: &'a [ValidationDiagnostic], code: &str) -> Vec<&'a ValidationDiagnostic> {
+        d.iter()
+            .filter(|x| x.code.as_deref() == Some(code))
+            .collect()
+    }
+
+    #[test]
+    fn plain_type_with_unknown_field_order_reports_i41() {
+        let t = type_with(
+            "00000000-0000-4000-8000-000000000071",
+            "plain-order",
+            json!({"fieldOrder": ["ffffffff-0000-4000-8000-000000000001"]}),
+        );
+        let d = validate_types(&[("plain-order", t)]);
+        let hits = coded(&d, "field-order-mismatch");
+        assert_eq!(hits.len(), 1, "got {d:?}");
+        assert!(hits[0].message.contains("I-41"));
+    }
+
+    #[test]
+    fn plain_type_with_dangling_override_reports_i42() {
+        let t = type_with(
+            "00000000-0000-4000-8000-000000000072",
+            "plain-override",
+            json!({"fieldAssignmentOverrides": [{"fieldId": "ffffffff-0000-4000-8000-000000000002", "required": true}]}),
+        );
+        let d = validate_types(&[("plain-override", t)]);
+        let hits = coded(&d, "override-targets-own-field");
+        assert_eq!(hits.len(), 1, "got {d:?}");
+    }
+
+    #[test]
+    fn dangling_extends_reports_type_not_found_not_identity() {
+        let t = type_with(
+            "00000000-0000-4000-8000-000000000073",
+            "orphan",
+            json!({"extendsTypeId": "00000000-0000-4000-8000-0000000000ee", "extendsTypeVersion": 1}),
+        );
+        let d = validate_types(&[("orphan", t)]);
+        let hits = coded(&d, "type-not-found");
+        assert_eq!(hits.len(), 1, "got {d:?}");
+        assert_eq!(
+            hits[0].severity,
+            DiagnosticSeverity::Info,
+            "advisory until #1388"
+        );
+        assert!(
+            !d.iter().any(|x| x.message.contains("identityFieldId")),
+            "got {d:?}"
         );
     }
 

@@ -285,12 +285,8 @@ impl Package {
         use crate::error::RepositoryError;
         use std::collections::HashSet;
 
-        if record_type.extends_type_id.is_none() {
-            let mut fields = record_type.fields.clone();
-            fields.sort_by_key(|fa| fa.order);
-            return Ok(fields);
-        }
-
+        // I-41 and I-42 apply to a non-inheriting Type too: its chain is `[self]`, so the
+        // ancestor loop below is empty and only `fieldOrder` / overrides are checked.
         // ancestor_chain returns [self, parent, ..., root]; ancestors in root-to-parent
         // order (oldest first) is chain[1..].rev() — matches the original chain.reverse()
         // + chain[..chain.len()-1] derivation exactly, just expressed over &RecordType
@@ -311,7 +307,7 @@ impl Package {
                 if own_field_ids.contains(&fa.field_id) {
                     return Err(RepositoryError::InheritedFieldDuplicate {
                         type_id: record_type.id.clone(),
-                        base_type_id: "ancestor".to_string(),
+                        base_type_id: ancestor.id.clone(),
                         field_id: fa.field_id.clone(),
                     });
                 }

@@ -6,7 +6,7 @@
 
 use serde_json::json;
 use srs_repository::field_type_migration_service::CURRENT_DATA_MODEL_REVISION;
-use srs_repository::validation::validate_repository;
+use srs_repository::validation::{validate_repository, DiagnosticSeverity};
 
 /// `.srsj` fixtures here are written with the pre-RFC-052 embedded root; open them in the
 /// revision-10 form (root in the container set, named by `rootContainerId`).
@@ -81,14 +81,28 @@ fn repo(deps: serde_json::Value) -> srs_repository::store::FileStore {
     open_srsj(&srsj.to_string()).unwrap()
 }
 
+/// Error- or warning-severity diagnostics. The unresolved base is reported as an advisory
+/// (`type-not-found`, Info) until srs-rust#1388; that is asserted separately.
 fn type_inheritance_diagnostics(store: &dyn srs_repository::store::RepositoryStore) -> Vec<String> {
     validate_repository(store)
         .unwrap()
         .diagnostics
         .into_iter()
+        .filter(|d| d.severity != DiagnosticSeverity::Info)
         .filter(|d| d.message.contains("ext:type-inheritance") || d.message.contains("Inv 43"))
         .map(|d| d.message)
         .collect()
+}
+
+fn unresolved_base_advisories(store: &dyn srs_repository::store::RepositoryStore) -> usize {
+    validate_repository(store)
+        .unwrap()
+        .diagnostics
+        .iter()
+        .filter(|d| {
+            d.severity == DiagnosticSeverity::Info && d.code.as_deref() == Some("type-not-found")
+        })
+        .count()
 }
 
 #[test]
@@ -99,6 +113,7 @@ fn no_dependency_declared_emits_no_inv43_diagnostic() {
         diags.is_empty(),
         "expected no Inv 43 diagnostics, got {diags:?}"
     );
+    assert_eq!(unresolved_base_advisories(&store), 1);
 }
 
 /// Reproduces the exact pre-fix bug condition: a `packageDependencies` entry whose
