@@ -73,6 +73,7 @@ Never edit a repository's JSON files by hand: the CLI and the MCP tools enforce 
 
 ## Where next
 
+- [Structure a repository for people](https://engine.semanticops.com/structure.md): a front door, then a tree of documents that gets deeper.
 - [CLI reference](https://engine.semanticops.com/cli/index.md): every command's `--help`.
 - [The SRS specification](https://srs.semanticops.com/llms.txt): the data model, one page per concept.
 - [The srs-memory skill](https://skill.semanticops.com/srs-memory/SKILL.md): keep a codebase's decisions and traps in an SRS repository.
