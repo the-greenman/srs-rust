@@ -264,6 +264,11 @@ pub mod srs_resources {
     ) -> Result<Value, McpApplicationError> {
         let not_found =
             || McpApplicationError::resource_not_found(format!("resource not found: {raw_uri}"));
+        if let Some(repo) = uri::foreign_repository(raw_uri, repository_id) {
+            return Err(service_err(RepositoryError::NotInBoundary {
+                repository_id: repo.to_string(),
+            }));
+        }
         let parsed = uri::parse(raw_uri, repository_id)
             .map_err(|e| McpApplicationError::invalid_params(e.to_string()))?;
         match parsed {

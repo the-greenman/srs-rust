@@ -1,6 +1,6 @@
 use crate::commands::{CliContext, RegistryCommand};
 use crate::output;
-use crate::payload::{RegistryEntryPayload, RegistryGetPayload, RegistryListPayload};
+use crate::payload::{RegistryGetPayload, RegistryListPayload};
 use anyhow::Result;
 use srs_repository::registry_service::{
     get_registry_entry, list_registry, GetRegistryEntryInput, ListRegistryInput, RegistryListFilter,
@@ -28,20 +28,17 @@ fn cmd_registry_list(
         filter: RegistryListFilter { publisher, tags },
     })
     .map_err(anyhow::Error::from)?;
-    let entries = result
-        .entries
-        .into_iter()
-        .map(RegistryEntryPayload::from)
-        .collect();
     output::serialize(
         "registry list",
         RegistryListPayload {
+            registry_revision: result.registry_revision,
             registry_id: result.registry_id,
             registry_name: result.registry_name,
             catalog_version: result.catalog_version,
             updated_at: result.updated_at,
             homepage: result.homepage,
-            entries,
+            entries: result.entries,
+            outcomes: result.outcomes,
             total_count: result.total_count,
             filtered_count: result.filtered_count,
         },
@@ -55,7 +52,7 @@ fn cmd_registry_get(path: PathBuf, package_name: String) -> Result<String> {
         "registry get",
         RegistryGetPayload {
             registry_id: result.registry_id,
-            entry: RegistryEntryPayload::from(result.entry),
+            entries: result.entries,
         },
     )
 }

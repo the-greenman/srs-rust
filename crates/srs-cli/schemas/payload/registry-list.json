@@ -1,25 +1,25 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "RegistryListPayload",
+  "description": "Returned by `srs registry list` (RFC-049): the catalog fields (all optional), the entries that loaded and matched the filter, each with its `kind`, and the per-entry load outcomes ([R15]) of the entries that did not load.",
   "type": "object",
   "required": [
-    "catalogVersion",
     "entries",
     "filteredCount",
-    "registryId",
-    "registryName",
-    "totalCount",
-    "updatedAt"
+    "outcomes",
+    "registryRevision",
+    "totalCount"
   ],
   "properties": {
     "catalogVersion": {
-      "type": "string"
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "entries": {
       "type": "array",
-      "items": {
-        "$ref": "#/definitions/RegistryEntryPayload"
-      }
+      "items": true
     },
     "filteredCount": {
       "type": "integer",
@@ -32,11 +32,26 @@
         "null"
       ]
     },
+    "outcomes": {
+      "type": "array",
+      "items": true
+    },
     "registryId": {
-      "type": "string"
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "registryName": {
-      "type": "string"
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "registryRevision": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
     },
     "totalCount": {
       "type": "integer",
@@ -44,113 +59,10 @@
       "minimum": 0.0
     },
     "updatedAt": {
-      "type": "string"
-    }
-  },
-  "definitions": {
-    "RegistryEntryPayload": {
-      "type": "object",
-      "required": [
-        "fieldCount",
-        "packageId",
-        "packageName",
-        "packageVersion",
-        "publishedAt",
-        "publisher",
-        "typeCount"
-      ],
-      "properties": {
-        "checksum": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "description": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "downloadUrl": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "fieldCount": {
-          "type": "integer",
-          "format": "uint32",
-          "minimum": 0.0
-        },
-        "homepage": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "packageId": {
-          "type": "string"
-        },
-        "packageName": {
-          "type": "string"
-        },
-        "packageVersion": {
-          "type": "string"
-        },
-        "protocolCount": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint32",
-          "minimum": 0.0
-        },
-        "publishedAt": {
-          "type": "string"
-        },
-        "publisher": {
-          "type": "string"
-        },
-        "relationTypeCount": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint32",
-          "minimum": 0.0
-        },
-        "schemaCount": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint32",
-          "minimum": 0.0
-        },
-        "tags": {
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "type": "string"
-          }
-        },
-        "typeCount": {
-          "type": "integer",
-          "format": "uint32",
-          "minimum": 0.0
-        },
-        "viewCount": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint32",
-          "minimum": 0.0
-        }
-      }
+      "type": [
+        "string",
+        "null"
+      ]
     }
   }
 }

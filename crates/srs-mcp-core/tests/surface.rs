@@ -374,7 +374,17 @@ fn resource_read_errors_preserve_mcp_codes() {
         "resources/read",
         json!({ "uri": "srs://other/map" }),
     );
-    assert_eq!(foreign["error"]["code"], -32602);
+    // RFC-049 [R5]/[R8]: a repository outside the boundary is `not-in-boundary`.
+    assert_eq!(foreign["error"]["data"]["code"], "not-in-boundary");
+    let own_upper = rpc(
+        &mut d,
+        "resources/read",
+        json!({ "uri": format!("srs://{}/map", REPO_ID.to_uppercase()) }),
+    );
+    assert!(
+        own_upper.get("error").is_none(),
+        "ids compare without regard to case"
+    );
     assert_eq!(
         rpc(&mut d, "resources/read", json!({}))["error"]["code"],
         -32602
@@ -1475,7 +1485,7 @@ mod read_tool {
         let via = tool(&mut d, "read", json!({ "uri": missing }));
         assert_eq!(via["error"], direct["error"]);
         let wrong = tool(&mut d, "read", json!({ "uri": "srs://other/map" }));
-        assert_eq!(wrong["error"]["code"], -32602);
+        assert_eq!(wrong["error"]["data"]["code"], "not-in-boundary");
     }
 
     #[test]

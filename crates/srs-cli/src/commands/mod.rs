@@ -1991,7 +1991,7 @@ pub enum RegistryCommand {
         #[arg(long = "tag")]
         tags: Vec<String>,
     },
-    /// Get a single registry entry by package name
+    /// Find package entries by package name (discovery: every version that matches)
     Get {
         /// Path to the registry catalog JSON file
         #[arg(long)]

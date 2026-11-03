@@ -2096,11 +2096,13 @@ pub fn render_markdown(md: &str) -> String {
     srs_core::markdown::render_markdown(md)
 }
 
-/// Parse a registry catalog JSON string into a `Registry` object.
+/// Parse and load a registry JSON string (RFC-049 `ext:registry`).
 ///
-/// `catalog_json` is the raw text of a `.json` registry catalog file
-/// (the `ext:registry` schema). Returns the parsed `Registry` as a JS value,
-/// or a JS error string on parse failure.
+/// `catalog_json` is the raw text of a registry document. Returns
+/// `{registry, entries, outcomes}`: the document (brought to the current
+/// `registryRevision`), the entries that loaded, each with its `kind`, and the
+/// per-entry load outcomes of the rest ([R15]). A malformed or too-new document
+/// throws (`registry-malformed`, `registry-revision-unsupported`).
 ///
 /// This is a repo-independent free function (ADR-013 addendum): it does not
 /// require a loaded SRS repository and operates on a caller-supplied payload.
@@ -2119,8 +2121,11 @@ pub fn parse_registry(catalog_json: &str) -> Result<JsValue, JsValue> {
 /// tag. (Note: the initial cut used a singular `"tag"` string key; that key is
 /// now rejected — use `"tags": [...]` instead.)
 ///
-/// Returns a `Registry` JS value whose `entries` array contains only the
-/// matching entries (all entries if no filter criteria are set).
+/// Returns the `{registry, entries, outcomes}` shape of `parse_registry`, with
+/// `entries` holding only the matching ones (all if no criteria are set) and the
+/// document's raw, unfiltered `registry.entries` left out.
+/// `publisher` and `tags` are package fields, so a set criterion excludes every
+/// other kind.
 ///
 /// This is a repo-independent free function (ADR-013 addendum).
 #[wasm_bindgen]
@@ -2128,8 +2133,13 @@ pub fn list_registry_entries(catalog_json: &str, filter_json: &str) -> Result<Js
     let registry = parse_registry_json(catalog_json).map_err(|e| js_err(&e))?;
     let filter: RegistryListFilter = serde_json::from_str(filter_json)
         .map_err(|e| js_invalid_input(format!("invalid filter: {e}")))?;
-    let filtered = filter_registry_entries(registry, &filter);
-    to_js(&filtered)
+    let mut loaded = registry;
+    loaded.entries = filter_registry_entries(loaded.entries, &filter);
+    let mut value = serde_json::to_value(&loaded).map_err(|e| js_serialize("registry", e))?;
+    if let Some(doc) = value.get_mut("registry").and_then(|d| d.as_object_mut()) {
+        doc.remove("entries");
+    }
+    to_js(&value)
 }
 
 /// Input shape for `list_compositions` — parsed from caller-supplied JSON.
