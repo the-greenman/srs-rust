@@ -2082,9 +2082,17 @@ fn validate_type_inheritance_invariants(
                 "override-targets-own-field" | "override-relaxes-required" => "I-42",
                 _ => "I-39",
             };
+            // An unresolved base may live in another package. Until cross-package
+            // resolution exists (srs-rust#1388) it is advisory, never an error
+            // (owner ruling on #1173, Option A; on #1549, 2026-11-03).
+            let severity = if e.code() == "type-not-found" {
+                DiagnosticSeverity::Info
+            } else {
+                DiagnosticSeverity::Error
+            };
             diagnostics.push(ValidationDiagnostic {
                 code: Some(e.code().to_string()),
-                severity: DiagnosticSeverity::Error,
+                severity,
                 relative_path: "package/package.json".to_string(),
                 schema_id: None,
                 message: format!(
@@ -4674,7 +4682,13 @@ mod tests {
             json!({"extendsTypeId": "00000000-0000-4000-8000-0000000000ee", "extendsTypeVersion": 1}),
         );
         let d = validate_types(&[("orphan", t)]);
-        assert_eq!(coded(&d, "type-not-found").len(), 1, "got {d:?}");
+        let hits = coded(&d, "type-not-found");
+        assert_eq!(hits.len(), 1, "got {d:?}");
+        assert_eq!(
+            hits[0].severity,
+            DiagnosticSeverity::Info,
+            "advisory until #1388"
+        );
         assert!(
             !d.iter().any(|x| x.message.contains("identityFieldId")),
             "got {d:?}"
