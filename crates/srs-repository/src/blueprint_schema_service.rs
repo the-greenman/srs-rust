@@ -16,6 +16,7 @@
 //! A hard error (blueprint not found) is returned as [`RepositoryError`].
 
 use crate::blueprint_service::{get_blueprint_by_id, GetBlueprintResult};
+use crate::diagnostic::{Diagnostic, Diagnostics};
 use crate::error::RepositoryError;
 use crate::store::RepositoryStore;
 use crate::type_schema_service::{type_schema, TypeSchemaInput};
@@ -37,6 +38,9 @@ pub struct BlueprintSchemaResult {
     /// per-type field warnings). Surfaced by the CLI in the payload `diagnostics`
     /// field.
     pub diagnostics: Vec<String>,
+    /// The same findings as structured entries (srs-rust#1491, ADR-057).
+    #[serde(rename = "diagnosticsStructured")]
+    pub diagnostics_structured: Vec<Diagnostic>,
 }
 
 /// Project a Blueprint into a nested draft-07 JSON Schema for a whole document.
@@ -56,7 +60,7 @@ pub fn blueprint_schema(
         }
     };
 
-    let mut diagnostics: Vec<String> = Vec::new();
+    let mut diagnostics = Diagnostics::new();
     let package = store.load_package()?;
 
     // Collect unique TypeRefs to project: root_types + structure[].target_type, each
@@ -105,15 +109,23 @@ pub fn blueprint_schema(
             },
         ) {
             Ok(result) => {
-                for d in result.diagnostics {
-                    diagnostics.push(format!("{type_id}: {d}"));
+                for d in result.diagnostics_structured {
+                    diagnostics.push_for(
+                        d.severity,
+                        &d.code,
+                        format!("{type_id}: {}", d.message),
+                        Some(type_id.clone()),
+                    );
                 }
                 definitions.insert(type_id.clone(), result.schema);
             }
             Err(e) => {
-                diagnostics.push(format!(
-                    "type '{type_id}' could not be projected: {e}; omitted from definitions"
-                ));
+                diagnostics.warning(
+                    "type-not-projected",
+                    format!(
+                        "type '{type_id}' could not be projected: {e}; omitted from definitions"
+                    ),
+                );
             }
         }
     }
@@ -216,9 +228,11 @@ pub fn blueprint_schema(
         "definitions": definitions
     });
 
+    let (diagnostics, diagnostics_structured) = diagnostics.into_parts();
     Ok(BlueprintSchemaResult {
         schema,
         diagnostics,
+        diagnostics_structured,
     })
 }
 
@@ -261,7 +275,7 @@ pub(crate) fn relation_type_to_property_key(s: &str) -> String {
 fn parse_cardinality(
     s: Option<&str>,
     relation_type: &str,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> (Option<u64>, Option<u64>) {
     let Some(s) = s else {
         return (None, None);
@@ -281,7 +295,7 @@ fn parse_cardinality(
         let m_str = &s[dot_pos + 2..];
 
         let Ok(n) = n_str.parse::<u64>() else {
-            diagnostics.push(format!(
+            diagnostics.warning("cardinality-unparseable", format!(
                 "cardinality '{s}' on relation '{relation_type}' could not be parsed; minItems/maxItems omitted"
             ));
             return (None, None);
@@ -296,7 +310,7 @@ fn parse_cardinality(
         match m_str.parse::<u64>() {
             Ok(m) => (min, Some(m)),
             Err(_) => {
-                diagnostics.push(format!(
+                diagnostics.warning("cardinality-unparseable", format!(
                     "cardinality '{s}' on relation '{relation_type}' could not be parsed; minItems/maxItems omitted"
                 ));
                 (None, None)
@@ -309,7 +323,7 @@ fn parse_cardinality(
                 (min, Some(n))
             }
             Err(_) => {
-                diagnostics.push(format!(
+                diagnostics.warning("cardinality-unparseable", format!(
                     "cardinality '{s}' on relation '{relation_type}' could not be parsed; minItems/maxItems omitted"
                 ));
                 (None, None)
@@ -628,7 +642,7 @@ mod tests {
 
     #[test]
     fn blueprint_schema_cardinality_min_max() {
-        let mut diag = Vec::new();
+        let mut diag = Diagnostics::new();
         // "1..*" → minItems: 1, no maxItems
         let (min, max) = parse_cardinality(Some("1..*"), "test", &mut diag);
         assert_eq!(min, Some(1));
@@ -656,7 +670,7 @@ mod tests {
     #[test]
     fn blueprint_schema_cardinality_word_forms() {
         // Canonical RFC-009 enum values must parse without emitting a diagnostic.
-        let mut diag = Vec::new();
+        let mut diag = Diagnostics::new();
         // "-to-one" forms → exactly one target
         assert_eq!(
             parse_cardinality(Some("one-to-one"), "contains", &mut diag),
@@ -793,6 +807,7 @@ mod tests {
             "expected diagnostic naming the unresolvable type: {:?}",
             result.diagnostics
         );
+        crate::diagnostic::assert_parallel(&result.diagnostics, &result.diagnostics_structured);
         // No [WARN] prefix
         for d in &result.diagnostics {
             assert!(

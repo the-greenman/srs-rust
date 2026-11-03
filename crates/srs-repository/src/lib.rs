@@ -21,6 +21,7 @@ pub(crate) mod core_package;
 pub(crate) mod core_purpose;
 pub mod core_relation_type_reference_cleanup_migration_service;
 pub mod detect;
+pub mod diagnostic;
 pub mod diff;
 pub mod discovery_index;
 pub mod discovery_query_cutover_migration_service;

@@ -92,6 +92,11 @@ fn cmd_render_composition(
                 RenderCompositionPayload {
                     rendered: result.rendered,
                     diagnostics: result.diagnostics,
+                    diagnostics_structured: result
+                        .diagnostics_structured
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
                     projection,
                 },
             )

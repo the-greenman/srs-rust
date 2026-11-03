@@ -829,6 +829,57 @@ pub struct ContainerViewPayload {
     pub container_view: ContainerView,
 }
 
+/// Severity of a [`DiagnosticPayload`]. Mirrors `validation::DiagnosticSeverity`.
+#[derive(Debug, Clone, Copy, Serialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum DiagnosticSeverityPayload {
+    Error,
+    Warning,
+    Info,
+}
+
+impl From<srs_repository::validation::DiagnosticSeverity> for DiagnosticSeverityPayload {
+    fn from(s: srs_repository::validation::DiagnosticSeverity) -> Self {
+        use srs_repository::validation::DiagnosticSeverity as S;
+        match s {
+            S::Error => Self::Error,
+            S::Warning => Self::Warning,
+            S::Info => Self::Info,
+        }
+    }
+}
+
+/// One structured finding, beside the text `diagnostics` list on the render, find,
+/// container view, blueprint, navigation and type_schema surfaces (srs-rust#1491,
+/// ADR-057). Mirrors `diagnostic::Diagnostic`. `message` is the text-list entry verbatim.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticPayload {
+    pub severity: DiagnosticSeverityPayload,
+    /// The stable rule identifier, in today's spelling.
+    pub code: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance_id: Option<String>,
+}
+
+impl From<srs_repository::diagnostic::Diagnostic> for DiagnosticPayload {
+    fn from(d: srs_repository::diagnostic::Diagnostic) -> Self {
+        let srs_repository::diagnostic::Diagnostic {
+            severity,
+            code,
+            message,
+            instance_id,
+        } = d;
+        Self {
+            severity: severity.into(),
+            code,
+            message,
+            instance_id,
+        }
+    }
+}
+
 /// Payload for `find` — `ext:discovery` results: ordered hits, total, diagnostics.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -858,6 +909,8 @@ pub struct DiscoveryResultPayload {
     #[schemars(default, with = "DiscoveryFacetsPayload")]
     pub facets: Option<DiscoveryFacetsPayload>,
     pub diagnostics: Vec<String>,
+    /// The same findings as structured entries (srs-rust#1491).
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 impl From<DiscoveryResult> for DiscoveryResultPayload {
@@ -867,12 +920,14 @@ impl From<DiscoveryResult> for DiscoveryResultPayload {
             total,
             facets,
             diagnostics,
+            diagnostics_structured,
         } = r;
         Self {
             hits: hits.into_iter().map(Into::into).collect(),
             total,
             facets: facets.map(Into::into),
             diagnostics,
+            diagnostics_structured: diagnostics_structured.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -1360,6 +1415,9 @@ pub struct TypeSchemaPayload {
     /// Dynamic shape; emitted opaquely (see ADR-011 for the dynamic-value convention).
     #[schemars(with = "serde_json::Value")]
     pub schema: serde_json::Value,
+    /// Non-fatal findings as structured entries (srs-rust#1491); the same findings
+    /// the envelope's `diagnostics` list carries as text.
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 // ── Protocol payloads ─────────────────────────────────────────────────────────
@@ -1489,6 +1547,8 @@ pub struct BlueprintSchemaPayload {
     pub schema: serde_json::Value,
     /// Non-fatal projection diagnostics (unresolvable types, unparseable cardinality, etc.).
     pub diagnostics: Vec<String>,
+    /// The same findings as structured entries (srs-rust#1491).
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 /// `srs type json-schema` — the RFC-035 standards projection of one Type.
@@ -1629,6 +1689,8 @@ pub struct BlueprintBriefPayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocol: Option<BriefProtocol>,
     pub diagnostics: Vec<String>,
+    /// The same findings as structured entries (srs-rust#1491).
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 // ── View payloads ─────────────────────────────────────────────────────────────
@@ -2008,6 +2070,8 @@ impl From<svc_render::CompositionProjection> for CompositionProjection {
 pub struct RenderCompositionPayload {
     pub rendered: String,
     pub diagnostics: Vec<String>,
+    /// The same findings as structured entries (srs-rust#1491).
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub projection: Option<CompositionProjection>,
 }
@@ -3517,6 +3581,7 @@ mod tests {
             structure: vec![],
             protocol: None,
             diagnostics: vec![],
+            diagnostics_structured: vec![],
         };
         let json = serde_json::to_string(&payload).unwrap();
         assert!(

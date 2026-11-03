@@ -11,6 +11,7 @@
 //! Also provides `render_brief_markdown` for human/LLM-readable prose output.
 
 use crate::blueprint_service::{get_blueprint_by_id, GetBlueprintResult};
+use crate::diagnostic::{Diagnostic, Diagnostics};
 use crate::error::RepositoryError;
 use crate::package_service::{
     get_field_by_id, get_type_by_id, get_type_by_id_latest, GetFieldResult, GetTypeResult,
@@ -96,6 +97,8 @@ pub struct BlueprintBriefResult {
     pub structure: Vec<BriefRelationSpecResult>,
     pub protocol: Option<BriefProtocolResult>,
     pub diagnostics: Vec<String>,
+    /// The same findings as structured entries (srs-rust#1491, ADR-057).
+    pub diagnostics_structured: Vec<Diagnostic>,
 }
 
 // ---------------------------------------------------------------------------
@@ -120,7 +123,7 @@ pub fn blueprint_brief(
         }
     };
 
-    let mut diagnostics: Vec<String> = Vec::new();
+    let mut diagnostics = Diagnostics::new();
     let mut types: Vec<BriefTypeResult> = Vec::new();
 
     for type_ref in &blueprint.root_types {
@@ -150,6 +153,7 @@ pub fn blueprint_brief(
 
     let protocol = find_protocol_for_roots(store, &blueprint.root_types, &mut diagnostics)?;
 
+    let (diagnostics, diagnostics_structured) = diagnostics.into_parts();
     Ok(BlueprintBriefResult {
         blueprint_id: blueprint.id,
         namespace: blueprint.namespace,
@@ -161,6 +165,7 @@ pub fn blueprint_brief(
         structure,
         protocol,
         diagnostics,
+        diagnostics_structured,
     })
 }
 
@@ -296,26 +301,26 @@ fn resolve_type_ref_name(
 fn resolve_brief_type(
     store: &dyn RepositoryStore,
     type_ref: &TypeRef,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<Option<BriefTypeResult>, RepositoryError> {
     let record_type = match type_ref.type_version {
         Some(v) => match get_type_by_id(store, &type_ref.type_id, v)? {
             GetTypeResult::Found(rt) => rt,
             GetTypeResult::NotFound => {
-                diagnostics.push(format!(
-                    "root type {} v{} not found in package",
-                    type_ref.type_id, v
-                ));
+                diagnostics.warning(
+                    "root-type-version-not-found",
+                    format!("root type {} v{} not found in package", type_ref.type_id, v),
+                );
                 return Ok(None);
             }
         },
         None => match get_type_by_id_latest(store, &type_ref.type_id)? {
             GetTypeResult::Found(rt) => rt,
             GetTypeResult::NotFound => {
-                diagnostics.push(format!(
-                    "root type {} not found in package",
-                    type_ref.type_id
-                ));
+                diagnostics.warning(
+                    "root-type-not-found",
+                    format!("root type {} not found in package", type_ref.type_id),
+                );
                 return Ok(None);
             }
         },
@@ -346,7 +351,10 @@ fn resolve_brief_type(
                 });
             }
             GetFieldResult::NotFound => {
-                diagnostics.push(format!("field {} not found in package", fa.field_id));
+                diagnostics.warning(
+                    "field-not-found",
+                    format!("field {} not found in package", fa.field_id),
+                );
             }
         }
     }
@@ -363,22 +371,25 @@ fn resolve_brief_type(
 fn validate_contributes_to(
     store: &dyn RepositoryStore,
     contributes_to: &Option<Vec<FieldRef>>,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<(), RepositoryError> {
     if let Some(refs) = contributes_to {
         for field_ref in refs {
             if let GetFieldResult::NotFound = get_field_by_id(store, &field_ref.field_id)? {
-                diagnostics.push(format!(
-                    "contributesTo field {} not found in package",
-                    field_ref.field_id
-                ));
+                diagnostics.warning(
+                    "contributes-to-field-not-found",
+                    format!(
+                        "contributesTo field {} not found in package",
+                        field_ref.field_id
+                    ),
+                );
             }
             if let Some(type_id) = &field_ref.type_id {
                 if let GetTypeResult::NotFound = get_type_by_id_latest(store, type_id)? {
-                    diagnostics.push(format!(
-                        "contributesTo type {} not found in package",
-                        type_id
-                    ));
+                    diagnostics.warning(
+                        "contributes-to-type-not-found",
+                        format!("contributesTo type {} not found in package", type_id),
+                    );
                 }
             }
         }
@@ -389,12 +400,14 @@ fn validate_contributes_to(
 fn find_protocol_for_roots(
     store: &dyn RepositoryStore,
     root_types: &[TypeRef],
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<Option<BriefProtocolResult>, RepositoryError> {
     for type_ref in root_types {
         match find_protocol_by_target_type(store, &type_ref.type_id)? {
             Some(proto_raw) => {
-                diagnostics.extend(proto_raw.diagnostics);
+                for d in proto_raw.diagnostics {
+                    diagnostics.warning("protocol-diagnostic", d);
+                }
                 let mut stages: Vec<BriefStageResult> = Vec::new();
                 for stage in proto_raw.stages {
                     let brief_stage = BriefStageResult::from(stage);
@@ -684,6 +697,8 @@ mod tests {
 
         assert!(!result.diagnostics.is_empty());
         assert!(result.diagnostics[0].contains("no-such-type"));
+        crate::diagnostic::assert_parallel(&result.diagnostics, &result.diagnostics_structured);
+        assert_eq!(result.diagnostics_structured[0].code, "root-type-not-found");
         assert_eq!(result.types.len(), 0);
     }
 
@@ -794,6 +809,7 @@ mod tests {
                 }],
             }),
             diagnostics: vec![],
+            diagnostics_structured: vec![],
         };
         let md = render_brief_markdown(&result);
         assert!(

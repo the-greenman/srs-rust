@@ -2959,6 +2959,7 @@ mod tests {
         let result = BlueprintSchemaResult {
             schema: serde_json::Value::Null,
             diagnostics: vec![],
+            diagnostics_structured: vec![],
         };
         let json = serde_json::to_value(&result).expect("BlueprintSchemaResult must serialize");
         assert!(json["schema"].is_null(), "schema field must be present");

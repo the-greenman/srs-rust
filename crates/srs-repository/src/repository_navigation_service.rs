@@ -4,10 +4,12 @@
 //! container. This is the Layer-1 contract consumed by CLI/TUI/WASM clients.
 
 use crate::container_service::{self, ContainerListFilter};
+use crate::diagnostic::{Diagnostic, Diagnostics};
 use crate::error::RepositoryError;
 use crate::record_label;
 use crate::record_store;
 use crate::store::RepositoryStore;
+use crate::validation::DiagnosticSeverity;
 use serde::{Deserialize, Serialize};
 use srs_core::types::record::Record;
 use std::collections::HashMap;
@@ -60,6 +62,9 @@ pub struct RepositoryNavigation {
     pub identity: Option<NavigationNode>,
     pub sections: Vec<NavigationNode>,
     pub diagnostics: Vec<String>,
+    /// The same findings as structured entries (srs-rust#1491, ADR-057).
+    #[serde(default)]
+    pub diagnostics_structured: Vec<Diagnostic>,
 }
 
 /// Navigation with the part-of tree expanded to its full depth.
@@ -79,14 +84,18 @@ pub fn repository_navigation_with_depth(
     let manifest = store.load_manifest()?;
     // RFC-052: the container `manifest.rootContainerId` names, from the container set.
     let Some(root_container) = container_service::resolve_root_container(store, &manifest)? else {
+        let absent = "repository-navigation/ manifest.rootContainerId is absent; repo predates RFC-013 root container (epic #95)".to_string();
         return Ok(RepositoryNavigation {
             root_container_id: String::new(),
             identity: None,
             sections: Vec::new(),
-            diagnostics: vec![
-                "repository-navigation: manifest.rootContainerId is absent; repo predates RFC-013 root container (epic #95)"
-                    .to_string(),
-            ],
+            diagnostics: vec![absent.clone()],
+            diagnostics_structured: vec![Diagnostic {
+                severity: DiagnosticSeverity::Warning,
+                code: "repository-navigation/root-container-absent".to_string(),
+                message: absent,
+                instance_id: None,
+            }],
         });
     };
     let container_ref = &root_container;
@@ -98,16 +107,19 @@ pub fn repository_navigation_with_depth(
     let identity_id = container_ref.identity_instance_id.clone();
 
     let (field_name_index, identity_field_index) = record_label::build_label_indexes(store)?;
-    let mut diagnostics = Vec::new();
+    let mut diagnostics = Diagnostics::new();
 
     let identity = match &identity_id {
         None => {
             let container_id = &container_ref.container_id;
-            diagnostics.push(format!(
-                "repository-navigation: root container {container_id} has no identityInstanceId; \
+            diagnostics.warning(
+                "repository-navigation/identity-missing",
+                format!(
+                "repository-navigation/ root container {container_id} has no identityInstanceId; \
                  no repository identity node (RFC-029 permits this) - set one with \
                  `repo set-root-container`"
-            ));
+            ),
+            );
             None
         }
         Some(identity_id) => {
@@ -125,10 +137,13 @@ pub fn repository_navigation_with_depth(
                 let label = crate::store::catalog_instance_ref(store, &entry)?
                     .title
                     .unwrap_or_else(|| identity_id.clone());
-                diagnostics.push(format!(
-                    "repository-navigation: identity {identity_id} is a Tier-0 note (un-migrated); \
+                diagnostics.warning(
+                    "repository-navigation/identity-tier0-note",
+                    format!(
+                    "repository-navigation/ identity {identity_id} is a Tier-0 note (un-migrated); \
                      run identity migration to upgrade to a Tier-2 purpose record - see #426"
-                ));
+                ),
+                );
                 NavigationNode {
                     instance_id: identity_id.clone(),
                     display_label: label,
@@ -182,9 +197,10 @@ pub fn repository_navigation_with_depth(
             continue;
         }
         if instances.iter().all(|e| &e.id != id) {
-            diagnostics.push(format!(
-                "repository-navigation: root container member {id} does not resolve"
-            ));
+            diagnostics.warning(
+                "repository-navigation/member-unresolved",
+                format!("repository-navigation/ root container member {id} does not resolve"),
+            );
             continue;
         }
         let section_container_id = section_containers.get(id).cloned();
@@ -237,7 +253,9 @@ pub fn repository_navigation_with_depth(
                 ..Default::default()
             },
         )?;
-        diagnostics.extend(tree.diagnostics);
+        for d in tree.diagnostics {
+            diagnostics.warning("tree-diagnostic", d);
+        }
         let mut by_id: HashMap<String, Vec<NavigationNode>> = tree
             .roots
             .into_iter()
@@ -256,11 +274,13 @@ pub fn repository_navigation_with_depth(
         }
     }
 
+    let (diagnostics, diagnostics_structured) = diagnostics.into_parts();
     Ok(RepositoryNavigation {
         root_container_id: container_ref.container_id.clone(),
         identity,
         sections,
         diagnostics,
+        diagnostics_structured,
     })
 }
 
@@ -323,7 +343,7 @@ fn display_label(
 /// is returned — never resolved by position or storage order.
 pub(crate) fn section_containers_by_root(
     store: &dyn RepositoryStore,
-) -> Result<(HashMap<String, String>, Vec<String>), RepositoryError> {
+) -> Result<(HashMap<String, String>, Diagnostics), RepositoryError> {
     let mut by_anchor: HashMap<String, Vec<String>> = HashMap::new();
     for summary in container_service::list_containers(store, &ContainerListFilter::default())? {
         let Ok(container) = container_service::get_container(store, &summary.container_id) else {
@@ -337,7 +357,7 @@ pub(crate) fn section_containers_by_root(
         }
     }
     let mut map = HashMap::new();
-    let mut diagnostics = Vec::new();
+    let mut diagnostics = Diagnostics::new();
     let mut anchors: Vec<_> = by_anchor.into_iter().collect();
     anchors.sort();
     for (anchor, mut containers) in anchors {
@@ -345,7 +365,7 @@ pub(crate) fn section_containers_by_root(
             map.insert(anchor, containers.remove(0));
         } else {
             containers.sort();
-            diagnostics.push(format!(
+            diagnostics.warning("section-container-ambiguous", format!(
                 "section-container-ambiguous: anchor {anchor} is named by {} containers ({}); no section-container link is chosen (RFC-043 [R19])",
                 containers.len(),
                 containers.join(", ")
@@ -775,7 +795,7 @@ mod tests {
         assert_eq!(
             nav.diagnostics,
             vec![
-                "repository-navigation: manifest.rootContainerId is absent; repo predates RFC-013 root container (epic #95)"
+                "repository-navigation/ manifest.rootContainerId is absent; repo predates RFC-013 root container (epic #95)"
                     .to_string()
             ]
         );
@@ -841,6 +861,11 @@ mod tests {
         assert_eq!(nav.diagnostics.len(), 1);
         assert!(nav.diagnostics[0].contains("Tier-0"));
         assert!(nav.sections.is_empty());
+        crate::diagnostic::assert_parallel(&nav.diagnostics, &nav.diagnostics_structured);
+        assert_eq!(
+            nav.diagnostics_structured[0].code,
+            "repository-navigation/identity-tier0-note"
+        );
     }
 
     #[test]
