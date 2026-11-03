@@ -84,6 +84,10 @@ pub fn create_lifecycle(
         }
     }
 
+    // Mint first, then validate: the same checks `update_lifecycle` runs, so a
+    // lifecycle create writes is one update and `repo validate` accept.
+    refuse_invalid_lifecycle(&lifecycle)?;
+
     let boundary_path = selector.as_deref().unwrap_or("package");
     let rel_filename = crate::package_service::definition_rel_path(
         DefinitionKind::Lifecycle,
@@ -98,6 +102,63 @@ pub fn create_lifecycle(
     store.add_definition_to_boundary(&selector, DefinitionKind::Lifecycle, &rel_filename)?;
 
     Ok(CreateLifecycleResult { lifecycle })
+}
+
+/// The one validation both writes run (srs-rust#1545, ADR-048 rule 3):
+/// [R2a] the RFC-006 substrate fields on every state, [R5] the `initialState`
+/// agreement and the RFC-006 V9 invariants. Violations are collected and
+/// returned together as [`RepositoryError::LifecycleValidation`]
+/// (`lifecycle-validation`, ADR-053), before anything is written.
+fn refuse_invalid_lifecycle(lifecycle: &Lifecycle) -> Result<(), RepositoryError> {
+    // R2a: substrate contract on each state (RFC-006 VocabularyEntry).
+    let mut violations: Vec<String> = Vec::new();
+    for state in &lifecycle.states {
+        if state.id.as_deref().unwrap_or("").trim().is_empty() {
+            violations.push(format!(
+                "state '{}' is missing required substrate field 'id'",
+                state.key
+            ));
+        }
+        match state.version {
+            Some(v) if v >= 1 => {}
+            _ => violations.push(format!(
+                "state '{}' is missing required substrate field 'version' (integer >= 1)",
+                state.key
+            )),
+        }
+        if state.namespace.as_deref().unwrap_or("").trim().is_empty() {
+            violations.push(format!(
+                "state '{}' is missing required substrate field 'namespace'",
+                state.key
+            ));
+        }
+    }
+
+    // R5: initialState must name the key of the (exactly one) isInitial state.
+    // validate_lifecycle checks the states[] side (exactly one isInitial,
+    // effectively active); this checks the initialState field agrees with it.
+    let initial_by_flag = lifecycle.states.iter().find(|s| s.is_initial == Some(true));
+    match initial_by_flag {
+        Some(s) if s.key == lifecycle.initial_state => {}
+        Some(s) => violations.push(format!(
+            "initialState '{}' does not match the isInitial state's key '{}'",
+            lifecycle.initial_state, s.key
+        )),
+        None => {
+            // validate_lifecycle already reports V9NoInitialState/V9MultipleInitialStates
+            // for the states[] side; nothing to add here beyond that.
+        }
+    }
+
+    // R5: remaining RFC-006 V9 invariants.
+    for diag in validate_lifecycle(lifecycle) {
+        violations.push(diag.message);
+    }
+
+    if !violations.is_empty() {
+        return Err(RepositoryError::LifecycleValidation { violations });
+    }
+    Ok(())
 }
 
 /// Result of `update_lifecycle`.
@@ -161,54 +222,7 @@ pub fn update_lifecycle(
     let (relative_path, _owner) = find_lifecycle_path(store, id)?
         .ok_or_else(|| RepositoryError::LifecycleNotFound { id: id.to_string() })?;
 
-    // R2a: substrate contract on each state (RFC-006 VocabularyEntry).
-    let mut violations: Vec<String> = Vec::new();
-    for state in &lifecycle.states {
-        if state.id.as_deref().unwrap_or("").trim().is_empty() {
-            violations.push(format!(
-                "state '{}' is missing required substrate field 'id'",
-                state.key
-            ));
-        }
-        match state.version {
-            Some(v) if v >= 1 => {}
-            _ => violations.push(format!(
-                "state '{}' is missing required substrate field 'version' (integer >= 1)",
-                state.key
-            )),
-        }
-        if state.namespace.as_deref().unwrap_or("").trim().is_empty() {
-            violations.push(format!(
-                "state '{}' is missing required substrate field 'namespace'",
-                state.key
-            ));
-        }
-    }
-
-    // R5: initialState must name the key of the (exactly one) isInitial state.
-    // validate_lifecycle checks the states[] side (exactly one isInitial,
-    // effectively active); this checks the initialState field agrees with it.
-    let initial_by_flag = lifecycle.states.iter().find(|s| s.is_initial == Some(true));
-    match initial_by_flag {
-        Some(s) if s.key == lifecycle.initial_state => {}
-        Some(s) => violations.push(format!(
-            "initialState '{}' does not match the isInitial state's key '{}'",
-            lifecycle.initial_state, s.key
-        )),
-        None => {
-            // validate_lifecycle already reports V9NoInitialState/V9MultipleInitialStates
-            // for the states[] side; nothing to add here beyond that.
-        }
-    }
-
-    // R5: remaining RFC-006 V9 invariants.
-    for diag in validate_lifecycle(&lifecycle) {
-        violations.push(diag.message);
-    }
-
-    if !violations.is_empty() {
-        return Err(RepositoryError::LifecycleValidation { violations });
-    }
+    refuse_invalid_lifecycle(&lifecycle)?;
 
     store.update_lifecycle_file(&relative_path, &lifecycle)?;
     Ok(UpdateLifecycleResult { lifecycle })
@@ -268,8 +282,8 @@ mod tests {
             states: vec![
                 LifecycleState {
                     id: Some("s1".to_string()),
-                    version: None,
-                    namespace: None,
+                    version: Some(1),
+                    namespace: Some("com.test".to_string()),
                     key: "draft".to_string(),
                     label: None,
                     description: None,
@@ -282,8 +296,8 @@ mod tests {
                 },
                 LifecycleState {
                     id: Some("s2".to_string()),
-                    version: None,
-                    namespace: None,
+                    version: Some(1),
+                    namespace: Some("com.test".to_string()),
                     key: "active".to_string(),
                     label: None,
                     description: None,
@@ -409,6 +423,44 @@ mod tests {
         updated.version = 2;
         let result = update_lifecycle(&store, &created.lifecycle.id, updated).unwrap();
         assert_eq!(result.lifecycle.version, 2);
+    }
+
+    /// srs-rust#1545: `create_lifecycle` runs the checks `update_lifecycle`
+    /// runs; each V9 fault is refused and nothing is written.
+    #[test]
+    fn create_lifecycle_refuses_invalid_lifecycles_and_writes_nothing() {
+        fn refused(mutate: impl FnOnce(&mut Lifecycle), needle: &str) {
+            let store = MemoryStore::default();
+            let mut lc = make_lifecycle();
+            mutate(&mut lc);
+            match create_lifecycle(&store, lc, None) {
+                Err(RepositoryError::LifecycleValidation { violations }) => assert!(
+                    violations.iter().any(|v| v.contains(needle)),
+                    "expected a violation containing {needle:?}, got {violations:?}"
+                ),
+                other => panic!("expected LifecycleValidation, got {:?}", other.map(|_| ())),
+            }
+            assert!(
+                list_lifecycles(&store).unwrap().is_empty(),
+                "nothing written"
+            );
+        }
+        refused(|lc| lc.initial_state = "nope".to_string(), "initialState");
+        refused(|lc| lc.states[0].is_initial = None, "initial");
+        refused(|lc| lc.transitions[0].from = "gone".to_string(), "gone");
+        refused(|lc| lc.transitions[0].to = "gone".to_string(), "gone");
+        refused(|lc| lc.states[0].namespace = None, "namespace");
+    }
+
+    /// srs-rust#1545: a valid lifecycle created is one `update_lifecycle`
+    /// accepts unchanged.
+    #[test]
+    fn create_then_update_round_trips_unchanged() {
+        let store = MemoryStore::default();
+        let created = create_lifecycle(&store, make_lifecycle(), None).unwrap();
+        let mut again = created.lifecycle.clone();
+        again.description = Some("edited".to_string());
+        update_lifecycle(&store, &created.lifecycle.id, again).unwrap();
     }
 
     #[test]

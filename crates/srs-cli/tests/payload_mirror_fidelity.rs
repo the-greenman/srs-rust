@@ -38,6 +38,8 @@ fn hit(full: bool) -> DiscoveryHit {
         score: full.then_some(1.5),
         snippet: s("…snip…"),
         matched_fields: full.then(|| vec!["f".into()]),
+        field_values: full
+            .then(|| serde_json::Map::from_iter([("k".to_string(), serde_json::json!("v"))])),
     }
 }
 
