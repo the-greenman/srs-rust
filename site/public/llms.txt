@@ -11,6 +11,7 @@
 ## Start
 
 - [Start](https://engine.semanticops.com/start.md): install, open the sample or create a repository, validate, connect MCP, and the output contract.
+- [Structure a repository for people](https://engine.semanticops.com/structure.md): the front door, a tree of documents that gets deeper, reading views and documents, and how to check it.
 - [install.sh](https://engine.semanticops.com/install.sh): POSIX installer for x86_64 and arm64 Linux and macOS; installs to `$SRS_INSTALL_DIR` or `~/.local/bin`.
 
 ## CLI reference
