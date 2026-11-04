@@ -602,6 +602,12 @@ pub enum RepositoryError {
         message: String,
     },
 
+    /// RFC-038 [R12]: a definition create refused because another package boundary already
+    /// declares the same identifier (the catalog would fail to load, srs-rust#1571). Nothing
+    /// was written.
+    #[error("duplicate definition identifier '{id}' is already declared by {locators:?} (RFC-038 [R12]); nothing was written")]
+    DuplicateDefinitionId { id: String, locators: Vec<String> },
+
     /// RFC-051 [R14]: a stored Container directory that cannot be read or written as it is
     /// (`container-schema`, `container-name-mismatch`, `container-entry-misplaced`,
     /// `arrangement-key`, or an id that cannot name a directory).
@@ -1418,6 +1424,7 @@ impl RepositoryError {
             Self::ManifestRootContainer { code, .. } => code,
             Self::MigrationRefused { code, .. } => code,
             Self::ContainerStorage { code, .. } => code,
+            Self::DuplicateDefinitionId { .. } => "duplicate-id",
             Self::ActorProvenance { code, .. } => code,
             Self::InvalidPackageBundle { code, .. } => code,
             Self::SliceRefused { code, .. } => code,
@@ -1816,6 +1823,10 @@ mod tests {
                 code: "migration-x",
                 message: "x".into(),
             },
+            R::DuplicateDefinitionId {
+                id: "x".into(),
+                locators: vec![],
+            },
             R::ContainerStorage {
                 code: "container-x",
                 message: "x".into(),
@@ -1846,7 +1857,7 @@ mod tests {
         let all = all_variants();
         assert_eq!(
             all.len(),
-            107,
+            108,
             "all_variants() is out of step with the enum"
         );
         let mut seen = std::collections::HashSet::new();
