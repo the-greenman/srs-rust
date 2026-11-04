@@ -1962,7 +1962,7 @@ impl RepositoryStore for FileStore {
             let mut theme_sources: HashMap<String, PathBuf> = HashMap::new();
             let mut blueprint_sources: HashMap<String, PathBuf> = HashMap::new();
             let mut protocol_sources: HashMap<String, PathBuf> = HashMap::new();
-            let mut vocab_sources: HashMap<String, PathBuf> = HashMap::new();
+            let mut vocab_sources: HashMap<(String, u32), PathBuf> = HashMap::new();
             for f in &fields {
                 field_sources.insert(f.id.clone(), package_dir.clone());
             }
@@ -1985,7 +1985,7 @@ impl RepositoryStore for FileStore {
                 protocol_sources.insert(lp.protocol.id.clone(), package_dir.clone());
             }
             for vocab in &vocabularies {
-                vocab_sources.insert(vocab.id.clone(), package_dir.clone());
+                vocab_sources.insert((vocab.id.clone(), vocab.version), package_dir.clone());
             }
 
             for pkg_ref in pkg_refs {
@@ -2169,12 +2169,15 @@ impl RepositoryStore for FileStore {
                     }
                 }
                 for vocab in sub_vocabularies {
-                    if let Some(first_path) = vocab_sources.get(&vocab.id) {
-                        let existing = vocabularies.iter().find(|v| v.id == vocab.id).unwrap();
-                        if existing.version != vocab.version
-                            || existing.namespace != vocab.namespace
-                            || existing.name != vocab.name
-                        {
+                    // Keyed by (id, version) like types: several versions of one
+                    // vocabulary lineage coexist (srs-rust#1550).
+                    let key = (vocab.id.clone(), vocab.version);
+                    if let Some(first_path) = vocab_sources.get(&key) {
+                        let existing = vocabularies
+                            .iter()
+                            .find(|v| v.id == vocab.id && v.version == vocab.version)
+                            .unwrap();
+                        if existing.namespace != vocab.namespace || existing.name != vocab.name {
                             return Err(RepositoryError::PackageRefConflict {
                                 path: rel_path.to_string(),
                                 kind: "vocabulary".to_string(),
@@ -2184,7 +2187,7 @@ impl RepositoryStore for FileStore {
                             });
                         }
                     } else {
-                        vocab_sources.insert(vocab.id.clone(), sub_dir.clone());
+                        vocab_sources.insert(key, sub_dir.clone());
                         vocabularies.push(vocab);
                     }
                 }
