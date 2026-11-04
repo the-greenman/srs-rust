@@ -777,6 +777,33 @@ fn apply_overrides(
         .collect()
 }
 
+/// The frozen `type.json` seed's property order across the flattened
+/// core+facets merge (mirror of the reference emitter's `ENTITY_FIELD_ORDER`).
+/// A fixed envelope constant like `entity_title`: no Type can declare it,
+/// because I-41 makes a `fieldOrder` an exact permutation of that Type's OWN
+/// effective set, and this merge spans three sibling facets (srs-rust#1566).
+const TYPE_ENTITY_FIELD_ORDER: [&str; 19] = [
+    "4b000001-0000-4000-a000-000000000001",
+    "4b000002-0000-4000-a000-000000000002",
+    "4b000003-0000-4000-a000-000000000003",
+    "4b000004-0000-4000-a000-000000000004",
+    "4b000005-0000-4000-a000-000000000005",
+    "4b000008-0000-4000-a000-000000000008",
+    "4b000032-0000-4000-a000-000000000032",
+    "4b000056-0000-4000-a000-000000000056",
+    "4b000057-0000-4000-a000-000000000057",
+    "4b00000b-0000-4000-a000-00000000000b",
+    "4b000052-0000-4000-a000-000000000052",
+    "4b000053-0000-4000-a000-000000000053",
+    "4b000054-0000-4000-a000-000000000054",
+    "4b000055-0000-4000-a000-000000000055",
+    "4b000058-0000-4000-a000-000000000058",
+    "4b000059-0000-4000-a000-000000000059",
+    "4b00000c-0000-4000-a000-00000000000c",
+    "4b00000d-0000-4000-a000-00000000000d",
+    "4b000006-0000-4000-a000-000000000006",
+];
+
 /// Any extender's own declared `fieldOrder` — first non-empty one in
 /// iteration order.
 fn declared_field_order(extenders: &[&RecordType]) -> Option<Vec<String>> {
@@ -812,6 +839,16 @@ fn effective_fields_sibling_merge<'a>(
     let field_order = base
         .field_order
         .clone()
+        .or_else(|| {
+            // Bootstrap `type` entity only: the fixed envelope order, ahead of
+            // any extender's declaration (reference emitter's precedence).
+            (is_bootstrap_entity(ctx, &base.name) && base.name == "type").then(|| {
+                TYPE_ENTITY_FIELD_ORDER
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            })
+        })
         .or_else(|| declared_field_order(&extenders));
     (merged, field_order)
 }
