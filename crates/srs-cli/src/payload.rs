@@ -533,6 +533,8 @@ pub struct RecordTransitionPayload {
     #[schemars(schema_with = "entity_record")]
     pub record: Record,
     pub warnings: Vec<String>,
+    /// `warnings` as structured findings, entry for entry (ADR-057, srs-rust#1339).
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(schema_with = "entity_record_opt")]
     pub successor: Option<Record>,
