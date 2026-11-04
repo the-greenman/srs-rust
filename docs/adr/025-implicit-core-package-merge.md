@@ -32,7 +32,7 @@ Three mechanisms were considered:
 
 **Mechanism A — implicit merge.** The canonical core bundle
 (`com.semanticops.core` package, version 1.0.0) is embedded in
-`crates/srs-repository/assets/core-bundle.srsj` via `include_str!` and parsed
+`crates/srs-repository/assets/core-bundle.srspkg` via `include_str!` and parsed
 lazily once at startup (`core_package::core_package()`).
 
 `RepositoryStore::load_package` — in `FileStore`, `MemoryStore`, and `JsonStore`

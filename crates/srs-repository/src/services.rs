@@ -1474,7 +1474,7 @@ mod tests {
     }
 
     /// The canonical `derived-from` RelationTypeDefinition, matching the core
-    /// bundle's (`crates/srs-repository/assets/core-bundle.srsj`) real definition.
+    /// bundle's (`crates/srs-repository/assets/core-bundle.srspkg`) real definition.
     fn derived_from_def() -> srs_core::types::relation_type_definition::RelationTypeDefinition {
         use srs_core::types::relation_type_definition::{
             RelationTypeCategory, RelationTypeDefinition,
