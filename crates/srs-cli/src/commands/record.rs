@@ -233,6 +233,11 @@ fn cmd_record_transition(ctx: CliContext, id: String) -> Result<String> {
             RecordTransitionPayload {
                 record: result.record,
                 warnings: result.warnings,
+                diagnostics_structured: result
+                    .diagnostics_structured
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
                 successor: result.successor,
                 relation: result.relation,
             },
