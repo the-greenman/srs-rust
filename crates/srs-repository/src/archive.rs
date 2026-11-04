@@ -812,6 +812,7 @@ fn legacy_snapshot_from_map(
             .and_then(|v| serde_json::from_value(v.clone()).ok()),
         meta: manifest_val.get("meta").cloned(),
         data_model_revision: manifest_val.get("dataModelRevision").cloned(),
+        created_at: manifest_val.get("createdAt").cloned(),
     })
 }
 

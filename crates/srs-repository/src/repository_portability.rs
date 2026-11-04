@@ -158,6 +158,11 @@ pub struct RepositorySnapshot {
     /// rev-2 repository to the rev-0 compatibility path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data_model_revision: Option<serde_json::Value>,
+    /// `manifest.createdAt` — when the repository was created is repository
+    /// identity; a copy carries it rather than restamping the time of the copy
+    /// (srs-rust#1456, compass "preserve over recognize").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<serde_json::Value>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -411,6 +416,7 @@ pub fn export_repository_snapshot_with_options(
         upstream_package: manifest.upstream_package.clone(),
         meta: manifest.extra.get("meta").cloned(),
         data_model_revision: manifest.extra.get("dataModelRevision").cloned(),
+        created_at: manifest.extra.get("createdAt").cloned(),
     })
 }
 
@@ -570,6 +576,11 @@ fn do_import(
         manifest
             .extra
             .insert("dataModelRevision".to_string(), rev.clone());
+    }
+    if let Some(created_at) = &snapshot.created_at {
+        manifest
+            .extra
+            .insert("createdAt".to_string(), created_at.clone());
     }
 
     target.save_manifest(&manifest)?;
@@ -1631,6 +1642,51 @@ mod tests {
         assert_eq!(
             exts,
             vec![serde_json::Value::String("ext:repository".into())]
+        );
+    }
+
+    /// srs-rust#1456: a copy carries `manifest.createdAt` (compass "preserve over
+    /// recognize") rather than restamping the time of the copy — dir → dir, and
+    /// through a serialised snapshot (the `.srsj` carrier).
+    #[test]
+    fn copy_carries_manifest_created_at() {
+        const CREATED: &str = "2020-02-03T04:05:06Z";
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_input()).unwrap();
+        let mut manifest = source.load_manifest().unwrap();
+        manifest
+            .extra
+            .insert("createdAt".to_string(), serde_json::json!(CREATED));
+        source.save_manifest(&manifest).unwrap();
+
+        let src_dir = TempDir::new().unwrap();
+        let src = FileStore::new(src_dir.path());
+        copy_repository(&source, &src).unwrap();
+        let carried = src.load_manifest().unwrap();
+        assert_eq!(
+            carried.extra.get("createdAt"),
+            Some(&serde_json::json!(CREATED))
+        );
+
+        // dir -> dir
+        let dst_dir = TempDir::new().unwrap();
+        let dst = FileStore::new(dst_dir.path());
+        copy_repository(&src, &dst).unwrap();
+        assert_eq!(
+            dst.load_manifest().unwrap().extra.get("createdAt"),
+            Some(&serde_json::json!(CREATED))
+        );
+
+        // dir -> serialised snapshot -> dir
+        let snapshot = export_repository_snapshot(&src).unwrap();
+        let text = serde_json::to_string(&snapshot).unwrap();
+        let reloaded: RepositorySnapshot = serde_json::from_str(&text).unwrap();
+        let out_dir = TempDir::new().unwrap();
+        let out = FileStore::new(out_dir.path());
+        import_repository_snapshot(&out, &reloaded).unwrap();
+        assert_eq!(
+            out.load_manifest().unwrap().extra.get("createdAt"),
+            Some(&serde_json::json!(CREATED))
         );
     }
 
