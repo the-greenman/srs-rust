@@ -261,6 +261,18 @@ fn write_line<S: RepositoryStore + ?Sized>(
     }
 }
 
+/// What `path` holds now (`None` when it does not exist), for [`save`]'s undo.
+fn prior_value<S: RepositoryStore + ?Sized>(
+    store: &S,
+    path: &str,
+) -> Result<Option<Value>, RepositoryError> {
+    match store.load_instance_json(path) {
+        Ok(v) => Ok(Some(v)),
+        Err(e) if e.is_not_found() => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 /// Persist `container` in directory form: the head only when it differs from the stored one
 /// (a member operation never writes it, [R8]), then exactly the entries the write set names,
 /// each as one canonical line ([R3]).
@@ -311,14 +323,35 @@ pub fn save<S: RepositoryStore + ?Sized>(
         Err(e) if e.is_not_found() => None,
         Err(e) => return Err(e),
     };
-    if current.as_ref() != Some(&head) {
-        write_line(store, &hp, &head)?;
-    }
-    for e in &ws.write {
-        write_line(store, &entry_path(id, &e.instance_id), &entry_value(id, e))?;
-    }
-    for iid in &ws.remove {
-        store.delete_instance_file(&entry_path(id, iid))?;
+    // No store rolls writes back, so a write that fails part-way undoes the earlier ones here
+    // (the pattern the `rfc051-container-entries` migration uses): each path is restored to
+    // what it held before, or deleted if it did not exist, newest first.
+    let mut undo: Vec<(String, Option<Value>)> = Vec::new();
+    let applied = (|| -> Result<(), RepositoryError> {
+        if current.as_ref() != Some(&head) {
+            undo.push((hp.clone(), current.clone()));
+            write_line(store, &hp, &head)?;
+        }
+        for e in &ws.write {
+            let path = entry_path(id, &e.instance_id);
+            undo.push((path.clone(), prior_value(store, &path)?));
+            write_line(store, &path, &entry_value(id, e))?;
+        }
+        for iid in &ws.remove {
+            let path = entry_path(id, iid);
+            undo.push((path.clone(), prior_value(store, &path)?));
+            store.delete_instance_file(&path)?;
+        }
+        Ok(())
+    })();
+    if let Err(e) = applied {
+        for (path, old) in undo.into_iter().rev() {
+            let _ = match old {
+                Some(v) => write_line(store, &path, &v),
+                None => store.delete_instance_file(&path),
+            };
+        }
+        return Err(e);
     }
     Ok(Saved {
         written: ws.write.into_iter().map(|e| e.instance_id).collect(),
