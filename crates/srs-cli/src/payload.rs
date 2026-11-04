@@ -2720,6 +2720,8 @@ pub struct PackageExportPayload {
     pub mode: String,
     /// Non-fatal export notes (e.g. `bundle-below-reader-floor`).
     pub notes: Vec<String>,
+    /// `notes` as structured findings, entry for entry (ADR-057, srs-rust#1339).
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -2757,6 +2759,11 @@ impl PackageExportPayload {
             dependency_ref_count: s.dependency_ref_count,
             mode: s.mode.as_str().to_string(),
             notes: s.notes,
+            diagnostics_structured: s
+                .diagnostics_structured
+                .into_iter()
+                .map(Into::into)
+                .collect(),
         }
     }
 }
