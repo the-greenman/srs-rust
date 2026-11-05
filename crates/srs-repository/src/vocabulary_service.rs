@@ -106,6 +106,12 @@ pub fn create_vocabulary(
     }
 
     let boundary_path = selector.as_deref().unwrap_or("package");
+    crate::package_service::refuse_cross_boundary_duplicate_id(
+        store,
+        crate::catalog::CatalogKind::Vocabulary,
+        &vocabulary.id,
+        boundary_path,
+    )?;
     let rel_filename = crate::package_service::definition_rel_path(
         DefinitionKind::Vocabulary,
         &vocabulary.name,

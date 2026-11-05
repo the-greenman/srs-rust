@@ -608,6 +608,12 @@ pub fn create_view(
         source: e,
     })?;
     refuse_dangling_view_fields(store, &view)?;
+    crate::package_service::refuse_cross_boundary_duplicate_id(
+        store,
+        crate::catalog::CatalogKind::View,
+        &view.id,
+        boundary_path,
+    )?;
     store.ensure_views_dir(&format!("{boundary_path}/views"))?;
     let rel_filename = crate::package_service::definition_rel_path(
         DefinitionKind::View,

@@ -540,6 +540,40 @@ pub fn get_type_by_name(
     }
 }
 
+/// RFC-038 [R12] at the write boundary (srs-rust#1571): refuse a definition create whose id is
+/// already declared by another package boundary. Writing it anyway succeeds but leaves a
+/// repository whose catalog no longer loads (`duplicate-id`). Nothing is written when this
+/// refuses. A same-boundary id is the version lineage and is left to the caller's own path.
+/// Callers run it only after the id is minted, and before any file is written.
+pub(crate) fn refuse_cross_boundary_duplicate_id(
+    store: &dyn RepositoryStore,
+    kind: crate::catalog::CatalogKind,
+    id: &str,
+    boundary_path: &str,
+) -> Result<(), RepositoryError> {
+    // A repository whose catalog already fails to load cannot be judged here; the create
+    // proceeds exactly as before and `repo validate` names the existing fault.
+    let Ok(catalog) = store.catalog() else {
+        return Ok(());
+    };
+    let prefix = format!("{boundary_path}/");
+    let mut locators: Vec<String> = catalog
+        .definitions
+        .iter()
+        .filter(|e| e.kind == kind && e.id == id)
+        .filter_map(|e| e.locator.clone())
+        .filter(|l| !l.starts_with(&prefix))
+        .collect();
+    if locators.is_empty() {
+        return Ok(());
+    }
+    locators.sort();
+    Err(RepositoryError::DuplicateDefinitionId {
+        id: id.to_string(),
+        locators,
+    })
+}
+
 /// Create a new field definition in the primary package.
 /// Writes the field JSON file and updates the boundary index.
 pub fn create_field(
@@ -562,6 +596,12 @@ pub fn create_field_in_package(
     store.load_package_boundary(&selector)?;
 
     let boundary_path = selector.as_deref().unwrap_or("package");
+    refuse_cross_boundary_duplicate_id(
+        store,
+        crate::catalog::CatalogKind::Field,
+        &field.id,
+        boundary_path,
+    )?;
     let rel_filename = definition_rel_path(
         DefinitionKind::Field,
         &field.name,
@@ -881,6 +921,12 @@ pub fn create_type_in_package(
     if record_type.id.trim().is_empty() {
         record_type.id = new_instance_id();
     }
+    refuse_cross_boundary_duplicate_id(
+        store,
+        crate::catalog::CatalogKind::Type,
+        &record_type.id,
+        selector.as_deref().unwrap_or("package"),
+    )?;
     let path = write_type_version(store, &record_type, &selector)?;
     store.add_definition_to_boundary(
         &selector,
