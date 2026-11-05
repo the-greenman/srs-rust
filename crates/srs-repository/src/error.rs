@@ -14,6 +14,29 @@ pub struct RelationInverseFormDetail {
     pub target_instance_id: String,
 }
 
+/// Which Inv 41 rule a `fieldOrder` broke; the three share one error code
+/// (`field-order-mismatch`) and differ only in the message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FieldOrderProblem {
+    /// The field appears more than once in `fieldOrder`.
+    Duplicate,
+    /// The field is in the effective field set but not in `fieldOrder`.
+    Missing,
+    /// The field is in `fieldOrder` but not in the effective field set.
+    NotEffective,
+}
+
+impl std::fmt::Display for FieldOrderProblem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Duplicate => "appears more than once in fieldOrder",
+            Self::Missing => "is in the effective field set but not in fieldOrder",
+            Self::NotEffective => "is in fieldOrder but not in the effective field set",
+        })
+    }
+}
+
 #[derive(Error, Debug, serde::Serialize)]
 #[serde(untagged, rename_all_fields = "camelCase")]
 pub enum RepositoryError {
@@ -441,10 +464,12 @@ pub enum RepositoryError {
         field_id: String,
     },
 
-    #[error(
-        "fieldOrder for type '{type_id}' is incomplete: field '{field_id}' is in the effective field set but not in fieldOrder"
-    )]
-    FieldOrderMismatch { type_id: String, field_id: String },
+    #[error("fieldOrder for type '{type_id}' is invalid: field '{field_id}' {problem}")]
+    FieldOrderMismatch {
+        type_id: String,
+        field_id: String,
+        problem: FieldOrderProblem,
+    },
 
     #[error(
         "fieldAssignmentOverride in type '{type_id}' targets field '{field_id}' which is in the type's own fields[], not an inherited field"
@@ -1110,12 +1135,14 @@ impl PartialEq for RepositoryError {
                 RepositoryError::FieldOrderMismatch {
                     type_id: ta,
                     field_id: fa,
+                    problem: pa,
                 },
                 RepositoryError::FieldOrderMismatch {
                     type_id: tb,
                     field_id: fb,
+                    problem: pb,
                 },
-            ) => ta == tb && fa == fb,
+            ) => ta == tb && fa == fb && pa == pb,
             (
                 RepositoryError::OverrideTargetsOwnField {
                     type_id: ta,
@@ -1733,6 +1760,7 @@ mod tests {
             R::FieldOrderMismatch {
                 type_id: "x".into(),
                 field_id: "x".into(),
+                problem: FieldOrderProblem::Missing,
             },
             R::OverrideTargetsOwnField {
                 type_id: "x".into(),

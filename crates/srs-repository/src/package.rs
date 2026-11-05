@@ -373,6 +373,7 @@ impl Package {
                     return Err(RepositoryError::FieldOrderMismatch {
                         type_id: record_type.id.clone(),
                         field_id: fid.clone(),
+                        problem: crate::error::FieldOrderProblem::Duplicate,
                     });
                 }
             }
@@ -383,6 +384,7 @@ impl Package {
                     return Err(RepositoryError::FieldOrderMismatch {
                         type_id: record_type.id.clone(),
                         field_id: fa.field_id.clone(),
+                        problem: crate::error::FieldOrderProblem::Missing,
                     });
                 }
             }
@@ -393,6 +395,7 @@ impl Package {
                     return Err(RepositoryError::FieldOrderMismatch {
                         type_id: record_type.id.clone(),
                         field_id: fid.clone(),
+                        problem: crate::error::FieldOrderProblem::NotEffective,
                     });
                 }
             }
@@ -1455,6 +1458,11 @@ mod tests {
             "expected FieldOrderMismatch, got {:?}",
             result
         );
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("is in the effective field set but not in fieldOrder"),
+            "message: {msg}"
+        );
     }
 
     #[test]
@@ -1477,6 +1485,11 @@ mod tests {
             ),
             "expected FieldOrderMismatch for duplicate fieldOrder entry, got {:?}",
             result
+        );
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("appears more than once in fieldOrder"),
+            "message: {msg}"
         );
     }
 
@@ -1504,6 +1517,11 @@ mod tests {
             ),
             "expected FieldOrderMismatch for unknown fieldOrder entry, got {:?}",
             result
+        );
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("is in fieldOrder but not in the effective field set"),
+            "message: {msg}"
         );
     }
 
