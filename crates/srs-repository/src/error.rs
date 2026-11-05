@@ -14,6 +14,29 @@ pub struct RelationInverseFormDetail {
     pub target_instance_id: String,
 }
 
+/// Which Inv 41 rule a `fieldOrder` broke; the three share one error code
+/// (`field-order-mismatch`) and differ only in the message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FieldOrderProblem {
+    /// The field appears more than once in `fieldOrder`.
+    Duplicate,
+    /// The field is in the effective field set but not in `fieldOrder`.
+    Missing,
+    /// The field is in `fieldOrder` but not in the effective field set.
+    NotEffective,
+}
+
+impl std::fmt::Display for FieldOrderProblem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Duplicate => "appears more than once in fieldOrder",
+            Self::Missing => "is in the effective field set but not in fieldOrder",
+            Self::NotEffective => "is in fieldOrder but not in the effective field set",
+        })
+    }
+}
+
 #[derive(Error, Debug, serde::Serialize)]
 #[serde(untagged, rename_all_fields = "camelCase")]
 pub enum RepositoryError {
@@ -50,6 +73,9 @@ pub enum RepositoryError {
 
     #[error("lifecycle validation failed: {}", violations.join("; "))]
     LifecycleValidation { violations: Vec<String> },
+
+    #[error("vocabulary validation failed: {}", violations.join("; "))]
+    VocabularyValidation { violations: Vec<String> },
 
     #[error("failed to load record at {path:?}: {source}")]
     RecordLoad {
@@ -441,10 +467,12 @@ pub enum RepositoryError {
         field_id: String,
     },
 
-    #[error(
-        "fieldOrder for type '{type_id}' is incomplete: field '{field_id}' is in the effective field set but not in fieldOrder"
-    )]
-    FieldOrderMismatch { type_id: String, field_id: String },
+    #[error("fieldOrder for type '{type_id}' is invalid: field '{field_id}' {problem}")]
+    FieldOrderMismatch {
+        type_id: String,
+        field_id: String,
+        problem: FieldOrderProblem,
+    },
 
     #[error(
         "fieldAssignmentOverride in type '{type_id}' targets field '{field_id}' which is in the type's own fields[], not an inherited field"
@@ -602,6 +630,12 @@ pub enum RepositoryError {
         message: String,
     },
 
+    /// RFC-038 [R12]: a definition create refused because another package boundary already
+    /// declares the same identifier (the catalog would fail to load, srs-rust#1571). Nothing
+    /// was written.
+    #[error("duplicate definition identifier '{id}' is already declared by {locators:?} (RFC-038 [R12]); nothing was written")]
+    DuplicateDefinitionId { id: String, locators: Vec<String> },
+
     /// RFC-051 [R14]: a stored Container directory that cannot be read or written as it is
     /// (`container-schema`, `container-name-mismatch`, `container-entry-misplaced`,
     /// `arrangement-key`, or an id that cannot name a directory).
@@ -733,6 +767,10 @@ impl PartialEq for RepositoryError {
             (
                 RepositoryError::LifecycleValidation { violations: a },
                 RepositoryError::LifecycleValidation { violations: b },
+            ) => a == b,
+            (
+                RepositoryError::VocabularyValidation { violations: a },
+                RepositoryError::VocabularyValidation { violations: b },
             ) => a == b,
             (
                 RepositoryError::RecordLoad { path: a, source: _ },
@@ -1104,12 +1142,14 @@ impl PartialEq for RepositoryError {
                 RepositoryError::FieldOrderMismatch {
                     type_id: ta,
                     field_id: fa,
+                    problem: pa,
                 },
                 RepositoryError::FieldOrderMismatch {
                     type_id: tb,
                     field_id: fb,
+                    problem: pb,
                 },
-            ) => ta == tb && fa == fb,
+            ) => ta == tb && fa == fb && pa == pb,
             (
                 RepositoryError::OverrideTargetsOwnField {
                     type_id: ta,
@@ -1320,6 +1360,7 @@ impl RepositoryError {
             Self::LifecycleNotFound { .. } => "lifecycle-not-found",
             Self::LifecycleIdMismatch { .. } => "lifecycle-id-mismatch",
             Self::LifecycleValidation { .. } => "lifecycle-validation",
+            Self::VocabularyValidation { .. } => "vocabulary-validation",
             Self::RecordLoad { .. } => "record-load",
             Self::RecordWrite { .. } => "record-write",
             Self::RecordValidation { .. } => "record-validation",
@@ -1418,6 +1459,7 @@ impl RepositoryError {
             Self::ManifestRootContainer { code, .. } => code,
             Self::MigrationRefused { code, .. } => code,
             Self::ContainerStorage { code, .. } => code,
+            Self::DuplicateDefinitionId { .. } => "duplicate-id",
             Self::ActorProvenance { code, .. } => code,
             Self::InvalidPackageBundle { code, .. } => code,
             Self::SliceRefused { code, .. } => code,
@@ -1491,6 +1533,7 @@ mod tests {
                 body_id: "x".into(),
             },
             R::LifecycleValidation { violations: vec![] },
+            R::VocabularyValidation { violations: vec![] },
             R::RecordLoad {
                 path: PathBuf::new(),
                 source: je(),
@@ -1726,6 +1769,7 @@ mod tests {
             R::FieldOrderMismatch {
                 type_id: "x".into(),
                 field_id: "x".into(),
+                problem: FieldOrderProblem::Missing,
             },
             R::OverrideTargetsOwnField {
                 type_id: "x".into(),
@@ -1816,6 +1860,10 @@ mod tests {
                 code: "migration-x",
                 message: "x".into(),
             },
+            R::DuplicateDefinitionId {
+                id: "x".into(),
+                locators: vec![],
+            },
             R::ContainerStorage {
                 code: "container-x",
                 message: "x".into(),
@@ -1846,7 +1894,7 @@ mod tests {
         let all = all_variants();
         assert_eq!(
             all.len(),
-            107,
+            109,
             "all_variants() is out of step with the enum"
         );
         let mut seen = std::collections::HashSet::new();

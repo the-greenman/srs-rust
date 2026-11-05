@@ -699,6 +699,9 @@ pub struct RelationTypeDeletePayload {
     /// another installed definition or the embedded core package (srs-rust#995).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<String>,
+    /// `diagnostics` as structured findings, entry for entry (ADR-057, srs-rust#1339).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 // ── Container payloads ────────────────────────────────────────────────────────
@@ -2548,6 +2551,9 @@ pub struct PackageInstallPayload {
     /// Non-fatal `.srspkg` pre-load transformer notes (RFC-043
     /// `migration-memberorder-dropped`, ...); always empty for a directory install.
     pub notes: Vec<String>,
+    /// `notes` as structured findings, entry for entry (ADR-057, srs-rust#1339).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 impl From<srs_repository::package_install_service::InstallPackageResult> for PackageInstallPayload {
@@ -2582,6 +2588,11 @@ impl From<srs_repository::package_install_service::InstallPackageResult> for Pac
                 })
                 .collect(),
             notes: r.notes,
+            diagnostics_structured: r
+                .diagnostics_structured
+                .into_iter()
+                .map(Into::into)
+                .collect(),
         }
     }
 }
@@ -2618,6 +2629,9 @@ pub struct PackageUpgradePayload {
     /// Unsatisfied RFC-044 requirements of the bundle; never blocking.
     pub dependency_warnings: Vec<PackageDependencyEntry>,
     pub notes: Vec<String>,
+    /// `notes` as structured findings, entry for entry (ADR-057, srs-rust#1339).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -2686,6 +2700,11 @@ impl From<srs_repository::package_install_service::UpgradePackageResult> for Pac
                 .map(PackageDependencyEntry::from)
                 .collect(),
             notes: r.notes,
+            diagnostics_structured: r
+                .diagnostics_structured
+                .into_iter()
+                .map(Into::into)
+                .collect(),
         }
     }
 }

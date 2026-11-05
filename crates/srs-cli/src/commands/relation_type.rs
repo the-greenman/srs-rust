@@ -88,6 +88,11 @@ fn cmd_relation_type_delete(ctx: CliContext, id: String) -> Result<String> {
         RelationTypeDeletePayload {
             id: result.id,
             diagnostics: result.diagnostics,
+            diagnostics_structured: result
+                .diagnostics_structured
+                .into_iter()
+                .map(Into::into)
+                .collect(),
         },
     )
 }

@@ -6721,6 +6721,38 @@ fn field_create_with_undeclared_package_flag_errors() {
     );
 }
 
+/// srs-rust#1571: a definition whose id another package boundary already declares is refused
+/// (RFC-038 [R12], `duplicate-id`) and nothing is written, so the repository keeps loading.
+#[test]
+fn field_create_in_sub_package_refuses_id_declared_in_primary() {
+    let temp = make_repo_with_sub_package();
+    let field = minimal_field_json("00000000-0000-0000-0000-dup000000001", "dup-field");
+    run_srs_stdin_in_dir(temp.path(), &["field", "create"], &field);
+
+    let (_ok, result) = run_srs_stdin_any_status_in_dir(
+        temp.path(),
+        &["field", "create", "--package", "package/sub"],
+        &field,
+    );
+    assert_eq!(
+        result["ok"], false,
+        "duplicate id must be refused: {result:?}"
+    );
+    assert_eq!(result["errors"][0]["code"], "duplicate-id", "{result:?}");
+    assert!(
+        !temp.path().join("package/sub/fields").exists()
+            || std::fs::read_dir(temp.path().join("package/sub/fields"))
+                .unwrap()
+                .count()
+                == 0,
+        "nothing may be written to the sub-package"
+    );
+
+    // The repository still loads.
+    let listed = run_srs_in_dir(temp.path(), &["field", "list"]);
+    assert_eq!(listed["ok"], true, "{listed:?}");
+}
+
 #[test]
 fn field_list_includes_source_package() {
     let temp = make_repo_with_sub_package();
