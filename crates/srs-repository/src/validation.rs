@@ -3877,6 +3877,83 @@ mod tests {
         }
     }
 
+    // srs-rust#1550: two versions of one vocabulary lineage in a sub-package
+    // (what `package upgrade` writes) coexist, as types do; they are not a
+    // conflicting definition.
+    #[test]
+    fn subpackage_vocabulary_versions_coexist() {
+        let temp = TempDir::new().unwrap();
+        let vocab_id = "00000000-0000-4000-8000-000000000070";
+
+        write_json(
+            temp.path(),
+            "manifest.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+                "srsVersion": "2.0",
+                "dataModelRevision": 9,
+                "repositoryId": "00000000-0000-4000-8000-000000000099",
+                "title": "Test Repo",
+                "container": {
+                    "containerId": "00000000-0000-4000-8000-000000000099",
+                    "title": "Test Repo"
+                },
+                "createdAt": "2026-01-01T00:00:00Z",
+                "packageRefs": [{"mode": "local", "path": "extensions/subpkg"}]
+            }),
+        );
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &minimal_package_json_full(&[], &[], &[], &[]),
+        );
+        write_json(
+            temp.path(),
+            "extensions/subpkg/package.json",
+            &json!({
+                "$schema": srs_schema::PACKAGE_MANIFEST_SCHEMA_ID,
+                "id": "00000000-0000-4000-8000-000000000071",
+                "namespace": "com.test.ext",
+                "name": "subpkg",
+                "version": "1.0.0",
+                "title": "subpkg",
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "fields": [],
+                "types": [],
+                "views": [],
+                "vocabularies": ["vocabularies/v1.json", "vocabularies/v2.json"]
+            }),
+        );
+        write_json(
+            temp.path(),
+            "extensions/subpkg/vocabularies/v1.json",
+            &minimal_vocab_json(vocab_id, "closed", vec![]),
+        );
+        let mut v2 = minimal_vocab_json(
+            vocab_id,
+            "closed",
+            vec![("00000000-0000-4000-8000-000000000072", "added")],
+        );
+        v2["version"] = json!(2);
+        write_json(temp.path(), "extensions/subpkg/vocabularies/v2.json", &v2);
+
+        let store = crate::store::FileStore::new(temp.path());
+        let pkg = store
+            .load_package()
+            .expect("v1 and v2 of one vocabulary must load");
+        let mut versions: Vec<u32> = pkg
+            .vocabularies
+            .iter()
+            .filter(|v| v.id == vocab_id)
+            .map(|v| v.version)
+            .collect();
+        versions.sort();
+        assert_eq!(versions, vec![1, 2]);
+    }
+
     // --- srs-rust#1007: promote_vocabulary / create_term must resolve a
     // sub-package vocabulary's file path, not just its parsed contents ---
 
