@@ -1267,6 +1267,9 @@ pub struct FulfillmentNewRecord {
 pub struct TransitionLifecycleResult {
     pub record: Record,
     pub warnings: Vec<String>,
+    /// The `warnings` as structured findings, entry for entry (ADR-057,
+    /// srs-rust#1339); the text list is unchanged until srs-rust#1496.
+    pub diagnostics_structured: Vec<crate::diagnostic::Diagnostic>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub successor: Option<Record>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1422,14 +1425,19 @@ pub fn transition_record_lifecycle(
     }
 
     // Check if target state is final → emit warning
-    let mut warnings = Vec::new();
+    let mut warnings = crate::diagnostic::Diagnostics::new();
     let state_def = lifecycle.states.iter().find(|s| s.key == target_state);
     if let Some(state_def) = state_def {
         if state_def.is_final == Some(true) {
-            warnings.push(format!(
-                "LIFECYCLE_FINAL_STATE: Target state '{}' is a final state — no further transitions are expected",
-                target_state
-            ));
+            warnings.push_for(
+                crate::validation::DiagnosticSeverity::Warning,
+                "LIFECYCLE_FINAL_STATE",
+                format!(
+                    "LIFECYCLE_FINAL_STATE: Target state '{}' is a final state — no further transitions are expected",
+                    target_state
+                ),
+                Some(instance_id.to_string()),
+            );
         }
     }
 
@@ -1457,10 +1465,15 @@ pub fn transition_record_lifecycle(
                             // RFC-022 Rev 4 / I-100: an advisory obligation never
                             // rejects; it surfaces as a warning (and at rest in
                             // `repo validate`).
-                            warnings.push(format!(
-                                "LIFECYCLE_RELATION_UNSATISFIED: state '{}' advises a '{}' relation of type {:?} and none satisfies it (enforcement: advisory)",
-                                target_state, direction, declared
-                            ));
+                            warnings.push_for(
+                                crate::validation::DiagnosticSeverity::Warning,
+                                "LIFECYCLE_RELATION_UNSATISFIED",
+                                format!(
+                                    "LIFECYCLE_RELATION_UNSATISFIED: state '{}' advises a '{}' relation of type {:?} and none satisfies it (enforcement: advisory)",
+                                    target_state, direction, declared
+                                ),
+                                Some(instance_id.to_string()),
+                            );
                         } else {
                             return Err(RepositoryError::LifecycleRelationRequired {
                                 state: target_state,
@@ -1598,9 +1611,11 @@ pub fn transition_record_lifecycle(
     // the mechanism's one production write site (srs-rust#866) — a lifecycle
     // transition no longer appends anything here.
 
+    let (warnings, diagnostics_structured) = warnings.into_parts();
     Ok(TransitionLifecycleResult {
         record: updated,
         warnings,
+        diagnostics_structured,
         successor: successor_out,
         relation: relation_out,
     })
@@ -3578,6 +3593,11 @@ pub(crate) mod tests {
         assert_eq!(result.record.lifecycle_state.as_deref(), Some("archived"));
         assert!(!result.warnings.is_empty());
         assert!(result.warnings[0].contains("LIFECYCLE_FINAL_STATE"));
+        crate::diagnostic::assert_parallel(&result.warnings, &result.diagnostics_structured);
+        let d = &result.diagnostics_structured[0];
+        assert_eq!(d.code, "LIFECYCLE_FINAL_STATE");
+        assert_eq!(d.severity, crate::validation::DiagnosticSeverity::Warning);
+        assert_eq!(d.instance_id.as_deref(), Some(record.instance_id.as_str()));
     }
 
     #[test]

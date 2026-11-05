@@ -282,6 +282,9 @@ pub struct PackageExportSummary {
     pub mode: BundleMode,
     /// Non-fatal export notes; today only `bundle-below-reader-floor` (PD11).
     pub notes: Vec<String>,
+    /// `notes` as structured findings, entry for entry (ADR-057, srs-rust#1339);
+    /// the text list is unchanged until srs-rust#1496.
+    pub diagnostics_structured: Vec<crate::diagnostic::Diagnostic>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -644,15 +647,18 @@ pub fn export_package_bundle(
         })?;
     text.push('\n');
     let floor = reader_floor();
-    let notes = if data_model_revision < floor {
-        vec![format!(
-            "bundle-below-reader-floor: repository dataModelRevision {data_model_revision}; \
-             readers at revision {CURRENT_DATA_MODEL_REVISION} refuse bundles below {floor}; \
-             migrate the repository first (srs repo apply-migration)"
-        )]
-    } else {
-        Vec::new()
-    };
+    let mut findings = crate::diagnostic::Diagnostics::new();
+    if data_model_revision < floor {
+        findings.warning(
+            "bundle-below-reader-floor",
+            format!(
+                "bundle-below-reader-floor: repository dataModelRevision {data_model_revision}; \
+                 readers at revision {CURRENT_DATA_MODEL_REVISION} refuse bundles below {floor}; \
+                 migrate the repository first (srs repo apply-migration)"
+            ),
+        );
+    }
+    let (notes, diagnostics_structured) = findings.into_parts();
     let summary = PackageExportSummary {
         package_id: target.id.clone(),
         package_namespace: target.namespace.clone(),
@@ -668,6 +674,7 @@ pub fn export_package_bundle(
         dependency_ref_count,
         mode: input.mode,
         notes,
+        diagnostics_structured,
     };
     Ok(PackageBundleExport { text, summary })
 }
@@ -1698,7 +1705,8 @@ mod tests {
     #[test]
     fn export_from_repository_below_reader_floor_writes_bundle_its_reader_refuses() {
         let (_t, store) = with_fixture();
-        assert!(export(&store, Some(FIXTURE)).summary.notes.is_empty());
+        let clean = export(&store, Some(FIXTURE)).summary;
+        assert!(clean.notes.is_empty() && clean.diagnostics_structured.is_empty());
         crate::field_type_migration_service::stamp_data_model_revision(&store, 6).unwrap();
         let store = older_corpus(store);
         let e = export(&store, Some(FIXTURE));
@@ -1709,6 +1717,10 @@ mod tests {
             "{:?}",
             e.summary.notes
         );
+        crate::diagnostic::assert_parallel(&e.summary.notes, &e.summary.diagnostics_structured);
+        let d = &e.summary.diagnostics_structured[0];
+        assert_eq!(d.code, "bundle-below-reader-floor");
+        assert_eq!(d.severity, crate::validation::DiagnosticSeverity::Warning);
         let (code, _) = code(read_package_bundle(e.text.as_bytes()).unwrap_err());
         assert_eq!(code, "bundle-migration-step-missing");
     }

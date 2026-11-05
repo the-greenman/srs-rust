@@ -1,4 +1,5 @@
 use crate::container_service::{get_container, list_direct_members, list_members};
+use crate::diagnostic::{Diagnostic, Diagnostics};
 use crate::discovery_service::record_matches_structured_predicates;
 use crate::error::RepositoryError;
 use crate::package::Package;
@@ -57,6 +58,9 @@ impl<'a> RenderCompositionOptions<'a> {
 pub struct RenderResult {
     pub rendered: String,
     pub diagnostics: Vec<String>,
+    /// The same findings as structured entries (srs-rust#1491, ADR-057).
+    #[serde(rename = "diagnosticsStructured")]
+    pub diagnostics_structured: Vec<Diagnostic>,
     pub projection: Option<CompositionProjection>,
 }
 
@@ -343,9 +347,9 @@ fn nested_record_level(depth_offset: u32, d: u32) -> u32 {
 /// level this revision adds. Idempotent — clamping an already-clamped level
 /// is a no-op, so callers may apply it defensively at every heading site
 /// without risking a duplicate diagnostic for the same overflow.
-fn clamp_heading_level(level: u32, format: &str, diagnostics: &mut Vec<String>) -> u32 {
+fn clamp_heading_level(level: u32, format: &str, diagnostics: &mut Diagnostics) -> u32 {
     if level > 6 && matches!(format, "markdown" | "html" | "adoc") {
-        diagnostics.push(format!(
+        diagnostics.push_derived(format!(
             "[R23] computed heading level {level} exceeds 6 for format '{format}'; clamped to 6"
         ));
         6
@@ -366,7 +370,7 @@ pub fn render_composition(
     let dv = dv.clone();
 
     let manifest = opts.store.load_manifest()?;
-    let mut diagnostics = Vec::new();
+    let mut diagnostics = Diagnostics::new();
     let container_title = resolve_container_title(opts.store, &dv, &manifest, opts.container_id);
     let relations = load_relations(opts.store)?;
     let dv_export_config = dv.export_config.as_ref();
@@ -377,7 +381,7 @@ pub fn render_composition(
     );
     let depth_offset = dv.depth_offset.unwrap_or(0);
     if depth_offset > 4 {
-        diagnostics.push(format!(
+        diagnostics.push_derived(format!(
             "[N+4b] depthOffset {depth_offset} exceeds 4; heading levels may exceed what standard renderers support"
         ));
     }
@@ -397,9 +401,11 @@ pub fn render_composition(
             opts.exclude_instance_ids,
             &mut diagnostics,
         )?;
+        let (diagnostics, diagnostics_structured) = diagnostics.into_parts();
         return Ok(RenderResult {
             rendered: String::new(),
             diagnostics,
+            diagnostics_structured,
             projection: Some(projection),
         });
     }
@@ -445,7 +451,7 @@ pub fn render_composition(
                 if let Some(css) = stylesheet.get("content").and_then(|v| v.as_str()) {
                     rendered = format!("<style>\n{css}\n</style>\n{rendered}");
                 } else if stylesheet.get("mode").and_then(|v| v.as_str()) == Some("local") {
-                    diagnostics.push(
+                    diagnostics.push_derived(
                         "[theme-stylesheet] local stylesheet paths are not yet resolved; stylesheet omitted"
                             .to_string(),
                     );
@@ -471,9 +477,11 @@ pub fn render_composition(
         rendered = format!("<div class=\"srs-document\">{rendered}</div>\n");
     }
 
+    let (diagnostics, diagnostics_structured) = diagnostics.into_parts();
     Ok(RenderResult {
         rendered,
         diagnostics,
+        diagnostics_structured,
         projection: None,
     })
 }
@@ -491,7 +499,7 @@ fn project_composition_json(
     cli_container_id: Option<&str>,
     instance_id_filter: Option<&str>,
     exclude: &[String],
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<CompositionProjection, RepositoryError> {
     // RFC-043: an arranged section may omit `containerId`; the container being rendered
     // (the supplied one) is then the document's container.
@@ -514,7 +522,7 @@ fn project_composition_json(
             })
             .collect();
         if subset_ids.len() > 1 {
-            diagnostics.push(format!(
+            diagnostics.push_derived(format!(
                 "[json-projection] view {} has multiple ContainerSubset sections with different container IDs; using first ({})",
                 dv.id, subset_ids[0]
             ));
@@ -574,11 +582,11 @@ fn section_container_id<'a>(
     literal: Option<&'a str>,
     cli_container_id: Option<&'a str>,
     section_id: &str,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Option<&'a str> {
     let resolved = cli_container_id.or(literal);
     if resolved.is_none() {
-        diagnostics.push(format!(
+        diagnostics.push_derived(format!(
             "[section:{section_id}] error: an arranged container-subset section without containerId needs a supplied container (RFC-043 [R9]); rendering nothing"
         ));
     }
@@ -617,7 +625,7 @@ fn project_section_json(
     cli_container_id: Option<&str>,
     instance_id_filter: Option<&str>,
     exclude: &[String],
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<ProjectedSection, RepositoryError> {
     let (entries, rank) = resolve_section_entries(
         store,
@@ -665,7 +673,7 @@ fn project_entries_json(
     rank: Option<&ArrangedRank>,
     relations: &[Relation],
     exclude: &[String],
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<(Vec<ProjectedRecord>, Vec<ProjectedSection>), RepositoryError> {
     let mut records = Vec::new();
     let mut sections = Vec::new();
@@ -699,7 +707,7 @@ fn project_entries_json(
                 records.push(projected);
             }
             SectionEntry::Arranged(LoadedInstance::Note(note), _) => {
-                diagnostics.push(format!(
+                diagnostics.push_derived(format!(
                     "[section:{}] tier-0 note {} is not representable in the JSON projection; skipped",
                     section.section_id, note.instance_id
                 ));
@@ -707,7 +715,7 @@ fn project_entries_json(
             SectionEntry::Plain(LoadedInstance::Note(note)) => {
                 // The composition JSON output schema models typed records only;
                 // Tier-0 notes are skipped from the projection with a warning (#510).
-                diagnostics.push(format!(
+                diagnostics.push_derived(format!(
                     "[section:{}] tier-0 note {} is not representable in the JSON projection; skipped",
                     section.section_id, note.instance_id
                 ));
@@ -745,7 +753,7 @@ fn project_nested_section_json(
     relations: &[Relation],
     exclude: &[String],
     order: i32,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<ProjectedSection, RepositoryError> {
     let mut records = Vec::new();
     if let Some(anchor) = &nested.anchor {
@@ -763,7 +771,7 @@ fn project_nested_section_json(
                 )?);
             }
             LoadedInstance::Note(note) => {
-                diagnostics.push(format!(
+                diagnostics.push_derived(format!(
                     "[section:{}] tier-0 note {} (nested-section anchor) is not representable in the JSON projection; skipped",
                     section.section_id, note.instance_id
                 ));
@@ -801,7 +809,7 @@ fn project_record_json(
     relations: &[Relation],
     exclude: &[String],
     apply_ordering_to_children: ChildOrdering<'_>,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<ProjectedRecord, RepositoryError> {
     let rt = package
         .resolve_type(&record.type_id, record.type_version)
@@ -825,7 +833,7 @@ fn project_record_json(
             if satisfied {
                 Some(view.clone())
             } else {
-                diagnostics.push(format!(
+                diagnostics.push_derived(format!(
                     "[view-dispatch] dispatched view {} for type {}/{} does not satisfy view; falling back to baseline",
                     view_id,
                     rt.as_ref().map(|t| t.namespace.as_str()).unwrap_or("?"),
@@ -889,7 +897,7 @@ fn project_record_json(
                 }
             }
             Err(e) => {
-                diagnostics.push(format!("ext:type-inheritance: {e}"));
+                diagnostics.push_derived(format!("ext:type-inheritance: {e}"));
             }
         }
     } else {
@@ -908,7 +916,7 @@ fn project_record_json(
 
     for field in &fields_to_render {
         if field.name.is_empty() {
-            diagnostics.push(format!(
+            diagnostics.push_derived(format!(
                 "field id {} resolves to no Field definition; skipped in projection",
                 field.field_id
             ));
@@ -927,7 +935,7 @@ fn project_record_json(
         let json_val = field_value.and_then(|v| project_field_value(v, field_type));
 
         if field.required && json_val.is_none() {
-            diagnostics.push(format!(
+            diagnostics.push_derived(format!(
                 "[view-required] view {} record {} is missing required field {} for rendered view",
                 effective_view_id.unwrap_or("<no-view-id>"),
                 record.instance_id,
@@ -1019,7 +1027,7 @@ fn project_contains_children_json(
     relations: &[Relation],
     exclude: &[String],
     apply_ordering_to_children: ChildOrdering<'_>,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<Vec<ProjectedRecord>, RepositoryError> {
     if section.title_field_id.is_none() {
         return Ok(Vec::new());
@@ -1073,7 +1081,7 @@ fn project_contains_children_json(
                 )?);
             }
             LoadedInstance::Note(note) => {
-                diagnostics.push(format!(
+                diagnostics.push_derived(format!(
                     "[section:{}] tier-0 note {} (contains child of {}) is not representable in the JSON projection; skipped",
                     section.section_id, note.instance_id, record.instance_id
                 ));
@@ -1149,7 +1157,7 @@ fn resolve_active_theme(
     package: &Package,
     theme_variant: Option<&str>,
     format: &str,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Option<Theme> {
     let theme_ref = if let Some(variant_name) = theme_variant {
         match dv
@@ -1159,7 +1167,7 @@ fn resolve_active_theme(
         {
             Some(variant) => Some(&variant.theme_ref),
             None => {
-                diagnostics.push(format!(
+                diagnostics.push_derived(format!(
                     "[theme-variant] view {} theme variant '{}' not found; falling back to themeRef",
                     dv.id, variant_name
                 ));
@@ -1173,7 +1181,7 @@ fn resolve_active_theme(
     let theme = match theme_ref.mode {
         ThemeMode::Bundled => {
             let Some(theme_id) = theme_ref.theme_id.as_deref() else {
-                diagnostics.push(format!(
+                diagnostics.push_derived(format!(
                     "[T-5] view {} bundled theme reference is missing themeId",
                     dv.id
                 ));
@@ -1182,7 +1190,7 @@ fn resolve_active_theme(
             match package.resolve_theme(theme_id) {
                 Some(theme) => theme.clone(),
                 None => {
-                    diagnostics.push(format!(
+                    diagnostics.push_derived(format!(
                         "[T-5] view {} bundled theme '{}' was not found in the package",
                         dv.id, theme_id
                     ));
@@ -1191,7 +1199,7 @@ fn resolve_active_theme(
             }
         }
         ThemeMode::Local | ThemeMode::Remote => {
-            diagnostics.push(format!(
+            diagnostics.push_derived(format!(
                 "[theme] view {} theme reference mode {:?} is not supported in this release",
                 dv.id, theme_ref.mode
             ));
@@ -1221,7 +1229,7 @@ fn resolve_active_theme(
                 .collect();
 
             if matches.len() > 1 {
-                diagnostics.push(format!(
+                diagnostics.push_derived(format!(
                     "[T-3] view {}: multiple themeVariants target format {}; using first match '{}'",
                     dv.id, format, matches[0].0
                 ));
@@ -1232,7 +1240,7 @@ fn resolve_active_theme(
         }
     }
 
-    diagnostics.push(format!(
+    diagnostics.push_derived(format!(
         "[T-2] view {} theme {} does not target format {}; skipping theme",
         dv.id, theme.id, format
     ));
@@ -1932,7 +1940,7 @@ fn record_satisfies_view(
     package: &Package,
     view: &srs_core::types::view::View,
     rt: Option<&srs_core::types::record_type::RecordType>,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> (bool, Option<HashSet<String>>) {
     if let Some(compatible) = &view.compatible_types {
         let type_key = rt.map(|t| format!("{}/{}", t.namespace, t.name));
@@ -1957,7 +1965,7 @@ fn record_satisfies_view(
     let effective_ids: HashSet<String> = match effective_result {
         Some(Ok(fields)) => fields.iter().map(|fa| fa.field_id.clone()).collect(),
         Some(Err(e)) => {
-            diagnostics.push(format!(
+            diagnostics.push_derived(format!(
                 "[view-dispatch] ext:type-inheritance error while checking view compatibility: {e}"
             ));
             HashSet::new()
@@ -2002,7 +2010,7 @@ fn render_section(
     cli_container_id: Option<&str>,
     instance_id_filter: Option<&str>,
     exclude: &[String],
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<String, RepositoryError> {
     let (entries, rank) = resolve_section_entries(
         store,
@@ -2077,12 +2085,12 @@ fn list_members_degraded(
     store: &dyn RepositoryStore,
     container_id: &str,
     section_id: &str,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<Vec<String>, RepositoryError> {
     match list_members(store, container_id) {
         Ok(members) => Ok(members),
         Err(RepositoryError::ContainerNotFound { container_id }) => {
-            diagnostics.push(format!(
+            diagnostics.push_derived(format!(
                 "[section:{section_id}] container not found: {container_id}; rendering section as empty"
             ));
             Ok(Vec::new())
@@ -2097,12 +2105,12 @@ fn list_direct_members_degraded(
     store: &dyn RepositoryStore,
     container_id: &str,
     section_id: &str,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<Vec<String>, RepositoryError> {
     match list_direct_members(store, container_id) {
         Ok(members) => Ok(members),
         Err(RepositoryError::ContainerNotFound { container_id }) => {
-            diagnostics.push(format!(
+            diagnostics.push_derived(format!(
                 "[section:{section_id}] container not found: {container_id}; rendering section as empty"
             ));
             Ok(Vec::new())
@@ -2116,7 +2124,7 @@ fn resolve_section_instances(
     section: &DocumentSection,
     cli_container_id: Option<&str>,
     instance_id_filter: Option<&str>,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<Vec<LoadedInstance>, RepositoryError> {
     match &section.source {
         SectionSource::DiscoveryQuery {
@@ -2165,7 +2173,7 @@ fn resolve_section_instances(
                         }
                         records.retain(|r| member_set.contains(&r.instance_id));
                     } else {
-                        diagnostics.push(
+                        diagnostics.push_derived(
                             "[N+27] containerScope 'subtree' with no containerIds — returning empty result".to_string(),
                         );
                         // Return early: the [N+27] message already names the reason;
@@ -2210,7 +2218,7 @@ fn resolve_section_instances(
                     (None, Some(name)) => name.clone(),
                     (None, None) => "*".to_string(),
                 };
-                diagnostics.push(format!(
+                diagnostics.push_derived(format!(
                     "[section:{}] discovery-query '{}' matched 0 records",
                     section.section_id, query_desc
                 ));
@@ -2354,7 +2362,7 @@ fn dedupe_contains_roots(
     relations: &[Relation],
     eligible: &HashSet<String>,
     dedupe_for_recursion: bool,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Vec<String> {
     if !dedupe_for_recursion {
         return members.to_vec();
@@ -2364,7 +2372,7 @@ fn dedupe_contains_roots(
         let root_set: HashSet<&str> = roots.iter().map(String::as_str).collect();
         for id in members {
             if !root_set.contains(id.as_str()) {
-                diagnostics.push(format!(
+                diagnostics.push_derived(format!(
                     "[section:{section_id}] entry {id} omitted from its declared container position; it is a `contains`-target of another entry in the same set and renders nested under that entry instead"
                 ));
             }
@@ -2391,7 +2399,7 @@ fn ordered_direct_members(
     package: &Package,
     relations: &[Relation],
     dedupe_for_recursion: bool,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<Vec<LoadedInstance>, RepositoryError> {
     let members = list_direct_members_degraded(store, container_id, section_id, diagnostics)?;
     let eligible = eligible_member_ids(store, &members, type_filter, exclude, package)?;
@@ -2439,12 +2447,12 @@ fn arranged_direct_members(
     package: &Package,
     relations: &[Relation],
     dedupe_for_recursion: bool,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<(Vec<SectionEntry>, Option<ArrangedRank>), RepositoryError> {
     let container = match get_container(store, container_id) {
         Ok(c) => c,
         Err(RepositoryError::ContainerNotFound { container_id }) => {
-            diagnostics.push(format!(
+            diagnostics.push_derived(format!(
                 "[section:{section_id}] container not found: {container_id}; rendering section as empty"
             ));
             return Ok((Vec::new(), None));
@@ -2523,7 +2531,7 @@ fn resolve_section_entries(
     cli_container_id: Option<&str>,
     instance_id_filter: Option<&str>,
     exclude: &[String],
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<(Vec<SectionEntry>, Option<ArrangedRank>), RepositoryError> {
     if let SectionSource::ContainerSubset {
         container_id,
@@ -2656,10 +2664,10 @@ fn build_container_subset_entries(
     depth: u32,
     dedupe_for_recursion: bool,
     visited: &mut HashSet<String>,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<Vec<SectionEntry>, RepositoryError> {
     if !visited.insert(container_id.to_string()) {
-        diagnostics.push(format!(
+        diagnostics.push_derived(format!(
             "[section:{section_id}] childContainerIds cycle detected at container {container_id}; stopping descent (RFC-034 [R7] should have rejected this at write time)"
         ));
         return Ok(Vec::new());
@@ -2690,7 +2698,7 @@ fn build_container_subset_entries(
     let child_ids: Vec<String> = container.child_container_ids.clone().unwrap_or_default();
 
     if child_ids.is_empty() {
-        diagnostics.push(format!(
+        diagnostics.push_derived(format!(
             "[measure] section {section_id} container {container_id} depth {depth}: direct_members={} child_sections=0",
             plain_records.len()
         ));
@@ -2714,7 +2722,7 @@ fn build_container_subset_entries(
                 });
             }
             Err(RepositoryError::ContainerNotFound { container_id }) => {
-                diagnostics.push(format!(
+                diagnostics.push_derived(format!(
                     "[section:{section_id}] childContainerIds names missing container {container_id}; skipped"
                 ));
             }
@@ -2820,7 +2828,7 @@ fn build_container_subset_entries(
         .iter()
         .filter(|e| matches!(e, SectionEntry::Plain(_)))
         .count();
-    diagnostics.push(format!(
+    diagnostics.push_derived(format!(
         "[measure] section {section_id} container {container_id} depth {depth}: direct_members={direct_member_count} child_sections={child_sections_count}"
     ));
 
@@ -2837,7 +2845,7 @@ fn render_note_at_level(
     ctx: &RenderContext<'_>,
     note: &srs_core::types::note::Note,
     heading_level: u32,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> String {
     let mut out = String::new();
 
@@ -2892,7 +2900,7 @@ fn render_section_entries(
     rank: Option<&ArrangedRank>,
     relations: &[Relation],
     record_level: u32,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<String, RepositoryError> {
     let mut out = String::new();
     for entry in entries {
@@ -2959,7 +2967,7 @@ fn render_nested_section(
     section: &DocumentSection,
     nested: &NestedSectionPlan,
     relations: &[Relation],
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<String, RepositoryError> {
     let mut out = String::new();
 
@@ -3019,7 +3027,7 @@ fn render_record_at_level(
     heading_level: u32,
     relations: &[Relation],
     apply_ordering_to_children: ChildOrdering<'_>,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<String, RepositoryError> {
     let rt = ctx
         .package
@@ -3095,7 +3103,7 @@ fn render_record_at_level(
             if satisfied {
                 Some(view.clone())
             } else {
-                diagnostics.push(format!(
+                diagnostics.push_derived(format!(
                     "[view-dispatch] dispatched view {} for type {}/{} does not satisfy view; falling back to baseline",
                     view_id,
                     rt.as_ref().map(|t| t.namespace.as_str()).unwrap_or("?"),
@@ -3177,7 +3185,7 @@ fn render_record_at_level(
                 }
             }
             Err(e) => {
-                diagnostics.push(format!("ext:type-inheritance: {e}"));
+                diagnostics.push_derived(format!("ext:type-inheritance: {e}"));
             }
         }
     } else {
@@ -3210,7 +3218,7 @@ fn render_record_at_level(
             }
         }
         if field.name.is_empty() {
-            diagnostics.push(format!(
+            diagnostics.push_derived(format!(
                 "field id {field_id} resolves to no Field definition; row skipped"
             ));
             continue;
@@ -3250,7 +3258,7 @@ fn render_record_at_level(
         let rendered_value =
             field_value.and_then(|v| render_field_value(v, field_type, ctx.format));
         if field.required && rendered_value.is_none() {
-            diagnostics.push(format!(
+            diagnostics.push_derived(format!(
                 "[view-required] view {} record {} is missing required field {} for rendered view",
                 effective_view_id.unwrap_or("<no-view-id>"),
                 record.instance_id,
@@ -3436,7 +3444,7 @@ pub(crate) fn render_record_rows(
     record: &Record,
     format: &str,
     skip_value: Option<&str>,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> String {
     let rows: Vec<(String, String, Option<String>)> = match package.and_then(|p| {
         p.resolve_type(&record.type_id, record.type_version)
@@ -3451,7 +3459,7 @@ pub(crate) fn render_record_rows(
                 })
                 .collect(),
             Err(e) => {
-                diagnostics.push(format!("ext:type-inheritance: {e}"));
+                diagnostics.push_derived(format!("ext:type-inheritance: {e}"));
                 Vec::new()
             }
         },
@@ -3543,7 +3551,7 @@ fn resolve_display_label_for_relation_target(
     instance_id: &str,
     section: &DocumentSection,
     package: &Package,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<String, RepositoryError> {
     match crate::record_store::get_instance_by_id(store, instance_id)? {
         Some(crate::record_store::LoadedInstance::Record(target_record)) => {
@@ -3563,7 +3571,7 @@ fn resolve_display_label_for_relation_target(
                     }
                     Ok(None) => {}
                     Err(e) => {
-                        diagnostics.push(format!(
+                        diagnostics.push_derived(format!(
                             "[relations] error resolving identityFieldId for {instance_id}: {e}"
                         ));
                     }
@@ -3603,7 +3611,7 @@ fn collect_relation_rows(
     record: &Record,
     relations: &[Relation],
     package: &Package,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<Vec<ProjectedRelationRow>, RepositoryError> {
     let rp = match &section.relations_presentation {
         Some(rp) => rp,
@@ -3625,7 +3633,7 @@ fn collect_relation_rows(
 
         let rtd = match matching_rtds.len() {
             0 => {
-                diagnostics.push(format!(
+                diagnostics.push_derived(format!(
                     "[I-027-2b] relationsPresentation entry '{}' does not resolve to a known RTD; skipping",
                     entry.relation_type
                 ));
@@ -3633,7 +3641,7 @@ fn collect_relation_rows(
             }
             1 => matching_rtds[0],
             _ => {
-                diagnostics.push(format!(
+                diagnostics.push_derived(format!(
                     "[I-027-2b] relationsPresentation entry '{}' is conflict-ambiguous (multiple RTDs); skipping",
                     entry.relation_type
                 ));
@@ -3642,7 +3650,7 @@ fn collect_relation_rows(
         };
 
         if !rtd.resolves_for_reads() {
-            diagnostics.push(format!(
+            diagnostics.push_derived(format!(
                 "[I-027-2b] relationsPresentation entry '{}' resolves to a retired/tombstone RTD; skipping",
                 entry.relation_type
             ));
@@ -3745,7 +3753,7 @@ fn project_relations_json(
     record: &Record,
     relations: &[Relation],
     package: &Package,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<Option<Vec<ProjectedRelationRow>>, RepositoryError> {
     let rows = collect_relation_rows(store, section, record, relations, package, diagnostics)?;
     if rows.is_empty() {
@@ -3805,7 +3813,7 @@ fn render_relations_block(
     relations: &[Relation],
     package: &Package,
     format: &str,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Result<String, RepositoryError> {
     if section.relations_presentation.is_none() {
         return Ok(String::new());
@@ -3899,7 +3907,7 @@ fn render_composite_field(
     field_type: &FieldType,
     value: &serde_json::Value,
     binding: Option<&srs_core::types::view::CompositeRendererBinding>,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> String {
     // A single composite is rendered as a one-entry sequence; a list is the
     // entry sequence itself ([R16] wraps uniformly).
@@ -3953,7 +3961,7 @@ fn render_composite_field(
         Some(unknown) => {
             // [CR-036-7]: unknown renderer falls back to the composite
             // baseline with a diagnostic.
-            diagnostics.push(format!(
+            diagnostics.push_derived(format!(
                 "[CR-036-7] Unrecognised compositeRenderer {:?} on field {:?}; falling back to composite baseline",
                 unknown, field.name
             ));
@@ -4088,7 +4096,7 @@ fn render_composite_table(
     entries: &[&serde_json::Map<String, serde_json::Value>],
     roles: Option<&std::collections::BTreeMap<String, String>>,
     table_config: Option<&serde_json::Value>,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> String {
     let mut out = String::new();
 
@@ -4153,7 +4161,7 @@ fn render_composite_table(
             })
             .collect();
         if cols.is_empty() && rows.is_empty() {
-            diagnostics.push(format!(
+            diagnostics.push_derived(format!(
                 "[CR-036-2] compositeRenderer:table on field {:?} has no columns or rows; skipping",
                 field.name
             ));
@@ -4188,7 +4196,7 @@ fn render_composite_table(
             .unwrap_or(false);
         let has_rows = rows_json.as_ref().map(|v| !v.is_empty()).unwrap_or(false);
         if !has_columns && !has_rows {
-            diagnostics.push(format!(
+            diagnostics.push_derived(format!(
                 "[CR-036-2] compositeRenderer:table entry {} on field {:?} has no columns or rows; skipping",
                 entry_idx, field.name
             ));
@@ -9534,6 +9542,11 @@ mod tests {
             "{:?}",
             r23_diagnostics
         );
+        crate::diagnostic::assert_parallel(&result.diagnostics, &result.diagnostics_structured);
+        assert!(result
+            .diagnostics_structured
+            .iter()
+            .any(|d| d.code == "R23"));
     }
 
     #[test]
@@ -14136,7 +14149,7 @@ mod tests {
                 "rec-b",
             ),
         ];
-        let mut diag = Vec::new();
+        let mut diag = Diagnostics::new();
         let out = render_relations_block(
             &store, &section, &record, &relations, &package, "markdown", &mut diag,
         )
@@ -14174,7 +14187,7 @@ mod tests {
             "00000000-0000-4000-8000-0000000000a2",
             "rec-src",
         )];
-        let mut diag = Vec::new();
+        let mut diag = Diagnostics::new();
         let out = render_relations_block(
             &store, &section, &record, &relations, &package, "markdown", &mut diag,
         )
@@ -14239,7 +14252,7 @@ mod tests {
                 "rec-src",
             ),
         ];
-        let mut diag = Vec::new();
+        let mut diag = Diagnostics::new();
         let out = render_relations_block(
             &store, &section, &record, &relations, &package, "markdown", &mut diag,
         )
@@ -14294,7 +14307,7 @@ mod tests {
             "rec-src",
             "rec-a",
         )];
-        let mut diag = Vec::new();
+        let mut diag = Diagnostics::new();
         let out = render_relations_block(
             &store, &section, &record, &relations, &package, "markdown", &mut diag,
         )
@@ -14337,7 +14350,7 @@ mod tests {
             "rec-src",
             "rec-a",
         )];
-        let mut diag = Vec::new();
+        let mut diag = Diagnostics::new();
         let out = render_relations_block(
             &store, &section, &record, &relations, &package, "markdown", &mut diag,
         )
@@ -14376,7 +14389,7 @@ mod tests {
             "rec-src",
             "rec-a",
         )];
-        let mut diag = Vec::new();
+        let mut diag = Diagnostics::new();
         let out = render_relations_block(
             &store, &section, &record, &relations, &package, "markdown", &mut diag,
         )
@@ -14399,7 +14412,7 @@ mod tests {
         }]);
         let record = src_rec("rec-src");
         let package = store.load_package().unwrap();
-        let mut diag = Vec::new();
+        let mut diag = Diagnostics::new();
         let out = render_relations_block(
             &store,
             &section,
@@ -14458,7 +14471,7 @@ mod tests {
                 "rec-a",
             ),
         ];
-        let mut diag = Vec::new();
+        let mut diag = Diagnostics::new();
         let out = render_relations_block(
             &store, &section, &record, &relations, &package, "markdown", &mut diag,
         )
@@ -14596,7 +14609,7 @@ mod tests {
             "rec-src",
             "rec-named",
         )];
-        let mut diag = Vec::new();
+        let mut diag = Diagnostics::new();
         let out = render_relations_block(
             &store, &section, &record, &relations, &package2, "markdown", &mut diag,
         )
@@ -14668,7 +14681,7 @@ mod tests {
             "rec-src",
             "rec-titled",
         )];
-        let mut diag = Vec::new();
+        let mut diag = Diagnostics::new();
         let out = render_relations_block(
             &store, &section, &record, &relations, &package, "markdown", &mut diag,
         )
@@ -14707,7 +14720,7 @@ mod tests {
             "rec-src",
             "rec-no-label",
         )];
-        let mut diag = Vec::new();
+        let mut diag = Diagnostics::new();
         let out = render_relations_block(
             &store, &section, &record, &relations, &package, "markdown", &mut diag,
         )
@@ -14745,7 +14758,7 @@ mod tests {
             "rec-src",
             "rec-a",
         )];
-        let mut diag = Vec::new();
+        let mut diag = Diagnostics::new();
         let out = render_relations_block(
             &store, &section, &record, &relations, &package, "markdown", &mut diag,
         )
@@ -14755,7 +14768,8 @@ mod tests {
             "retired RTD entry must emit no output; got: {out:?}"
         );
         assert!(
-            diag.iter()
+            diag.texts()
+                .iter()
                 .any(|d| d.contains("[I-027-2b]") && d.contains("old-type")),
             "expected I-027-2b diagnostic for retired RTD; got: {diag:?}"
         );
@@ -15395,7 +15409,7 @@ mod tests {
         let record = src_rec("rec-src");
         let package = store.load_package().unwrap();
         let relations = vec![];
-        let mut diag = Vec::new();
+        let mut diag = Diagnostics::new();
         let out = render_relations_block(
             &store, &section, &record, &relations, &package, "markdown", &mut diag,
         )
@@ -15405,7 +15419,7 @@ mod tests {
             "non-resolving RTD must emit no output; got: {out:?}"
         );
         assert!(
-            diag.iter().any(|d| d.contains("[I-027-2b]")
+            diag.texts().iter().any(|d| d.contains("[I-027-2b]")
                 && d.contains("unknown-type")
                 && d.contains("does not resolve")),
             "expected I-027-2b diagnostic for non-resolving entry; got: {diag:?}"

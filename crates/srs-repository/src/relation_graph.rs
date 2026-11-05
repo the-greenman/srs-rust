@@ -404,7 +404,7 @@ pub(crate) fn apply_section_ordering(
     package: &Package,
     relations: &[Relation],
     _section_id: &str,
-    _diagnostics: &mut Vec<String>,
+    _diagnostics: &mut crate::diagnostic::Diagnostics,
 ) -> Vec<LoadedInstance> {
     if let Some(ordering) = ordering {
         if ordering.source == Some(OrderingSource::Arranged) {
@@ -871,7 +871,7 @@ mod tests {
         let records = vec![loaded("z", ts), loaded("m", ts)];
         let relations = vec![make_precedes("m", "z")];
         let package = minimal_package();
-        let mut diagnostics = Vec::new();
+        let mut diagnostics = crate::diagnostic::Diagnostics::new();
         let result = apply_section_ordering(
             records,
             None,
@@ -903,7 +903,7 @@ mod tests {
         };
         let mut package = minimal_package();
         package.record_types = vec![minimal_record_type("t-keep", "com.test", "keep")];
-        let mut diagnostics = Vec::new();
+        let mut diagnostics = crate::diagnostic::Diagnostics::new();
         let result = apply_section_ordering(
             records,
             Some(&ordering),

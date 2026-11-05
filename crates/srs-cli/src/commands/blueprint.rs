@@ -160,6 +160,11 @@ fn cmd_blueprint_brief(ctx: CliContext, id: String) -> Result<String> {
                         .collect(),
                     protocol: result.protocol.map(map_brief_protocol),
                     diagnostics: result.diagnostics,
+                    diagnostics_structured: result
+                        .diagnostics_structured
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
                 },
             )
         }
@@ -315,6 +320,11 @@ fn cmd_blueprint_schema(ctx: CliContext, id: String) -> Result<String> {
             BlueprintSchemaPayload {
                 schema: result.schema,
                 diagnostics: result.diagnostics,
+                diagnostics_structured: result
+                    .diagnostics_structured
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
             },
         ),
         Err(e) => {

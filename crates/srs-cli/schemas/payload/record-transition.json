@@ -4,12 +4,20 @@
   "description": "Payload for `record transition` — the updated record and any non-fatal warnings (e.g., LIFECYCLE_FINAL_STATE). Envelope `diagnostics` is reserved for `ok: false` errors; non-fatal operational signals on a successful response belong in the typed payload per ADR-011. When the transition was fulfilled (RFC-022), `successor` / `relation` carry the artifacts.",
   "type": "object",
   "required": [
+    "diagnosticsStructured",
     "record",
     "relation",
     "successor",
     "warnings"
   ],
   "properties": {
+    "diagnosticsStructured": {
+      "description": "`warnings` as structured findings, entry for entry (ADR-057, srs-rust#1339).",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/DiagnosticPayload"
+      }
+    },
     "record": {
       "$ref": "https://srs.semanticops.com/schema/2.0/record.json"
     },
@@ -38,6 +46,44 @@
       "items": {
         "type": "string"
       }
+    }
+  },
+  "definitions": {
+    "DiagnosticPayload": {
+      "description": "One structured finding, beside the text `diagnostics` list on the render, find, container view, blueprint, navigation and type_schema surfaces (srs-rust#1491, ADR-057). Mirrors `diagnostic::Diagnostic`. `message` is the text-list entry verbatim.",
+      "type": "object",
+      "required": [
+        "code",
+        "message",
+        "severity"
+      ],
+      "properties": {
+        "code": {
+          "description": "The stable rule identifier, in today's spelling.",
+          "type": "string"
+        },
+        "instanceId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/definitions/DiagnosticSeverityPayload"
+        }
+      }
+    },
+    "DiagnosticSeverityPayload": {
+      "description": "Severity of a [`DiagnosticPayload`]. Mirrors `validation::DiagnosticSeverity`.",
+      "type": "string",
+      "enum": [
+        "error",
+        "warning",
+        "info"
+      ]
     }
   }
 }

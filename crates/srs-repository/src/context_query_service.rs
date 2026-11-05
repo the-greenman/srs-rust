@@ -366,7 +366,7 @@ pub fn render_record_context_markdown(
     })?;
     let package = store.load_package().ok();
     // Render diagnostics have no channel in a markdown read; the rows still render.
-    let mut diagnostics = Vec::new();
+    let mut diagnostics = crate::diagnostic::Diagnostics::new();
     let rows = crate::render_service::render_record_rows(
         package.as_ref(),
         &record,

@@ -3,11 +3,57 @@
   "title": "TypeSchemaPayload",
   "type": "object",
   "required": [
+    "diagnosticsStructured",
     "schema"
   ],
   "properties": {
+    "diagnosticsStructured": {
+      "description": "Non-fatal findings as structured entries (srs-rust#1491); the same findings the envelope's `diagnostics` list carries as text.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/DiagnosticPayload"
+      }
+    },
     "schema": {
       "description": "A draft-07 JSON Schema describing a record's `fieldValues` for this Type. Dynamic shape; emitted opaquely (see ADR-011 for the dynamic-value convention)."
+    }
+  },
+  "definitions": {
+    "DiagnosticPayload": {
+      "description": "One structured finding, beside the text `diagnostics` list on the render, find, container view, blueprint, navigation and type_schema surfaces (srs-rust#1491, ADR-057). Mirrors `diagnostic::Diagnostic`. `message` is the text-list entry verbatim.",
+      "type": "object",
+      "required": [
+        "code",
+        "message",
+        "severity"
+      ],
+      "properties": {
+        "code": {
+          "description": "The stable rule identifier, in today's spelling.",
+          "type": "string"
+        },
+        "instanceId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/definitions/DiagnosticSeverityPayload"
+        }
+      }
+    },
+    "DiagnosticSeverityPayload": {
+      "description": "Severity of a [`DiagnosticPayload`]. Mirrors `validation::DiagnosticSeverity`.",
+      "type": "string",
+      "enum": [
+        "error",
+        "warning",
+        "info"
+      ]
     }
   }
 }

@@ -10,6 +10,7 @@
 //! rather than aborting the projection. An unresolvable Type is a hard
 //! [`RepositoryError`].
 
+use crate::diagnostic::{Diagnostic, Diagnostics};
 use crate::error::RepositoryError;
 use crate::package_service::GetTypeResult;
 use crate::package_service::{get_type_by_id, get_type_by_id_latest};
@@ -35,6 +36,9 @@ pub struct TypeSchemaResult {
     /// `allowedValues`). Surfaced by the CLI in the envelope's top-level
     /// `diagnostics[]`.
     pub diagnostics: Vec<String>,
+    /// The same findings as structured entries (srs-rust#1491, ADR-057).
+    #[serde(rename = "diagnosticsStructured")]
+    pub diagnostics_structured: Vec<Diagnostic>,
 }
 
 /// Project a Type + its Fields into a draft-07 JSON Schema for a record's `fieldValues`.
@@ -71,7 +75,7 @@ pub fn type_schema(
     // (own + inherited), sorted by order.
     let assignments = package.effective_fields(&record_type)?;
 
-    let mut diagnostics = Vec::new();
+    let mut diagnostics = Diagnostics::new();
     let mut properties = Map::new();
     let mut required = Vec::new();
 
@@ -79,10 +83,13 @@ pub fn type_schema(
         let field = match package.resolve_field(&fa.field_id) {
             Some(f) => f.clone(),
             None => {
-                diagnostics.push(format!(
-                    "field assignment references unknown fieldId '{}'; skipped",
-                    fa.field_id
-                ));
+                diagnostics.warning(
+                    "unknown-field-id",
+                    format!(
+                        "field assignment references unknown fieldId '{}'; skipped",
+                        fa.field_id
+                    ),
+                );
                 continue;
             }
         };
@@ -106,9 +113,11 @@ pub fn type_schema(
         "additionalProperties": false
     });
 
+    let (diagnostics, diagnostics_structured) = diagnostics.into_parts();
     Ok(TypeSchemaResult {
         schema,
         diagnostics,
+        diagnostics_structured,
     })
 }
 
@@ -121,7 +130,7 @@ fn field_to_property(
     assignment: &FieldAssignment,
     package: &crate::package::Package,
     visiting: &mut Vec<(String, u32)>,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) -> Value {
     let mut prop = Map::new();
 
@@ -230,7 +239,7 @@ fn insert_value_shape(
     field: &Field,
     package: &crate::package::Package,
     visiting: &mut Vec<(String, u32)>,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) {
     let ft = &field.field_type;
     match ft.datatype {
@@ -318,10 +327,13 @@ fn insert_value_shape(
                     if let Some(range) = &field.field_type.range_type {
                         let key = (range.type_id.clone(), range.type_version);
                         if visiting.contains(&key) {
-                            diagnostics.push(format!(
+                            diagnostics.warning(
+                                "inline-range-cycle",
+                                format!(
                                 "inline composite range cycle at {}@{}; emitted unexpanded object",
                                 range.type_id, range.type_version
-                            ));
+                            ),
+                            );
                         } else if let Some(range_rt) =
                             package.resolve_type(&range.type_id, range.type_version)
                         {
@@ -348,7 +360,7 @@ fn insert_value_shape(
                                                 }
                                                 item_props.insert(f.name.clone(), prop);
                                             }
-                                            None => diagnostics.push(format!(
+                                            None => diagnostics.warning("range-unknown-field-id", format!(
                                                 "range type {}@{} references unknown fieldId '{}'; skipped",
                                                 range.type_id, range.type_version, fa.field_id
                                             )),
@@ -358,14 +370,17 @@ fn insert_value_shape(
                                     target.insert("required".into(), Value::Array(item_required));
                                     target.insert("additionalProperties".into(), json!(false));
                                 }
-                                Err(e) => diagnostics.push(format!(
-                                    "could not resolve effective fields of range {}@{}: {e}",
-                                    range.type_id, range.type_version
-                                )),
+                                Err(e) => diagnostics.warning(
+                                    "range-fields-unresolved",
+                                    format!(
+                                        "could not resolve effective fields of range {}@{}: {e}",
+                                        range.type_id, range.type_version
+                                    ),
+                                ),
                             }
                             visiting.pop();
                         } else {
-                            diagnostics.push(format!(
+                            diagnostics.warning("inline-range-unresolved", format!(
                                 "inline composite rangeType {}@{} does not resolve; emitted unexpanded object",
                                 range.type_id, range.type_version
                             ));
@@ -402,7 +417,7 @@ fn insert_enum(
     target: &mut Map<String, Value>,
     field: &Field,
     package: &crate::package::Package,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) {
     // No `type` keyword: `enum` alone constrains the value, and this matches the
     // shape editors have consumed since before RFC-032.
@@ -421,11 +436,14 @@ fn insert_enum(
         return;
     }
 
-    diagnostics.push(format!(
-        "field '{}' (closed {}) has no allowedValues or vocabularyRef; enum omitted",
-        field.name,
-        field.datatype().as_str()
-    ));
+    diagnostics.warning(
+        "enum-no-source",
+        format!(
+            "field '{}' (closed {}) has no allowedValues or vocabularyRef; enum omitted",
+            field.name,
+            field.datatype().as_str()
+        ),
+    );
 }
 
 /// Resolve `vocab_id` against the effective package and, when it resolves,
@@ -440,10 +458,10 @@ fn insert_vocabulary_enum(
     field: &Field,
     vocab_id: &str,
     package: &crate::package::Package,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Diagnostics,
 ) {
     let Some(vocab) = package.vocabularies.iter().find(|v| v.id == vocab_id) else {
-        diagnostics.push(format!(
+        diagnostics.warning("vocabulary-unresolved", format!(
             "field '{}' vocabularyRef '{}' does not resolve to an installed Vocabulary; enum omitted",
             field.name, vocab_id
         ));
@@ -456,7 +474,7 @@ fn insert_vocabulary_enum(
         .filter(|t| t.accepts_new_writes())
         .collect();
     if active.is_empty() {
-        diagnostics.push(format!(
+        diagnostics.warning("vocabulary-no-active-terms", format!(
             "field '{}' vocabularyRef '{}' resolves to vocabulary '{}' with no active terms; enum omitted",
             field.name, vocab_id, vocab.name
         ));
@@ -754,7 +772,7 @@ mod tests {
         let a = assignment("f-help", 0, false);
         let pkg = make_package(vec![], vec![]);
         let mut visiting = Vec::new();
-        let mut diagnostics = Vec::new();
+        let mut diagnostics = Diagnostics::new();
 
         let prop = field_to_property(&f, &a, &pkg, &mut visiting, &mut diagnostics);
 
@@ -773,7 +791,7 @@ mod tests {
         let a = assignment("f-no-help", 0, false);
         let pkg = make_package(vec![], vec![]);
         let mut visiting = Vec::new();
-        let mut diagnostics = Vec::new();
+        let mut diagnostics = Diagnostics::new();
 
         let prop = field_to_property(&f, &a, &pkg, &mut visiting, &mut diagnostics);
 
@@ -948,6 +966,11 @@ mod tests {
 
         assert!(result.schema["properties"]["kind"].get("enum").is_none());
         assert!(!result.diagnostics.is_empty());
+        crate::diagnostic::assert_parallel(&result.diagnostics, &result.diagnostics_structured);
+        assert_eq!(
+            result.diagnostics_structured[0].code,
+            "vocabulary-no-active-terms"
+        );
     }
 
     #[test]

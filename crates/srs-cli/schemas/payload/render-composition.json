@@ -4,6 +4,7 @@
   "type": "object",
   "required": [
     "diagnostics",
+    "diagnosticsStructured",
     "rendered"
   ],
   "properties": {
@@ -11,6 +12,13 @@
       "type": "array",
       "items": {
         "type": "string"
+      }
+    },
+    "diagnosticsStructured": {
+      "description": "The same findings as structured entries (srs-rust#1491).",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/DiagnosticPayload"
       }
     },
     "projection": {
@@ -70,6 +78,42 @@
           }
         }
       }
+    },
+    "DiagnosticPayload": {
+      "description": "One structured finding, beside the text `diagnostics` list on the render, find, container view, blueprint, navigation and type_schema surfaces (srs-rust#1491, ADR-057). Mirrors `diagnostic::Diagnostic`. `message` is the text-list entry verbatim.",
+      "type": "object",
+      "required": [
+        "code",
+        "message",
+        "severity"
+      ],
+      "properties": {
+        "code": {
+          "description": "The stable rule identifier, in today's spelling.",
+          "type": "string"
+        },
+        "instanceId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/definitions/DiagnosticSeverityPayload"
+        }
+      }
+    },
+    "DiagnosticSeverityPayload": {
+      "description": "Severity of a [`DiagnosticPayload`]. Mirrors `validation::DiagnosticSeverity`.",
+      "type": "string",
+      "enum": [
+        "error",
+        "warning",
+        "info"
+      ]
     },
     "ProjectedPropertyRow": {
       "description": "RFC-041 [R8] — one resolved `RecordPropertyView` row in the JSON projection, `{ property, label, value }`.",
