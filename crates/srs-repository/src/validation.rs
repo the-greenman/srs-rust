@@ -2430,6 +2430,35 @@ pub(crate) fn type_inline_lifecycle_messages(
     messages
 }
 
+/// V5 for one Vocabulary: the key∪alias set of its non-retired terms must be
+/// disjoint. Shared by `repo validate` and the `vocabulary create` pre-write
+/// refusal (srs-rust#1546, ADR-048 rule 3).
+pub(crate) fn vocabulary_duplicate_key_messages(
+    vocab: &srs_core::types::vocabulary::Vocabulary,
+) -> Vec<String> {
+    let mut messages = Vec::new();
+    let mut seen: HashSet<&str> = HashSet::new();
+    for term in vocab.effective_terms() {
+        if !seen.insert(term.key.as_str()) {
+            messages.push(format!(
+                "V5: vocabulary '{}' has duplicate key '{}'",
+                vocab.name, term.key
+            ));
+        }
+        if let Some(aliases) = &term.aliases {
+            for alias in aliases {
+                if !seen.insert(alias.as_str()) {
+                    messages.push(format!(
+                        "V5: vocabulary '{}' has duplicate key '{}'",
+                        vocab.name, alias
+                    ));
+                }
+            }
+        }
+    }
+    messages
+}
+
 fn validate_vocabulary_invariants(
     pkg: &crate::package::Package,
     diagnostics: &mut Vec<ValidationDiagnostic>,
@@ -2480,36 +2509,14 @@ fn validate_vocabulary_invariants(
 
     // V5: key∪alias set must be disjoint within each vocabulary (non-retired terms only)
     for vocab in &pkg.vocabularies {
-        let mut seen: HashSet<&str> = HashSet::new();
-        for term in vocab.effective_terms() {
-            if !seen.insert(term.key.as_str()) {
-                diagnostics.push(ValidationDiagnostic {
-                    code: None,
-                    severity: DiagnosticSeverity::Error,
-                    relative_path: "package/package.json".to_string(),
-                    schema_id: None,
-                    message: format!(
-                        "V5: vocabulary '{}' has duplicate key '{}'",
-                        vocab.name, term.key
-                    ),
-                });
-            }
-            if let Some(aliases) = &term.aliases {
-                for alias in aliases {
-                    if !seen.insert(alias.as_str()) {
-                        diagnostics.push(ValidationDiagnostic {
-                            code: None,
-                            severity: DiagnosticSeverity::Error,
-                            relative_path: "package/package.json".to_string(),
-                            schema_id: None,
-                            message: format!(
-                                "V5: vocabulary '{}' has duplicate key '{}'",
-                                vocab.name, alias
-                            ),
-                        });
-                    }
-                }
-            }
+        for message in vocabulary_duplicate_key_messages(vocab) {
+            diagnostics.push(ValidationDiagnostic {
+                code: None,
+                severity: DiagnosticSeverity::Error,
+                relative_path: "package/package.json".to_string(),
+                schema_id: None,
+                message,
+            });
         }
     }
 
