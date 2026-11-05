@@ -125,6 +125,29 @@ impl Boundary {
         ))
     }
 
+    /// A member's `(namespace, title)` as its manifest reports them, for naming it to a
+    /// client (RFC-049 [R13]). A manifest that cannot be read yields `None` parts.
+    pub fn describe(&self, member: &Member) -> (Option<String>, Option<String>) {
+        let Locator::Local { path } = &member.locator else {
+            return (None, None);
+        };
+        let dir = if self.from_registry {
+            self.base.join(path)
+        } else {
+            PathBuf::from(path)
+        };
+        let raw: Option<serde_json::Value> = std::fs::read_to_string(dir.join("manifest.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok());
+        let get = |k: &str| {
+            raw.as_ref()
+                .and_then(|m| m.get(k))
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        };
+        (get("namespace"), get("title"))
+    }
+
     pub fn members(&self) -> &[Member] {
         &self.members
     }

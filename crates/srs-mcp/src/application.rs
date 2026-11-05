@@ -48,17 +48,29 @@ pub(crate) fn server_info(
     let mut info: ServerInfo = serde_json::from_value(srs_metadata::initialize_result_for(profile))
         .expect("srs_metadata::initialize_result_for() is a valid rmcp InitializeResult");
     if boundary.is_registry() {
+        let default = boundary.default_id();
         let members: Vec<String> = boundary
             .members()
             .iter()
             .map(|m| {
-                let label = m
-                    .label
-                    .as_deref()
-                    .map(|l| format!(" ({l})"))
-                    .unwrap_or_default();
-                let ro = if m.read_only { ", read-only" } else { "" };
-                format!("{}{label}{ro}", m.id)
+                let (namespace, title) = boundary.describe(m);
+                let mut line = m.id.clone();
+                if let Some(label) = m.label.as_deref() {
+                    line.push_str(&format!(" ({label})"));
+                }
+                match (namespace, title) {
+                    (Some(n), Some(t)) => line.push_str(&format!(" \u{2014} {n} \"{t}\"")),
+                    (Some(n), None) => line.push_str(&format!(" \u{2014} {n}")),
+                    (None, Some(t)) => line.push_str(&format!(" \u{2014} \"{t}\"")),
+                    (None, None) => {}
+                }
+                if m.read_only {
+                    line.push_str(", read-only");
+                }
+                if m.id.eq_ignore_ascii_case(default) {
+                    line.push_str(", default");
+                }
+                line
             })
             .collect();
         let note = format!(
@@ -70,7 +82,13 @@ pub(crate) fn server_info(
             boundary.default_id(),
             if boundary.default_loaded() { "" } else { " (its entry did not load: requests relying on it are refused)" },
         );
-        info.instructions = Some(info.instructions.unwrap_or_default() + &note);
+        let base = info.instructions.unwrap_or_default();
+        let base = base.replacen(
+            "This server exposes one SRS (Semantic Record System) repository.",
+            "This server serves several SRS (Semantic Record System) repositories, the repositories of a registry; every srs://<repositoryId>/\u{2026} uri below works for each of them.",
+            1,
+        );
+        info.instructions = Some(base + &note);
     }
     info
 }
