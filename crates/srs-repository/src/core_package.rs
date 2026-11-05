@@ -13,7 +13,7 @@ use std::sync::OnceLock;
 
 use crate::error::RepositoryError;
 
-const CORE_BUNDLE_JSON: &str = include_str!("../assets/core-bundle.srsj");
+const CORE_BUNDLE_JSON: &str = include_str!("../assets/core-bundle.srspkg");
 
 /// Parsed representation of the embedded core-bundle artifact.
 pub struct EmbeddedCorePackage {
@@ -85,7 +85,7 @@ static CORE_PACKAGE: OnceLock<EmbeddedCorePackage> = OnceLock::new();
 pub fn core_package() -> &'static EmbeddedCorePackage {
     CORE_PACKAGE.get_or_init(|| {
         parse_package_bundle(CORE_BUNDLE_JSON)
-            .expect("embedded assets/core-bundle.srsj must parse at generation 2 ([R21])")
+            .expect("embedded assets/core-bundle.srspkg must parse at generation 2 ([R21])")
     })
 }
 
