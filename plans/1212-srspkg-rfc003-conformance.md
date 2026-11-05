@@ -158,7 +158,7 @@ This PR edits no entity schema and no mirror file, so `bash scripts/check-schema
 - Subset export (RFC-047, Draft).
 - An install-time check of `dependencyRefs` against the destination (D4).
 - Writing a bundle `readme` (RFC-045; reader still refuses it): srs-rust#1164.
-- Renaming the embedded `core-bundle.srsj`: srs-rust#1213 / srs#872.
+- Renaming the embedded `core-bundle.srspkg`: srs-rust#1213 / srs#872.
 - Catalog resolution of core fields: srs-rust#1208 (not needed, PD6).
 - Bundle-form transformers below revision 7 (RFC specifies none).
 - An install-time invariant check on bundles (RFC: readers add nothing beyond [C2], [C6]).

@@ -208,7 +208,7 @@ fn bundle_roundtrip_tree_session_matches_disk() {
 /// Core Field and Type ids, read from the embedded core bundle file itself
 /// (independent of the exporter's own core handling).
 fn core_ids() -> BTreeSet<String> {
-    let core: Value = serde_json::from_str(include_str!("../assets/core-bundle.srsj")).unwrap();
+    let core: Value = serde_json::from_str(include_str!("../assets/core-bundle.srspkg")).unwrap();
     ["fields", "types"]
         .iter()
         .flat_map(|k| core[*k].as_array().unwrap().iter())
@@ -422,7 +422,7 @@ fn bundle_roundtrip_dependency_refs_satisfy_package_invariants() {
 #[test]
 fn bundle_roundtrip_cross_boundary_closure_installs_clean() {
     let (_t, a) = dep_and_app();
-    let core: Value = serde_json::from_str(include_str!("../assets/core-bundle.srsj")).unwrap();
+    let core: Value = serde_json::from_str(include_str!("../assets/core-bundle.srspkg")).unwrap();
     let core_field = core["fields"][0]["id"].as_str().unwrap().to_string();
     // A View, not a Type, for the core field: srs-rust#1208 (the [R13] catalog does
     // not resolve a Type's core Field).

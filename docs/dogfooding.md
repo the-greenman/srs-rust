@@ -3452,7 +3452,7 @@ $SRS relation-type list --repo /tmp/dogfood-s59 --pretty
 # 4. A byte-identical reference copy (no shadow warning) in a second repo —
 #    draws nothing, and `repo migrations` reports it Needed for cleanup.
 rm -rf /tmp/dogfood-s59b && $SRS repo create --repo /tmp/dogfood-s59b --namespace com.example.dogfood2 --pretty
-python3 -c "import json; d=json.load(open('crates/srs-repository/assets/core-bundle.srsj'));
+python3 -c "import json; d=json.load(open('crates/srs-repository/assets/core-bundle.srspkg'));
 print(json.dumps([r for r in d['relationTypes'] if r['key']=='precedes'][0]))" \
   | $SRS relation-type create --repo /tmp/dogfood-s59b --pretty
 $SRS repo validate --repo /tmp/dogfood-s59b --pretty   # 0 diagnostics
@@ -3462,7 +3462,7 @@ $SRS repo validate --repo /tmp/dogfood-s59b --pretty   # still 0 diagnostics; fi
 
 # 5. The carve-out: an installed dependency's own identical copy is never touched.
 $SRS package create --repo /tmp/dogfood-s59b --id dep-pkg-001 --namespace com.dep --name dep --path packages/dep --pretty
-python3 -c "import json; d=json.load(open('crates/srs-repository/assets/core-bundle.srsj'));
+python3 -c "import json; d=json.load(open('crates/srs-repository/assets/core-bundle.srspkg'));
 print(json.dumps([r for r in d['relationTypes'] if r['key']=='precedes'][0]))" \
   | $SRS relation-type create --repo /tmp/dogfood-s59b --package packages/dep --pretty
 $SRS repo apply-migration --id core-relation-type-reference-cleanup --repo /tmp/dogfood-s59b --pretty

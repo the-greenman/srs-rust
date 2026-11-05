@@ -14,8 +14,53 @@
         "type": "string"
       }
     },
+    "diagnosticsStructured": {
+      "description": "`diagnostics` as structured findings, entry for entry (ADR-057, srs-rust#1339).",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/DiagnosticPayload"
+      }
+    },
     "id": {
       "type": "string"
+    }
+  },
+  "definitions": {
+    "DiagnosticPayload": {
+      "description": "One structured finding, beside the text `diagnostics` list on the render, find, container view, blueprint, navigation and type_schema surfaces (srs-rust#1491, ADR-057). Mirrors `diagnostic::Diagnostic`. `message` is the text-list entry verbatim.",
+      "type": "object",
+      "required": [
+        "code",
+        "message",
+        "severity"
+      ],
+      "properties": {
+        "code": {
+          "description": "The stable rule identifier, in today's spelling.",
+          "type": "string"
+        },
+        "instanceId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/definitions/DiagnosticSeverityPayload"
+        }
+      }
+    },
+    "DiagnosticSeverityPayload": {
+      "description": "Severity of a [`DiagnosticPayload`]. Mirrors `validation::DiagnosticSeverity`.",
+      "type": "string",
+      "enum": [
+        "error",
+        "warning",
+        "info"
+      ]
     }
   }
 }
