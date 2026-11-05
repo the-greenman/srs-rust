@@ -239,6 +239,14 @@ fn read_bundle_migrates_pre_rev8_member_order() {
         .notes
         .iter()
         .any(|n| n.starts_with("migration-memberorder-dropped")));
+    assert_eq!(result.notes.len(), result.diagnostics_structured.len());
+    for (n, d) in result.notes.iter().zip(&result.diagnostics_structured) {
+        assert_eq!(&d.message, n);
+    }
+    assert!(result
+        .diagnostics_structured
+        .iter()
+        .any(|d| d.code == "migration-memberorder-dropped"));
     assert_eq!(result.installed, 5);
 }
 
