@@ -699,6 +699,9 @@ pub struct RelationTypeDeletePayload {
     /// another installed definition or the embedded core package (srs-rust#995).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<String>,
+    /// `diagnostics` as structured findings, entry for entry (ADR-057, srs-rust#1339).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 // ── Container payloads ────────────────────────────────────────────────────────
