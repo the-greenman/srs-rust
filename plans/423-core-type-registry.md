@@ -57,7 +57,7 @@ No changes to `srs/docs/schema/2.0/` entity schemas. No drift check needed.
 
 ## Scope
 
-- `crates/srs-repository/assets/core-bundle.srsj` — embedded core artifact
+- `crates/srs-repository/assets/core-bundle.srspkg` — embedded core artifact
 - `crates/srs-repository/src/core_package.rs` — new module; lazy-parsed package
 - `crates/srs-repository/src/store.rs` — merge core types in FileStore + MemoryStore
 - `crates/srs-repository/src/analysis.rs` — `CorePackageSummary` field in `RepoMap`
@@ -84,10 +84,10 @@ containing 2 fields and 1 type from the embedded bundle; all unit tests pass.
 
 #### Tasks
 
-- [ ] Copy `/home/user/srs/packages/com.semanticops.core/1.0.0/core-bundle.srsj`
-      to `crates/srs-repository/assets/core-bundle.srsj` (create `assets/` dir).
+- [ ] Copy `/home/user/srs/packages/com.semanticops.core/1.0.0/core-bundle.srspkg`
+      to `crates/srs-repository/assets/core-bundle.srspkg` (create `assets/` dir).
 - [ ] Create `crates/srs-repository/src/core_package.rs`:
-  - `const CORE_BUNDLE_JSON: &str = include_str!("../assets/core-bundle.srsj");`
+  - `const CORE_BUNDLE_JSON: &str = include_str!("../assets/core-bundle.srspkg");`
   - `struct CoreBundle { package_id, package_name, package_version, fields: Vec<Field>, types: Vec<RecordType> }` with `#[serde(rename_all = "camelCase")]` and `#[serde(rename = "types")]` on `record_types`.
   - `pub struct EmbeddedCorePackage { pub package_id, pub package_name, pub package_version, pub fields: Vec<Field>, pub record_types: Vec<RecordType> }`
   - `static CORE_PACKAGE: OnceLock<EmbeddedCorePackage>`
@@ -237,19 +237,19 @@ integration test detects bundle drift from the canonical srs repo.
   #[test]
   fn core_bundle_matches_canonical_srs_repo() {
       let canonical = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-          .join("../../../srs/packages/com.semanticops.core/1.0.0/core-bundle.srsj");
+          .join("../../../srs/packages/com.semanticops.core/1.0.0/core-bundle.srspkg");
       if !canonical.exists() {
           // srs/ repo not present in this checkout — skip gracefully.
           // In CI, the srs repo is present and this will catch drift.
           return;
       }
       let canonical_content = std::fs::read_to_string(&canonical).unwrap();
-      let embedded = include_str!("../assets/core-bundle.srsj");
+      let embedded = include_str!("../assets/core-bundle.srspkg");
       assert_eq!(
           embedded.trim(), canonical_content.trim(),
-          "Embedded core-bundle.srsj has drifted from the canonical srs repo. \
-           Copy packages/com.semanticops.core/1.0.0/core-bundle.srsj to \
-           crates/srs-repository/assets/core-bundle.srsj to refresh."
+          "Embedded core-bundle.srspkg has drifted from the canonical srs repo. \
+           Copy packages/com.semanticops.core/1.0.0/core-bundle.srspkg to \
+           crates/srs-repository/assets/core-bundle.srspkg to refresh."
       );
   }
   ```
@@ -303,7 +303,7 @@ Tests:
 
 ## Assumptions
 
-- The `core-bundle.srsj` at `srs/packages/com.semanticops.core/1.0.0/core-bundle.srsj`
+- The `core-bundle.srspkg` at `srs/packages/com.semanticops.core/1.0.0/core-bundle.srspkg`
   is the canonical source of truth for the embedded asset.
 - `Field` and `RecordType` with `#[serde(rename_all = "camelCase")]` can
   deserialize directly from the bundle's inline JSON format (verified by

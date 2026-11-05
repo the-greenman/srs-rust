@@ -6,7 +6,7 @@ pub(crate) const PURPOSE_TYPE_NAME: &str = "purpose";
 // Drift-guard constants — used only in tests to verify the embedded core-bundle has not drifted.
 // build_purpose_record (below) looks these up from core_package::core_package() at runtime
 // instead of reading the constants directly. Canonical values from
-// srs/packages/com.semanticops.core/1.0.0/core-bundle.srsj
+// srs/packages/com.semanticops.core/1.0.0/core-bundle.srspkg
 #[cfg(test)]
 pub(crate) const PURPOSE_TYPE_ID: &str = "3c000001-0000-4000-a000-000000000001";
 #[cfg(test)]
