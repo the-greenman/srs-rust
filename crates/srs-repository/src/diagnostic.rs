@@ -101,6 +101,24 @@ impl Diagnostics {
     }
 }
 
+impl Diagnostics {
+    /// Add a note that leads with its own kebab-case code (`code: text`, the
+    /// package notes' convention: `migration-memberorder-dropped: ...`). The
+    /// text list receives the note unchanged. A note leading with no such
+    /// code gets `fallback`. Notes are advisory, so every entry is a warning.
+    pub fn push_note(&mut self, note: impl Into<String>, fallback: &str) {
+        let note = note.into();
+        let lead = note.split(':').next().unwrap_or("");
+        let is_code = !lead.is_empty()
+            && note.contains(':')
+            && lead
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+        let code = if is_code { lead } else { fallback }.to_string();
+        self.warning(&code, note);
+    }
+}
+
 fn derive_code(message: &str) -> (String, DiagnosticSeverity) {
     let severity = if message.contains("] error:") {
         DiagnosticSeverity::Error

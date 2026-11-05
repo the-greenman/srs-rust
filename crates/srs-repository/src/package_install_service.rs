@@ -704,6 +704,10 @@ pub struct InstallPackageResult {
     /// `migration-memberorder-dropped`, ...). Always empty for a directory install.
     #[serde(default)]
     pub notes: Vec<String>,
+    /// `notes` as structured findings, entry for entry (ADR-057, srs-rust#1339);
+    /// the text list is unchanged until srs-rust#1496.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics_structured: Vec<crate::diagnostic::Diagnostic>,
 }
 
 /// A bundle must carry non-empty package identity (id, namespace, name, version).
@@ -1083,6 +1087,7 @@ pub fn install_package_bundle(
         conflicts,
         kinds,
         notes: vec![],
+        diagnostics_structured: vec![],
     })
 }
 
@@ -1098,7 +1103,11 @@ pub fn install_package_bundle_bytes(
 ) -> Result<InstallPackageResult, RepositoryError> {
     let read = crate::package_bundle::read_package_bundle(bytes)?;
     let mut result = install_package_bundle(store, &read.bundle, options)?;
-    result.notes = read.notes;
+    let mut findings = crate::diagnostic::Diagnostics::new();
+    for note in read.notes {
+        findings.push_note(note, "package-bundle-note");
+    }
+    (result.notes, result.diagnostics_structured) = findings.into_parts();
     Ok(result)
 }
 
@@ -1221,6 +1230,19 @@ pub struct UpgradePackageResult {
     /// RFC-044 requirement outcomes that are not satisfied; never blocking.
     pub dependency_warnings: Vec<UpgradeDependencyWarning>,
     pub notes: Vec<String>,
+    /// `notes` as structured findings, entry for entry (ADR-057, srs-rust#1339);
+    /// the text list is unchanged until srs-rust#1496.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics_structured: Vec<crate::diagnostic::Diagnostic>,
+}
+
+/// Add one upgrade note to both lists, so they stay parallel (ADR-057).
+fn upgrade_note(result: &mut UpgradePackageResult, code: &str, message: String) {
+    let mut findings = crate::diagnostic::Diagnostics::new();
+    findings.warning(code, message);
+    let (texts, structured) = findings.into_parts();
+    result.notes.extend(texts);
+    result.diagnostics_structured.extend(structured);
 }
 
 fn upgrade_item(def: &PackageSourceDefinition) -> UpgradeItem {
@@ -1256,7 +1278,13 @@ pub fn upgrade_package_bundle(
         priors.push(prior);
     }
     let mut result = upgrade_with_priors(store, &read.bundle, &priors, options)?;
-    result.notes.splice(0..0, read.notes);
+    let mut findings = crate::diagnostic::Diagnostics::new();
+    for note in read.notes {
+        findings.push_note(note, "package-bundle-note");
+    }
+    let (texts, structured) = findings.into_parts();
+    result.notes.splice(0..0, texts);
+    result.diagnostics_structured.splice(0..0, structured);
     Ok(result)
 }
 
@@ -1465,6 +1493,7 @@ fn upgrade_with_priors(
         removed_upstream: vec![],
         dependency_warnings: vec![],
         notes: vec![],
+        diagnostics_structured: vec![],
     };
     // (bundle index, file path inside the boundary, what to write)
     let mut acts: Vec<(usize, String, Act)> = Vec::new();
@@ -1481,10 +1510,14 @@ fn upgrade_with_priors(
             }
             Decision::Conflict => {
                 if options.adopt.contains(&item.id) {
-                    result.notes.push(format!(
-                        "not adoptable: {} '{}' ({}) is a key-collision",
-                        item.kind, item.name, item.id
-                    ));
+                    upgrade_note(
+                        &mut result,
+                        "adopt-not-adoptable-key-collision",
+                        format!(
+                            "not adoptable: {} '{}' ({}) is a key-collision",
+                            item.kind, item.name, item.id
+                        ),
+                    );
                 }
                 result.conflicts.push(UpgradeConflict {
                     item,
@@ -1548,10 +1581,14 @@ fn upgrade_with_priors(
                             continue;
                         }
                     } else if adopt {
-                        result.notes.push(format!(
-                            "not adoptable: {} '{}' ({}) is a local-edit",
-                            item.kind, item.name, item.id
-                        ));
+                        upgrade_note(
+                            &mut result,
+                            "adopt-not-adoptable-local-edit",
+                            format!(
+                                "not adoptable: {} '{}' ({}) is a local-edit",
+                                item.kind, item.name, item.id
+                            ),
+                        );
                     }
                     result.conflicts.push(UpgradeConflict {
                         item,
@@ -1573,7 +1610,11 @@ fn upgrade_with_priors(
                 .iter()
                 .any(|n| n.starts_with("not adoptable") && n.contains(id.as_str()));
         if !handled {
-            result.notes.push(format!("adopt {id}: nothing to adopt"));
+            upgrade_note(
+                &mut result,
+                "adopt-nothing-to-adopt",
+                format!("adopt {id}: nothing to adopt"),
+            );
         }
     }
     let in_bundle: HashSet<_> = bundle.definitions.iter().map(identity).collect();
