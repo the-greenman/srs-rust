@@ -1217,6 +1217,10 @@ pub struct DeleteRelationTypeResult {
     /// empty when nothing is worth flagging.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<String>,
+    /// `diagnostics` as structured findings, entry for entry (ADR-057,
+    /// srs-rust#1339); the text list is unchanged until srs-rust#1496.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics_structured: Vec<crate::diagnostic::Diagnostic>,
 }
 
 // ── Relation type CRUD ───────────────────────────────────────────────────────
@@ -1450,7 +1454,7 @@ pub fn delete_relation_type(
         }
     };
 
-    let mut diagnostics = Vec::new();
+    let mut diagnostics = crate::diagnostic::Diagnostics::new();
     if !type_name.is_empty() {
         let refs = find_relations_of_type(store, &type_name)?;
         if !refs.is_empty() {
@@ -1479,19 +1483,25 @@ pub fn delete_relation_type(
 
             match other_local_source {
                 Some(other) => {
-                    diagnostics.push(format!(
-                        "relation-type '{id}' deleted while still referenced by {} relation(s); \
-                         key '{type_name}' remains resolvable via installed definition '{}'",
-                        refs.len(),
-                        other.id
-                    ));
+                    diagnostics.warning(
+                        "relation-type-key-resolvable-via-definition",
+                        format!(
+                            "relation-type '{id}' deleted while still referenced by {} relation(s); \
+                             key '{type_name}' remains resolvable via installed definition '{}'",
+                            refs.len(),
+                            other.id
+                        ),
+                    );
                 }
                 None if core_has_key => {
-                    diagnostics.push(format!(
-                        "relation-type '{id}' deleted while still referenced by {} relation(s); \
-                         key '{type_name}' remains resolvable via the embedded core package",
-                        refs.len()
-                    ));
+                    diagnostics.warning(
+                        "relation-type-key-resolvable-via-core",
+                        format!(
+                            "relation-type '{id}' deleted while still referenced by {} relation(s); \
+                             key '{type_name}' remains resolvable via the embedded core package",
+                            refs.len()
+                        ),
+                    );
                 }
                 None => {
                     return Err(RepositoryError::CannotDeleteInUse {
@@ -1512,9 +1522,11 @@ pub fn delete_relation_type(
 
     store.delete_relation_type_file(&full_path)?;
     store.remove_definition_from_boundary(&owner, DefinitionKind::RelationType, &rel_path)?;
+    let (diagnostics, diagnostics_structured) = diagnostics.into_parts();
     Ok(DeleteRelationTypeResult {
         id: id.to_string(),
         diagnostics,
+        diagnostics_structured,
     })
 }
 
@@ -3650,6 +3662,11 @@ mod tests {
         // package once this local shadow is gone, so the 21-relation-strength
         // refusal from the bug report would be wrong here.
         let result = delete_relation_type(&store, "rt-shadow-precedes").unwrap();
+        crate::diagnostic::assert_parallel(&result.diagnostics, &result.diagnostics_structured);
+        assert_eq!(
+            result.diagnostics_structured[0].code,
+            "relation-type-key-resolvable-via-core"
+        );
         assert_eq!(result.id, "rt-shadow-precedes");
         assert!(
             result.diagnostics.iter().any(|d| d.contains("core")),
@@ -3740,6 +3757,11 @@ mod tests {
         crate::store::write_relations_standalone_for_test(&store, &rel_json);
 
         let result = delete_relation_type(&store, "aaa1-shared-key-def").unwrap();
+        crate::diagnostic::assert_parallel(&result.diagnostics, &result.diagnostics_structured);
+        assert_eq!(
+            result.diagnostics_structured[0].code,
+            "relation-type-key-resolvable-via-definition"
+        );
         assert!(
             result
                 .diagnostics

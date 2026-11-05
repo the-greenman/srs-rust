@@ -1,19 +1,19 @@
-/// Drift check: the embedded `core-bundle.srsj` must match the committed SHA256 hash.
+/// Drift check: the embedded `core-bundle.srspkg` must match the committed SHA256 hash.
 ///
 /// This test catches the case where the bundle was updated without updating the hash file,
 /// or vice versa. It runs in every CI environment without requiring the `srs/` spec repo
 /// to be present as a sibling checkout.
 ///
 /// To refresh after updating the bundle:
-///   sha256sum crates/srs-repository/assets/core-bundle.srsj | awk '{print $1}' \
+///   sha256sum crates/srs-repository/assets/core-bundle.srspkg | awk '{print $1}' \
 ///     > crates/srs-repository/assets/core-bundle.sha256
 ///
 /// Additionally, when the `srs/` spec repo is present as a sibling checkout, this test
 /// also verifies that the embedded bundle matches the canonical source artifact:
-///   srs/packages/com.semanticops.core/1.0.0/core-bundle.srsj
+///   srs/packages/com.semanticops.core/1.0.0/core-bundle.srspkg
 #[test]
 fn core_bundle_matches_committed_sha256() {
-    let embedded = include_bytes!("../assets/core-bundle.srsj");
+    let embedded = include_bytes!("../assets/core-bundle.srspkg");
     let committed_hash = include_str!("../assets/core-bundle.sha256")
         .trim()
         .to_string();
@@ -21,7 +21,7 @@ fn core_bundle_matches_committed_sha256() {
     // Compute SHA256 of the embedded bytes using the sha2 crate is not available here,
     // so use a process call — this is an integration test so spawning sha256sum is fine.
     let output = std::process::Command::new("sha256sum")
-        .arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/core-bundle.srsj"))
+        .arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/core-bundle.srspkg"))
         .output()
         .expect("sha256sum must be available");
 
@@ -30,8 +30,8 @@ fn core_bundle_matches_committed_sha256() {
 
     assert_eq!(
         actual_hash, committed_hash,
-        "Embedded core-bundle.srsj hash mismatch. \
-         Run: sha256sum crates/srs-repository/assets/core-bundle.srsj | awk '{{print $1}}' \
+        "Embedded core-bundle.srspkg hash mismatch. \
+         Run: sha256sum crates/srs-repository/assets/core-bundle.srspkg | awk '{{print $1}}' \
          > crates/srs-repository/assets/core-bundle.sha256"
     );
 
@@ -45,7 +45,7 @@ fn core_bundle_matches_committed_sha256() {
     let canonical = match std::env::var("SRS_SPEC_DIR") {
         Ok(dir) => {
             let p = std::path::PathBuf::from(dir)
-                .join("packages/com.semanticops.core/1.0.0/core-bundle.srsj");
+                .join("packages/com.semanticops.core/1.0.0/core-bundle.srspkg");
             if !p.exists() {
                 return; // explicit but unusable SRS_SPEC_DIR: skip, don't silently fall through
             }
@@ -53,7 +53,7 @@ fn core_bundle_matches_committed_sha256() {
         }
         Err(_) => {
             let sibling = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../srs");
-            let p = sibling.join("packages/com.semanticops.core/1.0.0/core-bundle.srsj");
+            let p = sibling.join("packages/com.semanticops.core/1.0.0/core-bundle.srspkg");
             if !p.exists() {
                 return;
             }
@@ -72,7 +72,7 @@ fn core_bundle_matches_committed_sha256() {
                     if branch != "master" {
                         panic!(
                             "srs sibling checkout at {} is on branch '{branch}', not master — its \
-                             core-bundle.srsj may be stale (srs-rust#874's exact false-green trap, \
+                             core-bundle.srspkg may be stale (srs-rust#874's exact false-green trap, \
                              srs-rust#922). Set SRS_SPEC_DIR to a fresh `origin/master` checkout \
                              instead.",
                             sibling.display()
@@ -85,7 +85,7 @@ fn core_bundle_matches_committed_sha256() {
         }
     };
     let canonical_content = std::fs::read_to_string(&canonical).unwrap();
-    let embedded_str = std::str::from_utf8(embedded).expect("core-bundle.srsj is valid UTF-8");
+    let embedded_str = std::str::from_utf8(embedded).expect("core-bundle.srspkg is valid UTF-8");
 
     // RFC-038 [R21] / acceptance test 17: the reader gate requires the
     // generation stamp. srs#378 stamped the *published* bundle, so the
@@ -98,9 +98,9 @@ fn core_bundle_matches_committed_sha256() {
     assert_eq!(
         embedded_str.trim(),
         canonical_content.trim(),
-        "Embedded core-bundle.srsj has drifted from the canonical srs repo. \
-         Copy packages/com.semanticops.core/1.0.0/core-bundle.srsj to \
-         crates/srs-repository/assets/core-bundle.srsj and update \
+        "Embedded core-bundle.srspkg has drifted from the canonical srs repo. \
+         Copy packages/com.semanticops.core/1.0.0/core-bundle.srspkg to \
+         crates/srs-repository/assets/core-bundle.srspkg and update \
          core-bundle.sha256."
     );
 }
