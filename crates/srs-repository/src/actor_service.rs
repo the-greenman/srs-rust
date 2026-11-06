@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 /// The JSON key an envelope-extras bag must never carry on create ([R4]).
 pub const CREATED_BY_KEY: &str = "createdBy";
 
-fn refuse(code: &'static str, message: impl Into<String>) -> RepositoryError {
+pub(crate) fn refuse(code: &'static str, message: impl Into<String>) -> RepositoryError {
     RepositoryError::ActorProvenance {
         code,
         message: message.into(),

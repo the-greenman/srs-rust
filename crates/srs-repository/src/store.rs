@@ -2999,18 +2999,31 @@ fn catalog_save_instance<S: RepositoryStore + ?Sized>(
         .iter()
         .find(|e| e.id == instance_id)
         .and_then(|e| e.locator.clone());
-    let path = match existing {
-        Some(p) => p,
-        None => {
-            let candidate = instance_filename(tier_dir, slug_source, instance_id);
-            // Collision safety (ADR-040): if a different file already occupies
-            // the slug-{id8} name, fall back to the full-UUID form.
-            if matches!(store.load_instance_json(&candidate), Err(ref e) if e.is_not_found()) {
-                candidate
-            } else {
-                format!("{tier_dir}/{instance_id}.json")
-            }
+    match existing {
+        Some(path) => {
+            store.ensure_instance_dir(tier_dir)?;
+            store.save_instance_json(&path, value)
         }
+        None => save_new_instance(store, instance_id, value, tier_dir, slug_source),
+    }
+}
+
+/// Write an instance whose id the repository does not hold, under a collision-safe name.
+pub(crate) fn save_new_instance<S: RepositoryStore + ?Sized>(
+    store: &S,
+    instance_id: &str,
+    value: &serde_json::Value,
+    tier_dir: &str,
+    slug_source: &str,
+) -> Result<(), RepositoryError> {
+    require_canonical_instance_id(instance_id)?;
+    let candidate = instance_filename(tier_dir, slug_source, instance_id);
+    // Collision safety (ADR-040): if a different file already occupies
+    // the slug-{id8} name, fall back to the full-UUID form.
+    let path = if matches!(store.load_instance_json(&candidate), Err(ref e) if e.is_not_found()) {
+        candidate
+    } else {
+        format!("{tier_dir}/{instance_id}.json")
     };
     store.ensure_instance_dir(tier_dir)?;
     store.save_instance_json(&path, value)
