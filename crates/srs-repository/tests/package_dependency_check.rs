@@ -547,6 +547,7 @@ fn install_carries_package_dependencies() {
             name: "installed".to_string(),
             version: "1.0.0".to_string(),
             package_dependencies: Some(deps.clone()),
+            readme: None,
             definitions: vec![],
         },
         InstallBundleOptions::default(),
