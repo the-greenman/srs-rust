@@ -244,6 +244,7 @@ fn render_goldens_accept_output_with_skipped_keys_absent() {
         file_count: 1,
         output_dir: "d".into(),
         diagnostics: vec![],
+        diagnostics_structured: vec![],
     })
     .unwrap();
     assert!(v.get("diagnostics").is_none());
