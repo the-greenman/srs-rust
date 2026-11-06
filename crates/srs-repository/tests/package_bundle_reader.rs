@@ -111,12 +111,51 @@ fn read_bundle_rejects_non_json() {
 }
 
 #[test]
-fn read_bundle_refuses_readme_until_1164() {
+fn read_bundle_keeps_a_valid_readme_unchanged() {
     let mut b = bundle(9);
-    b["readme"] = json!({"path": "README.md", "content": "hi"});
-    let (code, msg) = refused(&b);
-    assert_eq!(code, "bundle-readme-unsupported");
-    assert!(msg.contains("#1164"), "{msg}");
+    b["readme"] = json!({"path": "docs/README.md", "content": "hi\r\n\u{2028}"});
+    let read = read_package_bundle(b.to_string().as_bytes()).unwrap();
+    let r = read.bundle.readme.expect("readme kept");
+    assert_eq!(
+        (r.path.as_str(), r.content.as_str()),
+        ("docs/README.md", "hi\r\n\u{2028}")
+    );
+    assert!(read.readme_error.is_none());
+}
+
+#[test]
+fn read_bundle_without_readme_is_silent() {
+    let read = read_package_bundle(bundle(9).to_string().as_bytes()).unwrap();
+    assert!(read.bundle.readme.is_none() && read.readme_error.is_none());
+}
+
+#[test]
+fn read_bundle_drops_an_invalid_readme_and_loads_on() {
+    for bad in [
+        "../x",
+        "/x",
+        "C:/x",
+        "C:foo",
+        "docs/x:y",
+        "a\\b",
+        "a//b",
+        "a\u{1}b",
+        "a/b.",
+        "a/b ",
+        "package.json",
+    ] {
+        let mut b = bundle(9);
+        b["readme"] = json!({"path": bad, "content": "hi"});
+        let read = read_package_bundle(b.to_string().as_bytes())
+            .unwrap_or_else(|e| panic!("{bad:?} must not refuse the load: {e}"));
+        assert!(read.bundle.readme.is_none(), "{bad:?} carried");
+        assert!(
+            read.readme_error
+                .as_deref()
+                .is_some_and(|e| e.starts_with("readme-invalid:")),
+            "{bad:?}"
+        );
+    }
 }
 
 #[test]

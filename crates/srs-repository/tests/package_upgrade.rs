@@ -338,6 +338,7 @@ fn source(version: &str, defs: Vec<(DefinitionKind, &str, Value)>) -> PackageSou
         name: "upg".to_string(),
         version: version.to_string(),
         package_dependencies: None,
+        readme: None,
         definitions: defs
             .into_iter()
             .map(|(kind, rel, value)| PackageSourceDefinition {

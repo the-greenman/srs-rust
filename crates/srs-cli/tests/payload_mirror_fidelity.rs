@@ -59,6 +59,7 @@ fn find_full_and_empty_facets_match() {
             notes: 4,
             tags: counts(1, 0),
             fields: vec![FieldFacet {
+                field_id: "00000000-0000-4000-8000-0000000000f1".into(),
                 field: "status".into(),
                 counts: counts(2, 1),
             }],

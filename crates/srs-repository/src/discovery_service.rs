@@ -79,9 +79,9 @@ pub struct DiscoveryFacets {
     pub notes: usize,
     #[serde(default, skip_serializing_if = "FacetCounts::is_empty")]
     pub tags: FacetCounts,
-    /// One entry per closed string field (the successor of select/multiselect, RFC-032
-    /// R3) that matched records carry, keyed by `Field.name`: the key records store
-    /// values under (RFC-039), so two fields sharing a name share a facet.
+    /// One entry per closed string Field (the successor of select/multiselect, RFC-032
+    /// R3) that matched records carry (RFC-053 [R3]): counted under the Field the record's
+    /// version-pinned Type assigns at the key, so two Fields sharing a name are two facets.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<FieldFacet>,
 }
@@ -156,6 +156,9 @@ pub struct FacetCount {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FieldFacet {
+    /// The Field's id (RFC-053 [R3]): one facet per id.
+    pub field_id: String,
+    /// The Field's name, the key records store values under (RFC-039).
     pub field: String,
     #[serde(flatten)]
     pub counts: FacetCounts,
@@ -165,14 +168,15 @@ pub struct FieldFacet {
 struct Candidate {
     hit: DiscoveryHit,
     tags: Vec<String>,
-    /// `(Field.name, value)` for each closed string field value the record carries.
-    selects: Vec<(String, String)>,
+    /// `(Field.id, Field.name, value)` for each closed string field value the record carries.
+    selects: Vec<(String, String, String)>,
 }
 
 fn build_facets(candidates: &[Candidate], by_type_limit: usize) -> DiscoveryFacets {
     let mut by_type: BTreeMap<String, (Option<String>, usize)> = BTreeMap::new();
     let mut tags: BTreeMap<String, usize> = BTreeMap::new();
-    let mut fields: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
+    // Keyed by Field id (RFC-053 [R3]); the name is carried beside it.
+    let mut fields: BTreeMap<String, (String, BTreeMap<String, usize>)> = BTreeMap::new();
     let mut notes = 0;
     for c in candidates {
         match (&c.hit.type_namespace, &c.hit.type_name) {
@@ -186,21 +190,24 @@ fn build_facets(candidates: &[Candidate], by_type_limit: usize) -> DiscoveryFace
         for t in c.tags.iter().collect::<HashSet<_>>() {
             *tags.entry(t.clone()).or_default() += 1;
         }
-        for (field, value) in &c.selects {
+        for (field_id, field, value) in &c.selects {
             *fields
-                .entry(field.clone())
-                .or_default()
+                .entry(field_id.clone())
+                .or_insert_with(|| (field.clone(), BTreeMap::new()))
+                .1
                 .entry(value.clone())
                 .or_default() += 1;
         }
     }
     let mut fields: Vec<FieldFacet> = fields
         .into_iter()
-        .map(|(field, m)| FieldFacet {
+        .map(|(field_id, (field, m))| FieldFacet {
+            field_id,
             field,
             counts: FacetCounts::from_map(m),
         })
         .collect();
+    // Stable over ascending fieldId (BTreeMap order): ties break by fieldId (RFC-053 [R3]).
     fields.sort_by_key(|f| std::cmp::Reverse(f.counts.total()));
     fields.truncate(FACET_MAX_FIELDS);
     DiscoveryFacets {
@@ -964,16 +971,18 @@ fn find_tier2(
 
         let mut selects = Vec::new();
         for (name, value) in record.field_values.iter() {
-            if !field_text_index.is_closed_name(name) {
+            let Some(field_id) =
+                field_text_index.closed_field_id(&record.type_id, record.type_version, name)
+            else {
                 continue;
-            }
+            };
             let values: Vec<&str> = match value {
                 serde_json::Value::String(s) => vec![s.as_str()],
                 serde_json::Value::Array(a) => a.iter().filter_map(|v| v.as_str()).collect(),
                 _ => Vec::new(),
             };
             for v in values.into_iter().collect::<HashSet<_>>() {
-                selects.push((name.clone(), v.to_string()));
+                selects.push((field_id.to_string(), name.clone(), v.to_string()));
             }
         }
         let hit = DiscoveryHit {
@@ -1180,9 +1189,28 @@ mod tests {
                 closed_field("00000000-0000-4000-8000-00000000f004", "areas", true),
                 // Same name closed and open: never a facet.
                 closed_field("00000000-0000-4000-8000-00000000f005", "mixed", false),
-                field("00000000-0000-4000-8000-00000000f006", "mixed"),
+                field("10000000-0000-4000-8000-00000000f006", "mixed"),
             ],
-            record_types: vec![],
+            record_types: vec![
+                decision_type(
+                    DECISION_TID,
+                    "decision",
+                    &[
+                        TITLE,
+                        STATEMENT,
+                        "00000000-0000-4000-8000-00000000f003",
+                        "00000000-0000-4000-8000-00000000f004",
+                        // The open `mixed`: this Type's `mixed` is not a facet.
+                        "10000000-0000-4000-8000-00000000f006",
+                    ],
+                ),
+                // A second Type assigns the closed `mixed` (a different Field, same name).
+                decision_type(
+                    OTHER_TID,
+                    "other",
+                    &[TITLE, "00000000-0000-4000-8000-00000000f005"],
+                ),
+            ],
             relation_type_definitions: vec![],
             views: vec![],
             compositions: vec![],
@@ -1193,6 +1221,49 @@ mod tests {
             package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
+        }
+    }
+
+    const DECISION_TID: &str = "00000000-0000-4000-8000-00000000d100";
+    const OTHER_TID: &str = "00000000-0000-4000-8000-00000000d200";
+
+    fn decision_type(
+        id: &str,
+        name: &str,
+        field_ids: &[&str],
+    ) -> srs_core::types::record_type::RecordType {
+        use srs_core::types::record_type::{FieldAssignment, RecordType};
+        RecordType {
+            schema: None,
+            id: id.to_string(),
+            namespace: "governance".to_string(),
+            name: name.to_string(),
+            version: 1,
+            description: String::new(),
+            fields: field_ids
+                .iter()
+                .enumerate()
+                .map(|(i, f)| FieldAssignment {
+                    field_id: f.to_string(),
+                    order: i as u32,
+                    required: false,
+                    display_label: None,
+                    description: None,
+                })
+                .collect(),
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            identity_field_id: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            validation_rules: None,
+            ai_guidance: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
         }
     }
 
@@ -1360,13 +1431,47 @@ mod tests {
             facet_values(&f.tags),
             vec![("policy", 2), ("finance", 1), ("ops", 1)]
         );
-        // `mixed` is closed in one field and open in another: not a facet.
+        // This Type's `mixed` is the open Field: not a facet. Each facet carries its Field id.
+        assert_eq!(f.fields[0].field_id, "00000000-0000-4000-8000-00000000f004");
         let names: Vec<&str> = f.fields.iter().map(|x| x.field.as_str()).collect();
         assert_eq!(names, vec!["areas", "kind"]);
         let areas = &f.fields[0].counts;
         // x counted once per instance despite the duplicate; the number is skipped.
         assert_eq!(facet_values(areas), vec![("x", 2), ("y", 1)]);
         assert_eq!(facet_values(&f.fields[1].counts), vec![("a", 1), ("b", 1)]);
+    }
+
+    /// RFC-053 [R3]: two Fields that share a name are two facets, each counted only
+    /// from records of the Type that assigns it; ties break by ascending `fieldId`.
+    #[test]
+    fn same_name_fields_are_separate_facets_and_ties_break_by_field_id() {
+        let mut other = record(ID3, "Other", "s", "draft", &[]);
+        other.type_id = OTHER_TID.to_string();
+        other.type_name = "other".to_string();
+        other.field_values.insert("mixed", "a".into());
+        let mut first = record(ID1, "One", "s", "draft", &[]);
+        first.field_values.insert("kind", "a".into());
+        let mut second = record(ID2, "Two", "s", "draft", &[]);
+        // An unassigned key and an unresolvable Type count in no facet.
+        second.field_values.insert("kind", "a".into());
+        second.field_values.insert("stray", "a".into());
+        let mut ghost = record(NOTE1, "Ghost", "s", "draft", &[]);
+        ghost.type_id = "00000000-0000-4000-8000-00000000dead".to_string();
+        ghost.field_values.insert("kind", "a".into());
+        let store = store_with(vec![first, second, other, ghost]);
+        let f = find(&store, DiscoveryQuery::default(), with_facets())
+            .unwrap()
+            .facets
+            .unwrap();
+        let ids: Vec<&str> = f.fields.iter().map(|x| x.field_id.as_str()).collect();
+        let mut sorted = ids.clone();
+        sorted.sort();
+        assert_eq!(ids.len(), 2);
+        // kind has 2, mixed has 1: by count, not id.
+        assert_eq!(f.fields[0].field, "kind");
+        assert_eq!(f.fields[1].field, "mixed");
+        assert_eq!(f.fields[1].field_id, "00000000-0000-4000-8000-00000000f005");
+        assert_eq!(facet_values(&f.fields[0].counts), vec![("a", 2)]);
     }
 
     #[test]
