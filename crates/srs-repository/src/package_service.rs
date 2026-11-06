@@ -4163,6 +4163,7 @@ mod tests {
             name: "lpi".to_string(),
             version: "1.0.0".to_string(),
             package_dependencies: None,
+            readme: None,
             definitions: vec![PackageSourceDefinition {
                 kind: DefinitionKind::Field,
                 rel_path: "fields/alpha.json".to_string(),
