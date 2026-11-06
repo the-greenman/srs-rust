@@ -23,6 +23,7 @@
 use crate::error::RepositoryError;
 use crate::package_types::{validate_package_selector, DefinitionKind, PackageSelector};
 use crate::store::RepositoryStore;
+use crate::validation::DiagnosticSeverity;
 use crate::writer::new_instance_id;
 use srs_core::types::blueprint::Blueprint;
 use srs_core::validation::blueprint::validate_blueprint;
@@ -49,6 +50,9 @@ pub struct BlueprintListResult {
     pub summaries: Vec<BlueprintSummary>,
     /// WARN-level diagnostics from provenance scan (missing files, duplicate IDs).
     pub diagnostics: Vec<String>,
+    /// `diagnostics` as structured findings, entry for entry (ADR-057,
+    /// srs-rust#1339); the text list is unchanged until srs-rust#1496.
+    pub diagnostics_structured: Vec<crate::diagnostic::Diagnostic>,
 }
 
 // ── Mutating result types ─────────────────────────────────────────────────────
@@ -123,7 +127,7 @@ pub fn list_blueprints_summary(
     store: &dyn RepositoryStore,
 ) -> Result<BlueprintListResult, RepositoryError> {
     let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut diagnostics: Vec<String> = vec![];
+    let mut diagnostics = crate::diagnostic::Diagnostics::new();
     let mut summaries: Vec<BlueprintSummary> = vec![];
 
     let boundaries = store.list_package_boundaries()?;
@@ -144,10 +148,15 @@ pub fn list_blueprints_summary(
                 Ok(val) => {
                     if let Some(bp) = load_blueprint_from_value(&val) {
                         if seen_ids.contains(&bp.id) {
-                            diagnostics.push(format!(
-                                "[WARN] duplicate blueprint id '{}' found in '{prefix}'; first boundary wins",
-                                bp.id
-                            ));
+                            diagnostics.push_for(
+                                DiagnosticSeverity::Warning,
+                                "blueprint-duplicate-id",
+                                format!(
+                                    "[WARN] duplicate blueprint id '{}' found in '{prefix}'; first boundary wins",
+                                    bp.id
+                                ),
+                                Some(bp.id.clone()),
+                            );
                         } else {
                             seen_ids.insert(bp.id.clone());
                             summaries.push(BlueprintSummary {
@@ -163,17 +172,22 @@ pub fn list_blueprints_summary(
                     }
                 }
                 Err(_) => {
-                    diagnostics.push(format!(
-                        "[WARN] blueprint file '{full}' is indexed in {prefix}/package.json but missing on disk"
-                    ));
+                    diagnostics.warning(
+                        "blueprint-file-missing",
+                        format!(
+                            "[WARN] blueprint file '{full}' is indexed in {prefix}/package.json but missing on disk"
+                        ),
+                    );
                 }
             }
         }
     }
 
+    let (diagnostics, diagnostics_structured) = diagnostics.into_parts();
     Ok(BlueprintListResult {
         summaries,
         diagnostics,
+        diagnostics_structured,
     })
 }
 
@@ -606,6 +620,31 @@ mod tests {
             .find(|s| s.name == "sub-bp")
             .unwrap();
         assert_eq!(sub.source_package.as_deref(), Some("package/ext"));
+    }
+
+    #[test]
+    fn list_blueprints_missing_file_has_structured_diagnostic() {
+        let store = MemoryStore::default();
+        store.register_package_boundary(&None).unwrap();
+        create_blueprint(&store, minimal_blueprint("present-bp"), None).unwrap();
+
+        let mut pkg = store.load_instance_json("package/package.json").unwrap();
+        pkg["blueprints"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!("blueprints/ghost.json"));
+        store
+            .save_instance_json("package/package.json", &pkg)
+            .unwrap();
+
+        let result = list_blueprints_summary(&store).unwrap();
+        assert_eq!(result.summaries.len(), 1);
+        assert_eq!(result.diagnostics.len(), 1);
+        assert!(result.diagnostics[0].starts_with("[WARN] "));
+        crate::diagnostic::assert_parallel(&result.diagnostics, &result.diagnostics_structured);
+        let d = &result.diagnostics_structured[0];
+        assert_eq!(d.code, "blueprint-file-missing");
+        assert_eq!(d.severity, DiagnosticSeverity::Warning);
     }
 
     #[test]

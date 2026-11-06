@@ -57,6 +57,11 @@ fn cmd_blueprint_list(ctx: CliContext) -> Result<String> {
         BlueprintListPayload {
             blueprints,
             diagnostics: result.diagnostics,
+            diagnostics_structured: result
+                .diagnostics_structured
+                .into_iter()
+                .map(Into::into)
+                .collect(),
         },
     )
 }
