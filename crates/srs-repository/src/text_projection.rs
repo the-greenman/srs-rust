@@ -54,15 +54,27 @@ pub struct FieldTextIndex {
     /// RFC-020 — `(type_id, type_version) → identityFieldId`, the other map
     /// [`record_label::record_display_label`] expects.
     identity_field_ids: HashMap<(String, u32), String>,
-    /// `Field.name`s of closed string fields (RFC-032 R3, the successor of
-    /// select/multiselect): the fields whose values `find` facets count.
-    closed_names: HashSet<String>,
+    /// `(type_id, type_version) → (Field.name → Field.id)` for the closed string fields
+    /// (RFC-032 R3, the successor of select/multiselect) in that Type's effective field
+    /// set: the fields whose values `find` facets count. Per Type, so two Fields that
+    /// share a name stay two facets (RFC-053 [R3]).
+    closed_by_type: HashMap<(String, u32), HashMap<String, String>>,
 }
 
 impl FieldTextIndex {
-    /// Whether `name` is a closed string field (a facet candidate).
-    pub(crate) fn is_closed_name(&self, name: &str) -> bool {
-        self.closed_names.contains(name)
+    /// The id of the closed string Field that the version-pinned Type assigns at key
+    /// `name`, or `None` when the Type does not resolve, the key matches no assignment,
+    /// or that Field is not closed (RFC-053 [R3]).
+    pub(crate) fn closed_field_id(
+        &self,
+        type_id: &str,
+        type_version: u32,
+        name: &str,
+    ) -> Option<&str> {
+        self.closed_by_type
+            .get(&(type_id.to_string(), type_version))?
+            .get(name)
+            .map(String::as_str)
     }
 
     /// Whether a Field of this name exists in the effective package.
@@ -99,14 +111,7 @@ pub fn build_field_text_index(
     let mut names = HashMap::new();
     let mut searchable_names = HashSet::new();
     let mut ids_by_name = HashMap::new();
-    let mut closed_names = HashSet::new();
-    let mut open_names = HashSet::new();
     for f in &package.fields {
-        if f.field_type.datatype == Datatype::String && f.field_type.is_closed() {
-            closed_names.insert(f.name.clone());
-        } else {
-            open_names.insert(f.name.clone());
-        }
         // I-120 / RFC-012 `[R8]`: `datatype == string` **and** an allow-listed
         // `format`. Not datatype alone — RFC-032 Revision 7 excludes the
         // string-datatyped `uuid` and `email` formats, so a field can be
@@ -121,15 +126,29 @@ pub fn build_field_text_index(
         names.insert(f.id.clone(), f.name.clone());
         ids_by_name.insert(f.name.clone(), f.id.clone());
     }
-    // Records key values by name, so a name is a facet only if no field of that name is open.
-    closed_names.retain(|n| !open_names.contains(n));
+    // RFC-053 [R3]: eligibility is per Field, resolved through each Type's effective field set.
+    let mut closed_by_type = HashMap::new();
+    for rt in &package.record_types {
+        let Ok(assignments) = package.effective_fields(rt) else {
+            continue;
+        };
+        let mut by_name = HashMap::new();
+        for fa in &assignments {
+            if let Some(f) = package.resolve_field(&fa.field_id) {
+                if f.field_type.datatype == Datatype::String && f.field_type.is_closed() {
+                    by_name.insert(f.name.clone(), f.id.clone());
+                }
+            }
+        }
+        closed_by_type.insert((rt.id.clone(), rt.version), by_name);
+    }
     let identity_field_ids = record_label::identity_field_index_from_package(&package);
     Ok(FieldTextIndex {
         names,
         searchable_names,
         ids_by_name,
         identity_field_ids,
-        closed_names,
+        closed_by_type,
     })
 }
 
@@ -301,7 +320,7 @@ mod tests {
                 .map(|f| (f.name.clone(), f.id.clone()))
                 .collect(),
             identity_field_ids: HashMap::new(),
-            closed_names: HashSet::new(),
+            closed_by_type: HashMap::new(),
         }
     }
 

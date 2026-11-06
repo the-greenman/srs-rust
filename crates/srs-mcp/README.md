@@ -42,8 +42,9 @@ default `full` is everything. A hidden tool is refused as unknown, and the
 `initialize` instructions name the session's tools.
 
 Read a type's schema (`type_schema` or the `type/{typeId}` resource) before
-authoring: each property's `x-srs-field-id` is the UUID `record_create`
-needs. Rejected writes return
+authoring: each property's `x-srs-field-id` is the id of the Field it
+names, an annotation only. `record_create` `fieldValues` stay keyed by
+`Field.name` (RFC-039, RFC-053). Rejected writes return
 `isError: true` with the service diagnostics; nothing is written on rejection.
 `repo_validate` reports validation findings as data: `summary.errors == 0`
 (equivalently, no `error` diagnostics) means the repository is consistent.
