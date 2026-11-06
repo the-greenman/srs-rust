@@ -1515,6 +1515,9 @@ impl From<RunSummary> for ProtocolRunListEntry {
 pub struct BlueprintListPayload {
     pub blueprints: Vec<BlueprintListEntry>,
     pub diagnostics: Vec<String>,
+    /// `diagnostics` as structured findings, entry for entry (ADR-057, srs-rust#1339).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
