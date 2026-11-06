@@ -1095,6 +1095,7 @@ impl From<FacetCount> for FacetCountPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct FieldFacetPayload {
+    pub field_id: String,
     pub field: String,
     #[serde(flatten)]
     pub counts: FacetCountsPayload,
@@ -1102,8 +1103,13 @@ pub struct FieldFacetPayload {
 
 impl From<FieldFacet> for FieldFacetPayload {
     fn from(f: FieldFacet) -> Self {
-        let FieldFacet { field, counts } = f;
+        let FieldFacet {
+            field_id,
+            field,
+            counts,
+        } = f;
         Self {
+            field_id,
             field,
             counts: counts.into(),
         }

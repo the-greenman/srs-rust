@@ -2930,7 +2930,7 @@ echo '{"namespace":"com.example.dogfood","name":"table","version":1,"description
 echo '{"fieldValues":{"columns":["Name","Role"],"rows":[{"cells":["ada","engineer"]},{"cells":["grace","admiral"]}]}}' | $SRS record create --type com.example.dogfood/table --repo "$R"
 
 # 3. The Type's editor schema is standard JSON Schema keyed by the same names,
-#    with the composite range expanded — no x-srs-field-id bridge.
+#    with the composite range expanded — x-srs-field-id is an annotation only (RFC-053), keys stay names.
 # (TABLE_TYPE_ID = the id returned by the table `type create` above)
 $SRS type schema "$TABLE_TYPE_ID" --type-version 1 --repo "$R" --pretty
 
@@ -3261,7 +3261,7 @@ srs --repo $REPO repo validate                                   # 0 errors
 
 **Intention.** A remote agent that has never seen a repository asks one cheap question, "what is in here?", and uses the answer to write a precise query instead of guessing keywords.
 
-**CLI surface.** `srs find --limit 0` (and the MCP `find {limit: 0}` / bindings `find`): `payload.result.facets` = `byType`, `notes`, `tags`, `fields[]` (closed string fields keyed by `Field.name`), each `{values:[{value,count}], other?}` (`byType` values also carry `typeId`), counted over the whole match set before paging. `byType` keeps the top 20 types by default; `--by-type-limit N` (CLI), `byTypeLimit` (MCP) or the trailing `by_type_limit` argument (bindings `find`) changes that, and 0 returns every type.
+**CLI surface.** `srs find --limit 0` (and the MCP `find {limit: 0}` / bindings `find`): `payload.result.facets` = `byType`, `notes`, `tags`, `fields[]` (one entry per closed string Field, each carrying `fieldId` and `field`, RFC-053 [R3]), each `{values:[{value,count}], other?}` (`byType` values also carry `typeId`), counted over the whole match set before paging. `byType` keeps the top 20 types by default; `--by-type-limit N` (CLI), `byTypeLimit` (MCP) or the trailing `by_type_limit` argument (bindings `find`) changes that, and 0 returns every type.
 
 **Steps.** `srs find --repo ../../muDemocracy.org/muSrs --limit 0 --pretty`; then `--type com.mudemocracy.argument/problem --limit 0`; then `--text democracy --limit 3 --facets` and compare `total` with the sum of `facets.byType` (since #1286 a search carries facets only when asked). Negative: `--container <unknown uuid> --limit 0` returns `facets: {}` with the containerId warning.
 

@@ -33,6 +33,9 @@ use crate::store::{definition_kind_key, RepositoryStore};
 pub struct ReadPackageBundle {
     pub bundle: PackageSourceBundle,
     pub notes: Vec<String>,
+    /// The `readme-invalid` error (RFC-045 [R4]) when the bundle's readme was
+    /// dropped; the load proceeds without it.
+    pub readme_error: Option<String>,
 }
 
 fn refuse(code: &'static str, message: impl Into<String>) -> RepositoryError {
@@ -82,7 +85,7 @@ fn bring_forward(v: &mut Value, rev: u64) -> Result<Vec<String>, RepositoryError
     Ok(notes)
 }
 
-/// Read a `.srspkg` from its bytes: parse, refuse a `readme` (srs-rust#1164),
+/// Read a `.srspkg` from its bytes: parse,
 /// refuse a newer revision, bring an older one forward through the registry's
 /// bundle forms or refuse naming the missing step ([C6], [`bring_forward`]),
 /// validate against `package-bundle.json`, then validate every definition with
@@ -94,13 +97,6 @@ pub fn read_package_bundle(bytes: &[u8]) -> Result<ReadPackageBundle, Repository
         return Err(refuse(
             "bundle-not-json",
             "a package bundle is a JSON object",
-        ));
-    }
-    if v.get("readme").is_some() {
-        return Err(refuse(
-            "bundle-readme-unsupported",
-            "this srs cannot carry a bundle readme yet (RFC-045, srs-rust#1164); \
-             remove `readme` and retry",
         ));
     }
     let rev = v
@@ -117,6 +113,12 @@ pub fn read_package_bundle(bytes: &[u8]) -> Result<ReadPackageBundle, Repository
         ));
     }
     let notes = bring_forward(&mut v, rev)?;
+    // RFC-045 [R4]: a bad readme is an error diagnostic, dropped, never a refusal.
+    let readme_read = crate::bundled_readme::read_readme(
+        v.get("readme"),
+        &crate::bundled_readme::ReadmeForm::Bundle,
+        "package bundle",
+    );
     SchemaRegistry::global()
         .validate_by_id(PACKAGE_BUNDLE_SCHEMA_ID, &v)
         .map_err(|e| {
@@ -177,8 +179,10 @@ pub fn read_package_bundle(bytes: &[u8]) -> Result<ReadPackageBundle, Repository
             version: s("packageVersion"),
             package_dependencies,
             definitions,
+            readme: readme_read.readme,
         },
         notes,
+        readme_error: readme_read.invalid,
     })
 }
 
