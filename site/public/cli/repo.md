@@ -10,6 +10,8 @@ Usage: srs repo [OPTIONS] <COMMAND>
 Commands:
   create                Create a new repository at the target path
   copy                  Copy a repository from source to target path using logical portability
+  merge-preview         Report what bringing new items in from another copy (a `.srs` archive) of this repository would do. Writes nothing
+  merge-apply           Bring the items chosen on stdin in from another copy (a `.srs` archive), unchanged, or refuse and write nothing. Stdin: `{instanceIds?, relationIds?, containerIds?, containerEntries?: [{containerId, instanceId}]}`, ids from `repo merge-preview`
   diff                  Diff two repository copies, keyed on stable instance_id / relation_id
   map                   Emit a deterministic repository map
   validate              Validate all repository instances against their canonical JSON schemas
@@ -169,6 +171,93 @@ Options:
           Target store backend override. By default inferred from --to
           
           [possible values: file, json]
+
+      --container <CONTAINER_ID>
+          Container scope: constrains list/create/delete to this container's membership; on `context record` it adds the record's arrangement subtree in this container
+
+      --actor <ACTOR>
+          Session actor for everything this invocation creates (RFC-046 `createdBy`): JSON `{"kind":"human|ai","id":"<non-empty>","name":"<optional>"}`. Defaults to the `SRS_ACTOR` environment variable; with neither, creations are unattributed. Host configuration only — a request payload never carries it. An invalid value refuses every creating command (`actor-invalid`); a corpus below dataModelRevision 9 refuses an actor session (`revision-too-old`) until `repo apply-migration --id rfc046-actor-provenance`. A `.srsj` migrated in memory on open refuses every write first (`migration-required-before-write`) until its migrations are applied
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## `srs repo merge-preview`
+
+```text
+Report what bringing new items in from another copy (a `.srs` archive) of this repository would do. Writes nothing
+
+Usage: srs repo merge-preview [OPTIONS] --from <FROM>
+
+Options:
+      --from <FROM>
+          The `.srs` archive of the other copy
+
+      --repo <REPO>
+          Repository path (defaults to auto-detect from current directory)
+
+      --format <FORMAT>
+          Output format
+
+          Possible values:
+          - json: JSON output (default)
+          - yaml: YAML output
+          - text: Human-readable text output (planned, currently returns diagnostic)
+          
+          [default: json]
+
+      --selection
+          Read a selection from stdin and answer for exactly that choice
+
+      --store <STORE>
+          Storage backend override. By default the backend is inferred from the repository location
+          
+          [possible values: file, json]
+
+      --pretty
+          Pretty-print JSON output (no effect on text format)
+
+      --container <CONTAINER_ID>
+          Container scope: constrains list/create/delete to this container's membership; on `context record` it adds the record's arrangement subtree in this container
+
+      --actor <ACTOR>
+          Session actor for everything this invocation creates (RFC-046 `createdBy`): JSON `{"kind":"human|ai","id":"<non-empty>","name":"<optional>"}`. Defaults to the `SRS_ACTOR` environment variable; with neither, creations are unattributed. Host configuration only — a request payload never carries it. An invalid value refuses every creating command (`actor-invalid`); a corpus below dataModelRevision 9 refuses an actor session (`revision-too-old`) until `repo apply-migration --id rfc046-actor-provenance`. A `.srsj` migrated in memory on open refuses every write first (`migration-required-before-write`) until its migrations are applied
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## `srs repo merge-apply`
+
+```text
+Bring the items chosen on stdin in from another copy (a `.srs` archive), unchanged, or refuse and write nothing. Stdin: `{instanceIds?, relationIds?, containerIds?, containerEntries?: [{containerId, instanceId}]}`, ids from `repo merge-preview`
+
+Usage: srs repo merge-apply [OPTIONS] --from <FROM>
+
+Options:
+      --from <FROM>
+          The `.srs` archive of the other copy
+
+      --repo <REPO>
+          Repository path (defaults to auto-detect from current directory)
+
+      --format <FORMAT>
+          Output format
+
+          Possible values:
+          - json: JSON output (default)
+          - yaml: YAML output
+          - text: Human-readable text output (planned, currently returns diagnostic)
+          
+          [default: json]
+
+      --store <STORE>
+          Storage backend override. By default the backend is inferred from the repository location
+          
+          [possible values: file, json]
+
+      --pretty
+          Pretty-print JSON output (no effect on text format)
 
       --container <CONTAINER_ID>
           Container scope: constrains list/create/delete to this container's membership; on `context record` it adds the record's arrangement subtree in this container
