@@ -240,10 +240,14 @@
       "type": "object",
       "required": [
         "field",
+        "fieldId",
         "values"
       ],
       "properties": {
         "field": {
+          "type": "string"
+        },
+        "fieldId": {
           "type": "string"
         },
         "other": {
