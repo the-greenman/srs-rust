@@ -93,6 +93,12 @@ fn report_to_js(report: ErrorReport) -> JsValue {
     err.into()
 }
 
+fn parse_merge_selection(
+    raw: &str,
+) -> Result<srs_repository::merge_service::MergeSelection, JsValue> {
+    serde_json::from_str(raw).map_err(|e| js_invalid_input(e.to_string()))
+}
+
 fn js_err(e: &RepositoryError) -> JsValue {
     report_to_js(e.report())
 }
@@ -301,6 +307,41 @@ impl SrsRepository {
         let result =
             srs_repository::changes_service::changes(&self.store, since).map_err(|e| js_err(&e))?;
         serde_json::to_string(&result).map_err(|e| js_serialize("changes", e))
+    }
+
+    /// Report what bringing new items in from another copy of this repository would do, as
+    /// JSON: the same `merge_service` report as `srs repo merge-preview`. Writes nothing.
+    /// `archive` is the other copy's `.srs` bytes; `selection_json`, when given, is a
+    /// `MergeSelection` and the report answers for exactly that choice.
+    pub fn merge_preview(
+        &self,
+        archive: &[u8],
+        selection_json: Option<String>,
+    ) -> Result<String, JsValue> {
+        let selection = selection_json
+            .map(|s| parse_merge_selection(&s))
+            .transpose()?;
+        let report = srs_repository::merge_service::merge_preview(
+            &self.store,
+            std::io::Cursor::new(archive),
+            selection.as_ref(),
+        )
+        .map_err(|e| js_err(&e))?;
+        serde_json::to_string(&report).map_err(|e| js_serialize("merge_preview", e))
+    }
+
+    /// Bring the chosen items in from another copy, unchanged, or refuse and write nothing:
+    /// the same `merge_service` as `srs repo merge-apply`. `selection_json` is a
+    /// `MergeSelection`: `{instanceIds?, relationIds?, containerIds?, containerEntries?}`.
+    pub fn merge_apply(&self, archive: &[u8], selection_json: &str) -> Result<String, JsValue> {
+        let selection = parse_merge_selection(selection_json)?;
+        let report = srs_repository::merge_service::merge_apply(
+            &self.store,
+            std::io::Cursor::new(archive),
+            &selection,
+        )
+        .map_err(|e| js_err(&e))?;
+        serde_json::to_string(&report).map_err(|e| js_serialize("merge_apply", e))
     }
 
     /// Open an MCP session over this repository (resources, prompts, and the
