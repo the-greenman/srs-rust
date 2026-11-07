@@ -239,6 +239,22 @@ fn merges_added_items_unchanged(target: &dyn RepositoryStore, source_archive: Ve
         .collect();
     assert!(ids.contains(&w.record.instance_id.as_str()));
     assert!(ids.contains(&w.note.instance_id.as_str()));
+    // srs-rust#1597: a typed record is named by its display label, a note by its title.
+    let title_of = |id: &str| {
+        preview
+            .bring
+            .instances
+            .iter()
+            .find(|i| i.instance_id == id)
+            .and_then(|i| i.title.clone())
+    };
+    let source_copy = archive_to_tree(Cursor::new(source_archive.clone())).unwrap();
+    let want = record_store::get_record_summary_by_id(&source_copy, &w.record.instance_id)
+        .unwrap()
+        .unwrap()
+        .display_label;
+    assert_eq!(title_of(&w.record.instance_id), Some(want));
+    assert_eq!(title_of(&w.note.instance_id), w.note.title);
     assert!(
         !ids.contains(&own.instance_id.as_str()),
         "only what the source alone holds"
