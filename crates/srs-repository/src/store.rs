@@ -969,6 +969,12 @@ pub trait RepositoryStore {
         false
     }
 
+    /// True when a component of `relative_path` is a symbolic link on the
+    /// backing file system (RFC-045 [R6]). Stores without one answer false.
+    fn path_has_symlink(&self, _relative_path: &str) -> bool {
+        false
+    }
+
     /// RFC-038 [R21]: is this store an exempt (migration-tooling) reader?
     /// Default `false` — only `FileStore::with_rfc038_exemption` returns true.
     /// The catalog consults this to decide whether legacy relations
@@ -2882,6 +2888,10 @@ impl RepositoryStore for FileStore {
 
     fn is_file_tree_store(&self) -> bool {
         true
+    }
+
+    fn path_has_symlink(&self, relative_path: &str) -> bool {
+        self.vfs.has_symlink_component(relative_path)
     }
 
     fn validate_package_ref_path(&self, relative_path: &str) -> Result<(), RepositoryError> {

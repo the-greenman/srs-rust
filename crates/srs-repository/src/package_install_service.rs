@@ -1074,6 +1074,15 @@ pub fn install_package_bundle(
         })();
     }
 
+    // ── Phase 6: the bundled readme, after every other file (RFC-045 [R3], [R6]) ──
+    let mut findings = crate::diagnostic::Diagnostics::new();
+    if let Some(readme) = &bundle.readme {
+        if let Some(msg) = crate::bundled_readme::write_readme(store, &boundary_path, readme) {
+            findings.warning(crate::bundled_readme::README_WRITE_CONFLICT, msg);
+        }
+    }
+    let (notes, diagnostics_structured) = findings.into_parts();
+
     let kinds = INSTALL_ORDER
         .iter()
         .filter_map(|kind| counts.remove(kind_label(*kind)))
@@ -1090,8 +1099,8 @@ pub fn install_package_bundle(
         skipped_identical: skipped_total,
         conflicts,
         kinds,
-        notes: vec![],
-        diagnostics_structured: vec![],
+        notes,
+        diagnostics_structured,
     })
 }
 
@@ -1114,7 +1123,10 @@ pub fn install_package_bundle_bytes(
     if let Some(e) = read.readme_error {
         findings.error(crate::bundled_readme::README_INVALID, e);
     }
-    (result.notes, result.diagnostics_structured) = findings.into_parts();
+    let (notes, structured) = findings.into_parts();
+    // The reader's findings lead; the install's own (readme-write-conflict) follow.
+    result.notes.splice(0..0, notes);
+    result.diagnostics_structured.splice(0..0, structured);
     Ok(result)
 }
 
