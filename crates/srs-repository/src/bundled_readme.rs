@@ -64,6 +64,31 @@ pub fn write_readme(
     }
 }
 
+/// Pick up the readme file at `{dir}/{path}` for a pack or export (RFC-045
+/// tooling convention): a regular file (never through a symbolic link) whose
+/// bytes are valid UTF-8, carried unchanged; nothing is synthesised. Anything
+/// else (absent, a directory, a link, non-UTF-8) yields `None`.
+pub fn pick_up_readme(
+    store: &dyn crate::store::RepositoryStore,
+    dir: &str,
+    path: &str,
+) -> Option<BundledReadme> {
+    let target = if dir.is_empty() {
+        path.to_string()
+    } else {
+        format!("{dir}/{path}")
+    };
+    if store.path_has_symlink(&target) {
+        return None;
+    }
+    let bytes = store.load_binary_file(&target).ok()?;
+    let content = String::from_utf8(bytes).ok()?;
+    Some(BundledReadme {
+        path: path.to_string(),
+        content,
+    })
+}
+
 /// What the path is checked against ([R4]).
 pub enum ReadmeForm<'a> {
     /// A package bundle: relative to the package directory.

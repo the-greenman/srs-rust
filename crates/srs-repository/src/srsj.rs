@@ -120,6 +120,14 @@ pub fn decode_srsj(content: &str) -> Result<DecodedSrsj, RepositoryError> {
         },
         ".srsj",
     );
+    // The marker readme belongs to the repository's own tree: materialise it
+    // so a session opened from this document keeps it (it was projected onto
+    // the envelope field on the way out, RFC-045 [R5]).
+    if let Some(r) = &readme.readme {
+        if r.path == crate::vfs::SRS_MARKER_README_PATH && !tree.contains_key(&r.path) {
+            tree.insert(r.path.clone(), r.content.clone().into_bytes());
+        }
+    }
     tree.insert(
         MANIFEST_KEY.to_string(),
         serde_json::to_vec_pretty(&canonicalize(envelope.manifest, false))
@@ -203,9 +211,29 @@ pub fn srsj_from_tree_with_readme(
     .unwrap_or_else(|| "source-documents".to_string());
     let opaque_prefix = format!("{opaque_prefix}/");
 
+    // RFC-045 [R5]: a customised `.srs/README.md` is the repository's readme,
+    // so it rides in the envelope field, not twice (one way per goal). An
+    // explicit readme wins; the marker file then stays in `data` unless the
+    // explicit readme is that same path.
+    let picked;
+    let readme = match readme {
+        Some(r) => Some(r),
+        None => {
+            picked = tree
+                .get(crate::vfs::SRS_MARKER_README_PATH)
+                .filter(|b| b.as_slice() != crate::vfs::SRS_MARKER_README.as_bytes())
+                .and_then(|b| std::str::from_utf8(b).ok())
+                .map(|content| crate::bundled_readme::BundledReadme {
+                    path: crate::vfs::SRS_MARKER_README_PATH.to_string(),
+                    content: content.to_string(),
+                });
+            picked.as_ref()
+        }
+    };
+    let carried_path = readme.map(|r| r.path.as_str());
     let mut data = BTreeMap::new();
     for (path, bytes) in tree {
-        if path == MANIFEST_KEY {
+        if path == MANIFEST_KEY || Some(path.as_str()) == carried_path {
             continue;
         }
         // Legacy `.srs/.gitkeep` placeholders are omitted too, so output stays
@@ -519,7 +547,14 @@ mod tests {
         let store = open_srsj(&doc.to_string()).unwrap();
         let out: serde_json::Value =
             serde_json::from_str(&to_srsj_string(&store).unwrap()).unwrap();
-        assert_eq!(out["data"][".srs/README.md"], "custom orientation\n");
+        assert!(out["data"].get(".srs/README.md").is_none());
+        assert_eq!(
+            out["readme"],
+            serde_json::json!({"path": ".srs/README.md", "content": "custom orientation\n"})
+        );
+        // One way per goal: the field reopens as the same file, byte-stable.
+        let again = to_srsj_string(&open_srsj(&to_srsj_string(&store).unwrap()).unwrap()).unwrap();
+        assert_eq!(again, to_srsj_string(&store).unwrap());
     }
 
     #[test]
