@@ -913,13 +913,7 @@ pub fn create_type_in_package(
         &record_type.id,
         selector.as_deref().unwrap_or("package"),
     )?;
-    let path = write_type_version(store, &record_type, &selector)?;
-    store.add_definition_to_boundary(
-        &selector,
-        DefinitionKind::Type,
-        path.strip_prefix(&format!("{}/", selector.as_deref().unwrap_or("package")))
-            .unwrap_or(&path),
-    )?;
+    write_type_version(store, &record_type, &selector)?;
 
     Ok(CreateTypeResult { record_type })
 }
@@ -1004,38 +998,30 @@ fn refuse_invalid_type_definition(
     })
 }
 
-/// Write one version of a type and return its repo-root-relative path. A version that
-/// already has a file is rewritten in place; a new version gets its own file beside the
-/// others ([`definition_rel_path`], `-v{N}`), so the versions records bind to stay on disk
-/// and no write can orphan them (srs-rust#1473, replacing the #1412 refusal).
+/// Write one version of a type into `selector`'s boundary. A version that already has a
+/// file is rewritten in place; a new version gets its own file beside the others
+/// (`-v{N}`), so the versions records bind to stay on disk and no write can orphan them
+/// (srs-rust#1473, replacing the #1412 refusal). The store owns the file locator and the
+/// boundary index (ADR-041 G3-G5, srs-rust#729).
 fn write_type_version(
     store: &dyn RepositoryStore,
     record_type: &RecordType,
     selector: &PackageSelector,
-) -> Result<String, RepositoryError> {
-    let boundary_path = selector.as_deref().unwrap_or("package");
-    let full_path = match find_type_path(store, &record_type.id, Some(record_type.version))? {
-        Some((existing, _)) => existing,
-        None => format!(
-            "{boundary_path}/{}",
-            definition_rel_path(
-                DefinitionKind::Type,
-                &record_type.name,
-                &record_type.id,
-                u64::from(record_type.version)
-            )
-        ),
-    };
-
+) -> Result<(), RepositoryError> {
     let raw = serde_json::to_value(record_type).map_err(|e| RepositoryError::Serialize {
-        path: std::path::PathBuf::from(&full_path),
+        path: std::path::PathBuf::from(selector.as_deref().unwrap_or("package")),
         source: e,
     })?;
-    validate_definition_write_schema(TYPE_SCHEMA_ID, &raw, std::path::Path::new(&full_path))?;
-
-    store.ensure_types_dir(&format!("{boundary_path}/types"))?;
-    store.save_type(&full_path, record_type)?;
-    Ok(full_path)
+    validate_definition_write_schema(
+        TYPE_SCHEMA_ID,
+        &raw,
+        std::path::Path::new(&format!(
+            "{}/types/{}",
+            selector.as_deref().unwrap_or("package"),
+            record_type.name
+        )),
+    )?;
+    store.save_type(selector, record_type)
 }
 
 /// Update an existing type definition. The same version is rewritten in place; a new
@@ -1095,13 +1081,7 @@ fn update_type_inner(
         })?;
     }
 
-    let path = write_type_version(store, &record_type, &owner)?;
-    let prefix = format!("{}/", owner.as_deref().unwrap_or("package"));
-    store.add_definition_to_boundary(
-        &owner,
-        DefinitionKind::Type,
-        path.strip_prefix(&prefix).unwrap_or(&path),
-    )?;
+    write_type_version(store, &record_type, &owner)?;
     Ok(UpdateTypeResult { record_type })
 }
 
@@ -1127,11 +1107,12 @@ pub fn delete_type(
     id: &str,
     version: u32,
 ) -> Result<DeleteTypeResult, RepositoryError> {
-    let (full_path, owner) =
-        find_type_path(store, id, Some(version))?.ok_or_else(|| RepositoryError::TypeNotFound {
+    if store.load_type_by_id(id, Some(version))?.is_none() {
+        return Err(RepositoryError::TypeNotFound {
             type_id: id.to_string(),
             version,
-        })?;
+        });
+    }
 
     let refs = find_records_of_type(store, id, version)?;
     if !refs.is_empty() {
@@ -1142,14 +1123,7 @@ pub fn delete_type(
         });
     }
 
-    let boundary_prefix = owner.as_deref().unwrap_or("package");
-    let rel_path = full_path
-        .strip_prefix(&format!("{boundary_prefix}/"))
-        .unwrap_or(&full_path)
-        .to_string();
-
-    store.delete_type_file(&full_path)?;
-    store.remove_definition_from_boundary(&owner, DefinitionKind::Type, &rel_path)?;
+    store.delete_type(id, version)?;
     Ok(DeleteTypeResult { id: id.to_string() })
 }
 
