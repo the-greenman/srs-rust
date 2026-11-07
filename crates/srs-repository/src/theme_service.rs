@@ -199,6 +199,12 @@ pub fn create_theme(
         path: std::path::PathBuf::from(format!("{boundary_path}/themes")),
         source: e,
     })?;
+    crate::package_service::refuse_cross_boundary_duplicate_id(
+        store,
+        crate::catalog::CatalogKind::Theme,
+        &theme.id,
+        boundary_path,
+    )?;
     store.ensure_themes_dir(&format!("{boundary_path}/themes"))?;
     let rel_filename = crate::package_service::definition_rel_path(
         DefinitionKind::Theme,
