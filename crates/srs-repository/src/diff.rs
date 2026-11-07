@@ -551,6 +551,7 @@ mod tests {
             upstream_package: None,
             meta: None,
             data_model_revision: None,
+            created_at: None,
         }
     }
 
@@ -635,6 +636,7 @@ mod tests {
             upstream_package: None,
             meta: None,
             data_model_revision: None,
+            created_at: None,
         }
     }
 
