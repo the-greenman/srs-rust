@@ -6753,6 +6753,110 @@ fn field_create_in_sub_package_refuses_id_declared_in_primary() {
     assert_eq!(listed["ok"], true, "{listed:?}");
 }
 
+/// srs-rust#1585: the relation-type, composition, protocol, theme and blueprint creates refuse an
+/// id another package boundary already declares (RFC-038 [R12], `duplicate-id`), as the field,
+/// type, view, vocabulary and lifecycle creates do. Nothing is written and the repository loads.
+fn assert_cross_boundary_duplicate_refused(cmd: &str, payload: &str, sub_dir: &str, list: &[&str]) {
+    let temp = make_repo_with_sub_package();
+    let first = run_srs_stdin_in_dir(temp.path(), &[cmd, "create"], payload);
+    assert_eq!(
+        first["ok"], true,
+        "{cmd} create in primary failed: {first:?}"
+    );
+
+    let (_ok, result) = run_srs_stdin_any_status_in_dir(
+        temp.path(),
+        &[cmd, "create", "--package", "package/sub"],
+        payload,
+    );
+    assert_eq!(
+        result["ok"], false,
+        "{cmd}: duplicate id must be refused: {result:?}"
+    );
+    assert_eq!(
+        result["errors"][0]["code"], "duplicate-id",
+        "{cmd}: {result:?}"
+    );
+    let dir = temp.path().join("package/sub").join(sub_dir);
+    assert!(
+        !dir.exists() || std::fs::read_dir(&dir).unwrap().count() == 0,
+        "{cmd}: nothing may be written to the sub-package"
+    );
+    let listed = run_srs_in_dir(temp.path(), list);
+    assert_eq!(
+        listed["ok"], true,
+        "{cmd}: repository must still load: {listed:?}"
+    );
+}
+
+#[test]
+fn relation_type_create_in_sub_package_refuses_id_declared_in_primary() {
+    let payload = serde_json::json!({
+        "id": "00000000-0000-4000-8000-0000000015a1", "version": 1, "key": "dup-link",
+        "namespace": "com.test", "label": "Dup link", "description": "d",
+        "category": "dependency", "createdAt": "2026-01-01T00:00:00Z"
+    })
+    .to_string();
+    assert_cross_boundary_duplicate_refused(
+        "relation-type",
+        &payload,
+        "relation-types",
+        &["relation-type", "list"],
+    );
+}
+
+#[test]
+fn composition_create_in_sub_package_refuses_id_declared_in_primary() {
+    let mut v: Value = serde_json::from_str(&minimal_composition_json()).unwrap();
+    v["id"] = "00000000-0000-4000-8000-0000000015a2".into();
+    assert_cross_boundary_duplicate_refused(
+        "composition",
+        &v.to_string(),
+        "compositions",
+        &["composition", "list"],
+    );
+}
+
+#[test]
+fn protocol_create_in_sub_package_refuses_id_declared_in_primary() {
+    let payload = minimal_protocol_json("com.test/dup-protocol@1", "dup-protocol");
+    assert_cross_boundary_duplicate_refused(
+        "protocol",
+        &payload,
+        "protocols",
+        &["protocol", "list"],
+    );
+}
+
+#[test]
+fn theme_create_in_sub_package_refuses_id_declared_in_primary() {
+    let payload = serde_json::json!({
+        "id": "00000000-0000-4000-8000-0000000015a4", "namespace": "com.test",
+        "name": "dup-theme", "version": 1, "description": "A test theme",
+        "targets": ["markdown"], "createdAt": "2026-01-01T00:00:00Z"
+    })
+    .to_string();
+    assert_cross_boundary_duplicate_refused("theme", &payload, "themes", &["theme", "list"]);
+}
+
+#[test]
+fn blueprint_create_in_sub_package_refuses_id_declared_in_primary() {
+    let root = "00000000-0000-4000-8000-0000000015b0";
+    let payload = serde_json::json!({
+        "id": "00000000-0000-4000-8000-0000000015a5", "namespace": "com.test",
+        "name": "dup-blueprint", "version": 1, "description": "A blueprint",
+        "rootTypes": [{ "typeId": root, "typeVersion": 1 }], "structure": [],
+        "createdAt": "2026-01-01T00:00:00Z"
+    })
+    .to_string();
+    assert_cross_boundary_duplicate_refused(
+        "blueprint",
+        &payload,
+        "blueprints",
+        &["blueprint", "list"],
+    );
+}
+
 #[test]
 fn field_list_includes_source_package() {
     let temp = make_repo_with_sub_package();

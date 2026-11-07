@@ -331,6 +331,12 @@ pub fn create_protocol(
     check_protocol(&protocol)?;
 
     let boundary_path = selector.as_deref().unwrap_or("package");
+    crate::package_service::refuse_cross_boundary_duplicate_id(
+        store,
+        crate::catalog::CatalogKind::Protocol,
+        &protocol.id,
+        boundary_path,
+    )?;
     let rel_filename = crate::package_service::definition_rel_path(
         DefinitionKind::Protocol,
         &protocol.name,

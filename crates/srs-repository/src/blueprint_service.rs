@@ -334,6 +334,12 @@ pub fn create_blueprint(
     }
 
     let boundary_path = selector.as_deref().unwrap_or("package");
+    crate::package_service::refuse_cross_boundary_duplicate_id(
+        store,
+        crate::catalog::CatalogKind::Blueprint,
+        &blueprint.id,
+        boundary_path,
+    )?;
     store.ensure_blueprints_dir(&format!("{boundary_path}/blueprints"))?;
 
     let rel_filename = crate::package_service::definition_rel_path(
