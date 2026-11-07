@@ -437,18 +437,56 @@ pub trait RepositoryStore {
 
     // --- Types ---
 
+    // Typed logical-id methods (ADR-041 G3-G5, ADR-042 template; srs-rust#729). The
+    // file locator is adapter-private: the caller names a package boundary and a type
+    // id/version, never a path. The defaults are the shared file-tree adapter over the
+    // generic instance primitives; a non-file backend overrides all three and stores rows.
+
+    /// Persist a Type definition in `boundary`. The same id and version already in that
+    /// boundary is rewritten in place (existing files are found by their index and never
+    /// renamed); otherwise a new file is named by the ADR-050 scheme and indexed in the
+    /// boundary, so versions a record binds to stay on disk (srs-rust#1473).
     fn save_type(
         &self,
-        relative_path: &str,
+        boundary: &PackageSelector,
         record_type: &RecordType,
-    ) -> Result<(), RepositoryError>;
-    fn update_type_file(
+    ) -> Result<(), RepositoryError> {
+        save_type_impl(self, boundary, record_type)
+    }
+
+    /// Load a Type definition by logical id (`version` `None`: the first version found)
+    /// together with the boundary that owns it. `Ok(None)` when no boundary holds it.
+    fn load_type_by_id(
         &self,
-        relative_path: &str,
-        record_type: &RecordType,
-    ) -> Result<(), RepositoryError>;
-    fn delete_type_file(&self, relative_path: &str) -> Result<(), RepositoryError>;
-    fn ensure_types_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
+        id: &str,
+        version: Option<u32>,
+    ) -> Result<Option<(RecordType, PackageSelector)>, RepositoryError> {
+        match find_type_file(self, id, version)? {
+            None => Ok(None),
+            Some(found) => {
+                let record_type: RecordType = serde_json::from_value(found.value).map_err(|e| {
+                    RepositoryError::Serialize {
+                        path: PathBuf::from(&found.full_path),
+                        source: e,
+                    }
+                })?;
+                Ok(Some((record_type, found.owner)))
+            }
+        }
+    }
+
+    /// Delete one version of a Type definition by logical id and drop it from its
+    /// boundary's index. `TypeNotFound` when absent.
+    fn delete_type(&self, id: &str, version: u32) -> Result<(), RepositoryError> {
+        let found = find_type_file(self, id, Some(version))?.ok_or_else(|| {
+            RepositoryError::TypeNotFound {
+                type_id: id.to_string(),
+                version,
+            }
+        })?;
+        self.delete_instance_file(&found.full_path)?;
+        self.remove_definition_from_boundary(&found.owner, DefinitionKind::Type, &found.rel_path)
+    }
 
     // --- Relation type definitions ---
 
@@ -2301,36 +2339,6 @@ impl RepositoryStore for FileStore {
 
     // --- Types ---
 
-    fn save_type(
-        &self,
-        relative_path: &str,
-        record_type: &RecordType,
-    ) -> Result<(), RepositoryError> {
-        let value = serde_json::to_value(record_type).map_err(|e| RepositoryError::Serialize {
-            path: self.abs(relative_path),
-            source: e,
-        })?;
-        let mut value = value;
-        inject_definition_schema(&mut value, srs_schema::TYPE_SCHEMA_ID);
-        self.write_json(relative_path, &value)
-    }
-
-    fn update_type_file(
-        &self,
-        relative_path: &str,
-        record_type: &RecordType,
-    ) -> Result<(), RepositoryError> {
-        self.save_type(relative_path, record_type)
-    }
-
-    fn delete_type_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.delete_file(relative_path)
-    }
-
-    fn ensure_types_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
-        self.ensure_dir(relative_dir)
-    }
-
     fn save_relation_type_definition(
         &self,
         relative_path: &str,
@@ -3114,6 +3122,79 @@ fn find_field_file<S: RepositoryStore + ?Sized>(
         }
     }
     Ok(None)
+}
+
+struct FoundTypeFile {
+    full_path: String,
+    rel_path: String,
+    owner: PackageSelector,
+    value: serde_json::Value,
+}
+
+/// Find the file holding a type by id (and version), walking the owning boundary's
+/// type index. Reads raw JSON so a malformed sibling never blocks the lookup.
+fn find_type_file<S: RepositoryStore + ?Sized>(
+    store: &S,
+    id: &str,
+    version: Option<u32>,
+) -> Result<Option<FoundTypeFile>, RepositoryError> {
+    let owner = match store.resolve_definition_owner(id, DefinitionKind::Type) {
+        Ok(sel) => sel,
+        Err(RepositoryError::DefinitionNotFound { .. }) => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let boundary = store.load_package_boundary(&owner)?;
+    let prefix = owner.as_deref().unwrap_or("package").to_string();
+    for rel_path in &boundary.type_paths {
+        let full_path = format!("{prefix}/{rel_path}");
+        if let Ok(value) = store.load_instance_json(&full_path) {
+            if value["id"].as_str() == Some(id)
+                && version.is_none_or(|v| value["version"].as_u64() == Some(u64::from(v)))
+            {
+                return Ok(Some(FoundTypeFile {
+                    full_path,
+                    rel_path: rel_path.clone(),
+                    owner,
+                    value,
+                }));
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn save_type_impl<S: RepositoryStore + ?Sized>(
+    store: &S,
+    boundary: &PackageSelector,
+    record_type: &RecordType,
+) -> Result<(), RepositoryError> {
+    let meta = store.load_package_boundary(boundary)?;
+    let prefix = boundary.as_deref().unwrap_or("package");
+    let existing = meta.type_paths.iter().find(|rel| {
+        store
+            .load_instance_json(&format!("{prefix}/{rel}"))
+            .is_ok_and(|v| {
+                v["id"].as_str() == Some(record_type.id.as_str())
+                    && v["version"].as_u64() == Some(u64::from(record_type.version))
+            })
+    });
+    let mut value = serde_json::to_value(record_type).map_err(|e| RepositoryError::Serialize {
+        path: PathBuf::from(prefix),
+        source: e,
+    })?;
+    inject_definition_schema(&mut value, srs_schema::TYPE_SCHEMA_ID);
+    if let Some(rel) = existing {
+        return store.save_instance_json(&format!("{prefix}/{rel}"), &value);
+    }
+    let rel = crate::package_service::definition_rel_path(
+        DefinitionKind::Type,
+        &record_type.name,
+        &record_type.id,
+        u64::from(record_type.version),
+    );
+    store.ensure_instance_dir(&format!("{prefix}/types"))?;
+    store.save_instance_json(&format!("{prefix}/{rel}"), &value)?;
+    store.add_definition_to_boundary(boundary, DefinitionKind::Type, &rel)
 }
 
 fn save_field_impl<S: RepositoryStore + ?Sized>(
@@ -3999,37 +4080,6 @@ pub mod memory {
             self.data
                 .borrow_mut()
                 .insert("package/package.json".to_string(), value.clone());
-            Ok(())
-        }
-
-        fn save_type(
-            &self,
-            relative_path: &str,
-            record_type: &RecordType,
-        ) -> Result<(), RepositoryError> {
-            let mut v = serde_json::to_value(record_type).unwrap();
-            inject_definition_schema(&mut v, srs_schema::TYPE_SCHEMA_ID);
-            self.data.borrow_mut().insert(relative_path.to_string(), v);
-            Ok(())
-        }
-
-        fn update_type_file(
-            &self,
-            relative_path: &str,
-            record_type: &RecordType,
-        ) -> Result<(), RepositoryError> {
-            if !self.data.borrow().contains_key(relative_path) {
-                return Err(not_found(relative_path));
-            }
-            self.save_type(relative_path, record_type)
-        }
-
-        fn delete_type_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-            self.data.borrow_mut().remove(relative_path);
-            Ok(())
-        }
-
-        fn ensure_types_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
             Ok(())
         }
 

@@ -173,6 +173,7 @@ fn run_conformance_suite(store: &dyn RepositoryStore) {
     suite_instance_persistence(store);
     suite_batch_commit(store);
     suite_field_definitions(store);
+    suite_type_definitions(store);
 }
 
 // --- Area 1: Manifest round-trip ---
@@ -487,6 +488,98 @@ fn suite_field_definitions(store: &dyn RepositoryStore) {
     assert!(matches!(
         store.delete_field(id, None),
         Err(RepositoryError::FieldNotFound { .. })
+    ));
+}
+
+// --- Area 6: Type definitions (ADR-041 G3-G5, srs-rust#729) ---
+
+fn make_type(
+    id: &str,
+    name: &str,
+    version: u32,
+    description: &str,
+) -> srs_core::types::record_type::RecordType {
+    srs_core::types::record_type::RecordType {
+        schema: None,
+        id: id.to_string(),
+        namespace: "com.test.conf".to_string(),
+        name: name.to_string(),
+        version,
+        description: description.to_string(),
+        fields: vec![],
+        extends_type_id: None,
+        extends_type_version: None,
+        field_order: None,
+        field_assignment_overrides: None,
+        identity_field_id: None,
+        lifecycle: None,
+        lifecycle_ref: None,
+        validation_rules: None,
+        ai_guidance: None,
+        tags: None,
+        lineage: None,
+        provenance: None,
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+    }
+}
+
+/// Every store returns the same Type set after save, rewrite in place, a second
+/// version, and delete, keyed by logical id, never by path.
+fn suite_type_definitions(store: &dyn RepositoryStore) {
+    let id = "7e1e0000-0001-4000-8000-aabbccddee01";
+    assert!(store.load_type_by_id(id, None).unwrap().is_none());
+
+    store
+        .save_type(&None, &make_type(id, "conf-type", 1, "first"))
+        .expect("save_type must succeed");
+    let (loaded, owner) = store
+        .load_type_by_id(id, Some(1))
+        .unwrap()
+        .expect("saved type loads");
+    assert_eq!(loaded.description, "first");
+    assert_eq!(owner, None, "the primary package owns it");
+
+    store
+        .save_type(&None, &make_type(id, "conf-type", 1, "second"))
+        .unwrap();
+    assert_eq!(
+        store
+            .load_type_by_id(id, Some(1))
+            .unwrap()
+            .unwrap()
+            .0
+            .description,
+        "second"
+    );
+    let count = |s: &dyn RepositoryStore| s.load_package_boundary(&None).unwrap().type_paths.len();
+    let before = count(store);
+    store
+        .save_type(&None, &make_type(id, "conf-type", 2, "v2"))
+        .unwrap();
+    assert_eq!(
+        count(store),
+        before + 1,
+        "a new version sits beside the first"
+    );
+    assert_eq!(
+        store
+            .load_type_by_id(id, Some(2))
+            .unwrap()
+            .unwrap()
+            .0
+            .description,
+        "v2"
+    );
+
+    store.delete_type(id, 2).unwrap();
+    assert!(store.load_type_by_id(id, Some(2)).unwrap().is_none());
+    assert_eq!(count(store), before);
+    store.delete_type(id, 1).unwrap();
+    assert!(store.load_type_by_id(id, None).unwrap().is_none());
+    assert_eq!(count(store), before - 1);
+    assert!(matches!(
+        store.delete_type(id, 1),
+        Err(RepositoryError::TypeNotFound { .. })
     ));
 }
 
