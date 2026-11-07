@@ -377,10 +377,63 @@ pub trait RepositoryStore {
 
     // --- Fields ---
 
-    fn save_field(&self, relative_path: &str, field: &Field) -> Result<(), RepositoryError>;
-    fn update_field_file(&self, relative_path: &str, field: &Field) -> Result<(), RepositoryError>;
-    fn delete_field_file(&self, relative_path: &str) -> Result<(), RepositoryError>;
-    fn ensure_fields_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
+    // Typed logical-id methods (ADR-041 G3-G5, ADR-042 template; srs-rust#728). The
+    // file locator is adapter-private: the caller names a package boundary and a
+    // field id/version, never a path. The defaults below are the shared file-tree
+    // adapter over the generic instance primitives; a non-file backend overrides
+    // all three and stores rows.
+
+    /// Persist a Field definition in `boundary`. The same id and version already in
+    /// that boundary is rewritten in place (existing files are found by their index
+    /// and never renamed); otherwise a new file is named by the ADR-050 scheme and
+    /// indexed in the boundary.
+    fn save_field(&self, boundary: &PackageSelector, field: &Field) -> Result<(), RepositoryError> {
+        save_field_impl(self, boundary, field)
+    }
+
+    /// Load a Field definition by logical id (`version` `None`: the first version
+    /// found) together with the boundary that owns it. `Ok(None)` when no boundary
+    /// holds it.
+    fn load_field_by_id(
+        &self,
+        id: &str,
+        version: Option<u32>,
+    ) -> Result<Option<(Field, PackageSelector)>, RepositoryError> {
+        match find_field_file(self, id, version)? {
+            None => Ok(None),
+            Some(found) => {
+                let field: Field = serde_json::from_value(found.value).map_err(|e| {
+                    RepositoryError::Serialize {
+                        path: PathBuf::from(&found.full_path),
+                        source: e,
+                    }
+                })?;
+                Ok(Some((field, found.owner)))
+            }
+        }
+    }
+
+    /// The boundary that owns a Field id (and version), without deserializing it:
+    /// a pre-RFC-032 definition a migration is about to rewrite still answers.
+    /// `Ok(None)` when no boundary holds it.
+    fn field_owner(
+        &self,
+        id: &str,
+        version: Option<u32>,
+    ) -> Result<Option<PackageSelector>, RepositoryError> {
+        Ok(find_field_file(self, id, version)?.map(|found| found.owner))
+    }
+
+    /// Delete a Field definition by logical id (`version` `None`: the first version
+    /// found) and drop it from its boundary's index. `FieldNotFound` when absent.
+    fn delete_field(&self, id: &str, version: Option<u32>) -> Result<(), RepositoryError> {
+        let found =
+            find_field_file(self, id, version)?.ok_or_else(|| RepositoryError::FieldNotFound {
+                field_id: id.to_string(),
+            })?;
+        self.delete_instance_file(&found.full_path)?;
+        self.remove_definition_from_boundary(&found.owner, DefinitionKind::Field, &found.rel_path)
+    }
 
     // --- Types ---
 
@@ -2246,26 +2299,6 @@ impl RepositoryStore for FileStore {
 
     // --- Fields ---
 
-    fn save_field(&self, relative_path: &str, field: &Field) -> Result<(), RepositoryError> {
-        let value = serde_json::to_value(field).map_err(|e| RepositoryError::Serialize {
-            path: self.abs(relative_path),
-            source: e,
-        })?;
-        self.write_json(relative_path, &value)
-    }
-
-    fn update_field_file(&self, relative_path: &str, field: &Field) -> Result<(), RepositoryError> {
-        self.save_field(relative_path, field)
-    }
-
-    fn delete_field_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.delete_file(relative_path)
-    }
-
-    fn ensure_fields_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
-        self.ensure_dir(relative_dir)
-    }
-
     // --- Types ---
 
     fn save_type(
@@ -3024,6 +3057,83 @@ fn catalog_save_instance<S: RepositoryStore + ?Sized>(
     };
     store.ensure_instance_dir(tier_dir)?;
     store.save_instance_json(&path, value)
+}
+
+// --- Field definition persistence (srs-rust#728, ADR-041 G3-G5) ---
+//
+// The shared file-tree adapter behind the typed `save_field` / `load_field_by_id` /
+// `delete_field` defaults. Paths are built here and never leave the store.
+
+struct FoundFieldFile {
+    full_path: String,
+    rel_path: String,
+    owner: PackageSelector,
+    value: serde_json::Value,
+}
+
+/// Find the file holding a field by id (and version), walking the owning boundary's
+/// field index. Reads raw JSON so a malformed sibling never blocks the lookup.
+fn find_field_file<S: RepositoryStore + ?Sized>(
+    store: &S,
+    id: &str,
+    version: Option<u32>,
+) -> Result<Option<FoundFieldFile>, RepositoryError> {
+    let owner = match store.resolve_definition_owner(id, DefinitionKind::Field) {
+        Ok(sel) => sel,
+        Err(RepositoryError::DefinitionNotFound { .. }) => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let boundary = store.load_package_boundary(&owner)?;
+    let prefix = owner.as_deref().unwrap_or("package").to_string();
+    for rel_path in &boundary.field_paths {
+        let full_path = format!("{prefix}/{rel_path}");
+        if let Ok(value) = store.load_instance_json(&full_path) {
+            if value["id"].as_str() == Some(id)
+                && version.is_none_or(|v| value["version"].as_u64() == Some(u64::from(v)))
+            {
+                return Ok(Some(FoundFieldFile {
+                    full_path,
+                    rel_path: rel_path.clone(),
+                    owner,
+                    value,
+                }));
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn save_field_impl<S: RepositoryStore + ?Sized>(
+    store: &S,
+    boundary: &PackageSelector,
+    field: &Field,
+) -> Result<(), RepositoryError> {
+    let meta = store.load_package_boundary(boundary)?;
+    let prefix = boundary.as_deref().unwrap_or("package");
+    let existing = meta.field_paths.iter().find(|rel| {
+        store
+            .load_instance_json(&format!("{prefix}/{rel}"))
+            .is_ok_and(|v| {
+                v["id"].as_str() == Some(field.id.as_str())
+                    && v["version"].as_u64() == Some(u64::from(field.version))
+            })
+    });
+    let value = serde_json::to_value(field).map_err(|e| RepositoryError::Serialize {
+        path: PathBuf::from(prefix),
+        source: e,
+    })?;
+    if let Some(rel) = existing {
+        return store.save_instance_json(&format!("{prefix}/{rel}"), &value);
+    }
+    let rel = crate::package_service::definition_rel_path(
+        DefinitionKind::Field,
+        &field.name,
+        &field.id,
+        u64::from(field.version),
+    );
+    store.ensure_instance_dir(&format!("{prefix}/fields"))?;
+    store.save_instance_json(&format!("{prefix}/{rel}"), &value)?;
+    store.add_definition_to_boundary(boundary, DefinitionKind::Field, &rel)
 }
 
 /// One catalog snapshot ([R24] applied), returning a container's locator.
@@ -3876,32 +3986,6 @@ pub mod memory {
             self.data
                 .borrow_mut()
                 .insert("package/package.json".to_string(), value.clone());
-            Ok(())
-        }
-
-        fn save_field(&self, relative_path: &str, field: &Field) -> Result<(), RepositoryError> {
-            let v = serde_json::to_value(field).unwrap();
-            self.data.borrow_mut().insert(relative_path.to_string(), v);
-            Ok(())
-        }
-
-        fn update_field_file(
-            &self,
-            relative_path: &str,
-            field: &Field,
-        ) -> Result<(), RepositoryError> {
-            if !self.data.borrow().contains_key(relative_path) {
-                return Err(not_found(relative_path));
-            }
-            self.save_field(relative_path, field)
-        }
-
-        fn delete_field_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-            self.data.borrow_mut().remove(relative_path);
-            Ok(())
-        }
-
-        fn ensure_fields_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
             Ok(())
         }
 
