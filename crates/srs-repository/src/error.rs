@@ -684,6 +684,18 @@ pub enum RepositoryError {
         message: String,
     },
 
+    /// Bringing items in from another copy was refused and nothing was written
+    /// (srs-rust#1580). `code` is one of `merge-repository-mismatch`,
+    /// `merge-revision-mismatch`, `merge-revision-unsupported`, `merge-selection-invalid`,
+    /// `merge-store-unsupported`, `merge-target-migration-needed`.
+    #[error("{message}")]
+    MergeRefused {
+        #[serde(skip)]
+        code: &'static str,
+        #[serde(skip)]
+        message: String,
+    },
+
     /// RFC-049 [R5], [R16], [R17]: a read or write refused at the boundary. `code` is
     /// one of `read-only`, `locator-unusable`, `id-mismatch`, `revision-unsupported`,
     /// `write-not-routed`, `write-refused`.
@@ -1463,6 +1475,7 @@ impl RepositoryError {
             Self::ActorProvenance { code, .. } => code,
             Self::InvalidPackageBundle { code, .. } => code,
             Self::SliceRefused { code, .. } => code,
+            Self::MergeRefused { code, .. } => code,
             Self::BoundaryRefused { code, .. } => code,
             Self::StorageGenerationUnsupported { .. } => "storage-generation-unsupported",
             Self::GzipSrsj { .. } => "srsj-gzip-rejected",
@@ -1876,6 +1889,10 @@ mod tests {
                 code: "bundle-x",
                 message: "x".into(),
             },
+            R::MergeRefused {
+                code: "merge-x",
+                message: "x".into(),
+            },
             R::SliceRefused {
                 code: "slice-y",
                 message: "x".into(),
@@ -1894,7 +1911,7 @@ mod tests {
         let all = all_variants();
         assert_eq!(
             all.len(),
-            109,
+            110,
             "all_variants() is out of step with the enum"
         );
         let mut seen = std::collections::HashSet::new();

@@ -43,6 +43,7 @@ pub mod lifecycle_service;
 pub mod loader;
 pub mod manifest;
 pub mod manifest_service;
+pub mod merge_service;
 pub mod migrate_identity_service;
 pub mod migration_registry_service;
 pub mod okf_export_service;

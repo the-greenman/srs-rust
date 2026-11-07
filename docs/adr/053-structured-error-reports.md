@@ -43,8 +43,8 @@ code into the prose instead (`SCREAMING_SNAKE:` prefixes, `"{code}: {message}"`)
    **Rejected: a schemars derive on `RepositoryError`.** The enum is `#[serde(untagged)]` and
    its code comes from the exhaustive `code()` match, not from serde, so a derive yields an
    `anyOf` of about 100 variant shapes with no code in them, many identical, and no branch tied
-   to a code. Six variants (`ManifestRootContainer`, `MigrationRefused`, `ContainerStorage`,
-   `ActorProvenance`, `InvalidPackageBundle`, `SliceRefused`) carry their code dynamically, one
+   to a code. Seven variants (`ManifestRootContainer`, `MigrationRefused`, `ContainerStorage`,
+   `ActorProvenance`, `InvalidPackageBundle`, `SliceRefused`, `MergeRefused`) carry their code dynamically, one
    variant to many codes. The `mcp-schema` feature is schemars 1 (draft 2020-12) while the
    payload goldens are schemars 0.8 (draft-07). A full mirror of every variant (about 100
    structs, most of which no client reads) was also rejected. The full union, a serde-tagged
