@@ -602,16 +602,6 @@ pub fn create_field_in_package(
         &field.id,
         boundary_path,
     )?;
-    let rel_filename = definition_rel_path(
-        DefinitionKind::Field,
-        &field.name,
-        &field.id,
-        u64::from(field.version),
-    );
-    let full_path = format!("{boundary_path}/{rel_filename}");
-
-    store.ensure_fields_dir(&format!("{boundary_path}/fields"))?;
-
     let created_at = if field.created_at.trim().is_empty() {
         chrono::Utc::now().to_rfc3339()
     } else {
@@ -623,8 +613,7 @@ pub fn create_field_in_package(
         ..field
     };
 
-    store.save_field(&full_path, &field_with_timestamp)?;
-    store.add_definition_to_boundary(&selector, DefinitionKind::Field, &rel_filename)?;
+    store.save_field(&selector, &field_with_timestamp)?;
 
     Ok(CreateFieldResult {
         field: field_with_timestamp,
@@ -658,11 +647,13 @@ fn update_field_inner(
     check_records: bool,
 ) -> Result<UpdateFieldResult, RepositoryError> {
     ensure_field_type_conforms(&field)?;
-    let same_version = find_field_path(store, &field.id, Some(field.version))?;
-    let (_, owner) =
-        find_field_path(store, &field.id, None)?.ok_or_else(|| RepositoryError::FieldNotFound {
-            field_id: field.id.clone(),
-        })?;
+    let same_version = store.field_owner(&field.id, Some(field.version))?;
+    let owner =
+        store
+            .field_owner(&field.id, None)?
+            .ok_or_else(|| RepositoryError::FieldNotFound {
+                field_id: field.id.clone(),
+            })?;
     if check_records {
         // The package as either write leaves it: this version replaced in place, or added
         // beside the earlier ones.
@@ -673,8 +664,8 @@ fn update_field_inner(
             package.fields.push(field.clone());
         })?;
     }
-    if let Some((relative_path, _)) = same_version {
-        store.update_field_file(&relative_path, &field)?;
+    if let Some(same_owner) = same_version {
+        store.save_field(&same_owner, &field)?;
         return Ok(UpdateFieldResult { field });
     }
     let field = create_field_in_package(store, field, owner)?.field;
@@ -768,8 +759,9 @@ pub fn delete_field(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<DeleteFieldResult, RepositoryError> {
-    let (full_path, owner) =
-        find_field_path(store, id, None)?.ok_or_else(|| RepositoryError::FieldNotFound {
+    store
+        .field_owner(id, None)?
+        .ok_or_else(|| RepositoryError::FieldNotFound {
             field_id: id.to_string(),
         })?;
 
@@ -782,19 +774,13 @@ pub fn delete_field(
         });
     }
 
-    let boundary_prefix = owner.as_deref().unwrap_or("package");
-    let rel_path = full_path
-        .strip_prefix(&format!("{boundary_prefix}/"))
-        .unwrap_or(&full_path)
-        .to_string();
-
-    store.delete_field_file(&full_path)?;
-    store.remove_definition_from_boundary(&owner, DefinitionKind::Field, &rel_path)?;
+    store.delete_field(id, None)?;
     Ok(DeleteFieldResult { id: id.to_string() })
 }
 
-/// Find the repo-root-relative path and owner boundary for a field by its ID; with
-/// `version`, the file holding that version (srs-rust#1473).
+/// Test-only: the repo-root-relative path and owner boundary for a field by its ID, to
+/// assert on-disk file names. Services use `RepositoryStore::load_field_by_id`.
+#[cfg(test)]
 pub(crate) fn find_field_path(
     store: &dyn RepositoryStore,
     id: &str,

@@ -200,7 +200,7 @@ pub fn migrate_field_types(
         // Core-package fields are merged in from the embedded bundle (ADR-025)
         // and are not owned by this repository — migrating them here would
         // write a copy the repo never declared.
-        if crate::package_service::find_field_path(store, &field.id, None)?.is_none() {
+        if store.field_owner(&field.id, None)?.is_none() {
             fields_skipped_not_owned += 1;
             continue;
         }
