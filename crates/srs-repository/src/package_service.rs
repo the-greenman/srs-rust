@@ -1326,6 +1326,12 @@ pub fn create_relation_type(
     })?;
 
     ensure_relation_type_key_free(store, &def)?;
+    refuse_cross_boundary_duplicate_id(
+        store,
+        crate::catalog::CatalogKind::RelationType,
+        &def.id,
+        boundary_path,
+    )?;
 
     store.ensure_relation_types_dir(&format!("{boundary_path}/relation-types"))?;
     store.save_relation_type_definition(&full_path, &def)?;

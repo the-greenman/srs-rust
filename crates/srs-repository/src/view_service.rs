@@ -746,6 +746,12 @@ pub fn create_composition(
         source: e,
     })?;
     refuse_dangling_render_views(store, &composition)?;
+    crate::package_service::refuse_cross_boundary_duplicate_id(
+        store,
+        crate::catalog::CatalogKind::Composition,
+        &composition.id,
+        boundary_path,
+    )?;
     store.ensure_compositions_dir(&format!("{boundary_path}/compositions"))?;
     let rel_filename = crate::package_service::definition_rel_path(
         DefinitionKind::Composition,
