@@ -73,6 +73,11 @@ pub trait Vfs: std::fmt::Debug {
     fn exists(&self, rel: &str) -> bool;
     fn is_dir(&self, rel: &str) -> bool;
     fn is_file(&self, rel: &str) -> bool;
+    /// True when any component of `rel` (below the root) is a symbolic link.
+    /// Memory-backed trees have none (RFC-045 [R6]).
+    fn has_symlink_component(&self, _rel: &str) -> bool {
+        false
+    }
     fn byte_len(&self, rel: &str) -> Result<u64, RepositoryError>;
     /// Direct children of `rel`. A missing directory yields an empty list.
     fn list_dir(&self, rel: &str) -> Result<Vec<VfsEntry>, RepositoryError>;
@@ -239,6 +244,17 @@ impl Vfs for DiskVfs {
 
     fn is_file(&self, rel: &str) -> bool {
         self.abs(rel).is_file()
+    }
+
+    fn has_symlink_component(&self, rel: &str) -> bool {
+        let mut cur = self.root.clone();
+        for seg in rel.split('/').filter(|s| !s.is_empty()) {
+            cur.push(seg);
+            if std::fs::symlink_metadata(&cur).is_ok_and(|m| m.file_type().is_symlink()) {
+                return true;
+            }
+        }
+        false
     }
 
     fn byte_len(&self, rel: &str) -> Result<u64, RepositoryError> {

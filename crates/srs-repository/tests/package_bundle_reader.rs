@@ -379,3 +379,118 @@ fn install_bundle_bytes_reinstall_is_idempotent() {
     assert_eq!(second.installed, 0);
     assert_eq!(second.skipped_identical, first.installed);
 }
+
+// ── RFC-045 [R3], [R6]: writing the carried readme on install (srs-rust#1164 slice 2) ──
+
+fn install_with_readme(
+    store: &FileStore,
+    path: &str,
+    content: &str,
+) -> srs_repository::package_install_service::InstallPackageResult {
+    let mut b = bundle(srs_repository::field_type_migration_service::CURRENT_DATA_MODEL_REVISION);
+    b["readme"] = json!({"path": path, "content": content});
+    install_with(store, &b)
+}
+
+fn install_with(
+    store: &FileStore,
+    b: &Value,
+) -> srs_repository::package_install_service::InstallPackageResult {
+    install_package_bundle_bytes(store, &bytes(b), InstallBundleOptions::default()).unwrap()
+}
+
+fn conflicts(r: &InstallPackageResult) -> Vec<&srs_repository::diagnostic::Diagnostic> {
+    r.diagnostics_structured
+        .iter()
+        .filter(|d| d.code == "readme-write-conflict")
+        .collect()
+}
+
+#[test]
+fn install_writes_the_readme_at_its_path_byte_for_byte() {
+    let (temp, store) = file_repo();
+    let content = "\u{feff}line one\r\nline two\r\n";
+    let r = install_with_readme(&store, "docs/overview.md", content);
+    assert!(conflicts(&r).is_empty() && r.diagnostics_structured.is_empty());
+    let written =
+        std::fs::read(temp.path().join("packages/bundle-fixture/docs/overview.md")).unwrap();
+    assert_eq!(written, content.as_bytes());
+}
+
+#[test]
+fn install_without_readme_writes_nothing_and_says_nothing() {
+    let (_t, store) = file_repo();
+    let r = install_with(
+        &store,
+        &bundle(srs_repository::field_type_migration_service::CURRENT_DATA_MODEL_REVISION),
+    );
+    assert!(r.diagnostics_structured.is_empty() && r.notes.is_empty());
+}
+
+#[test]
+fn install_over_an_identical_readme_is_silent_and_a_different_one_is_kept() {
+    let (temp, store) = file_repo();
+    install_with_readme(&store, "README.md", "same\n");
+    let target = temp.path().join("packages/bundle-fixture/README.md");
+    // Re-install, identical bytes: no diagnostic.
+    let r = install_with_readme(&store, "README.md", "same\n");
+    assert!(conflicts(&r).is_empty(), "{:?}", r.diagnostics_structured);
+    // Different bytes: the file stays, a warning names the path.
+    let r = install_with_readme(&store, "README.md", "other\n");
+    let c = conflicts(&r);
+    assert_eq!(c.len(), 1);
+    assert!(
+        r.notes.iter().any(|n| n.contains("README.md")),
+        "{:?}",
+        r.notes
+    );
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "same\n");
+}
+
+#[test]
+fn install_keeps_a_carried_file_that_sits_at_the_readme_path() {
+    let (temp, store) = file_repo();
+    // A path another carried file of the same install writes: the readme goes last and yields.
+    let r = install_with_readme(&store, ".srs-import/import-records.json", "not json\n");
+    assert_eq!(conflicts(&r).len(), 1);
+    let kept = std::fs::read_to_string(
+        temp.path()
+            .join("packages/bundle-fixture/.srs-import/import-records.json"),
+    )
+    .unwrap();
+    assert!(kept.contains("generatedAt"), "{kept}");
+}
+
+#[test]
+fn install_never_writes_a_readme_through_a_regular_file_parent() {
+    let (temp, store) = file_repo();
+    install_with_readme(&store, "README.md", "x\n");
+    // `README.md` is a regular file: a readme at `README.md/inner.md` has a file for a parent.
+    let r = install_with_readme(&store, "README.md/inner.md", "y\n");
+    assert_eq!(conflicts(&r).len(), 1);
+    assert!(temp
+        .path()
+        .join("packages/bundle-fixture/README.md")
+        .is_file());
+}
+
+#[cfg(unix)]
+#[test]
+fn install_never_writes_a_readme_through_a_symbolic_link() {
+    let (temp, store) = file_repo();
+    install_with_readme(&store, "README.md", "x\n");
+    let outside = tempfile::TempDir::new().unwrap();
+    let link = temp.path().join("packages/bundle-fixture/linked");
+    std::os::unix::fs::symlink(outside.path(), &link).unwrap();
+    let r = install_with_readme(&store, "linked/README.md", "y\n");
+    assert_eq!(conflicts(&r).len(), 1);
+    assert!(
+        !outside.path().join("README.md").exists(),
+        "wrote through the link"
+    );
+    // The rest of the operation completed: the readme at its own path is untouched.
+    assert_eq!(
+        std::fs::read_to_string(temp.path().join("packages/bundle-fixture/README.md")).unwrap(),
+        "x\n"
+    );
+}
