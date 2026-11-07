@@ -88,6 +88,7 @@ pub mod tree_service;
 pub mod tree_session;
 mod type_json;
 pub mod type_schema_service;
+pub mod type_subtypes_service;
 pub mod validation;
 pub mod vfs;
 pub mod view_service;

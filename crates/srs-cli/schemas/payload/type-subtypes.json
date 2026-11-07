@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TypeSubtypesPayload",
+  "type": "object",
+  "required": [
+    "subtypes",
+    "typeId"
+  ],
+  "properties": {
+    "subtypes": {
+      "description": "Sorted by type id.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/TypeRefEntry"
+      }
+    },
+    "typeId": {
+      "type": "string"
+    }
+  },
+  "definitions": {
+    "TypeRefEntry": {
+      "description": "One Type in a `type subtypes` closure (latest version per id).",
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "namespace",
+        "version"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      }
+    }
+  }
+}

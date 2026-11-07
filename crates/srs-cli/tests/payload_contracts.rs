@@ -332,6 +332,7 @@ fn type_get() {
 #[test]
 fn type_schema() {
     check::<TypeSchemaPayload>("type-schema");
+    check::<TypeSubtypesPayload>("type-subtypes");
 }
 
 #[test]

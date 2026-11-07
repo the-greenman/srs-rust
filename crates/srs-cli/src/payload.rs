@@ -1413,6 +1413,24 @@ pub struct TypePayload {
     pub record_type: RecordType,
 }
 
+/// One Type in a `type subtypes` closure (latest version per id).
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TypeRefEntry {
+    pub id: String,
+    pub namespace: String,
+    pub name: String,
+    pub version: u32,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TypeSubtypesPayload {
+    pub type_id: String,
+    /// Sorted by type id.
+    pub subtypes: Vec<TypeRefEntry>,
+}
+
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TypeDeletePayload {

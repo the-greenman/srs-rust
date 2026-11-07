@@ -117,6 +117,7 @@ fn main() {
     write_schema!("type-create", TypePayload);
     write_schema!("type-update", TypePayload);
     write_schema!("type-delete", TypeDeletePayload);
+    write_schema!("type-subtypes", TypeSubtypesPayload);
     write_schema!("type-schema", TypeSchemaPayload);
     write_schema!("type-json-schema", TypeJsonSchemaPayload);
     write_schema!("schema-generate", SchemaGeneratePayload);
