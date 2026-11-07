@@ -21,6 +21,49 @@ pub struct BundledReadme {
     pub content: String,
 }
 
+/// The diagnostic code for a readme that could not be written (RFC-045 [R6]).
+pub const README_WRITE_CONFLICT: &str = "readme-write-conflict";
+
+/// Write a carried readme at `{dir}/{path}` (RFC-045 [R3], [R6]).
+///
+/// Call it after every other carried file of the operation. It never writes
+/// over an existing entry, nor through a symbolic link, nor where a parent is
+/// not a directory: it leaves what is there and returns the
+/// `readme-write-conflict` message. An existing regular file holding exactly
+/// the UTF-8 bytes of `content` is not a conflict and is left untouched.
+/// Stores that are not file trees (memory sessions) write nothing here.
+pub fn write_readme(
+    store: &dyn crate::store::RepositoryStore,
+    dir: &str,
+    readme: &BundledReadme,
+) -> Option<String> {
+    if !store.is_file_tree_store() {
+        return None;
+    }
+    let target = if dir.is_empty() {
+        readme.path.clone()
+    } else {
+        format!("{dir}/{}", readme.path)
+    };
+    let conflict = |why: &str| {
+        Some(format!(
+            "{README_WRITE_CONFLICT}: readme not written at `{target}`: {why}"
+        ))
+    };
+    if store.path_has_symlink(&target) {
+        return conflict("a component of the path is a symbolic link");
+    }
+    match store.load_binary_file(&target) {
+        Ok(existing) if existing == readme.content.as_bytes() => None,
+        Ok(_) => conflict("a file with different content is already there"),
+        Err(e) if e.is_not_found() => match store.save_text_file(&target, &readme.content) {
+            Ok(()) => None,
+            Err(e) => conflict(&format!("it cannot be written ({e})")),
+        },
+        Err(_) => conflict("the path is not a regular file"),
+    }
+}
+
 /// What the path is checked against ([R4]).
 pub enum ReadmeForm<'a> {
     /// A package bundle: relative to the package directory.
