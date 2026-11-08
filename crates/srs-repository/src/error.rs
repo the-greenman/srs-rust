@@ -41,9 +41,9 @@ impl std::fmt::Display for FieldOrderProblem {
 /// names the form callers must give (a boundary path, as `srs package list` shows it).
 fn package_selector_hint(selector: &Option<String>) -> String {
     match selector {
-        Some(s) => format!(
-            "'{s}' (expected a boundary path such as packages/website (srs package list))"
-        ),
+        Some(s) => {
+            format!("'{s}' (expected a boundary path such as packages/website (srs package list))")
+        }
         None => "the default package (package/package.json is missing)".to_string(),
     }
 }
