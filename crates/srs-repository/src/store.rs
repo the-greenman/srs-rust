@@ -460,27 +460,113 @@ pub trait RepositoryStore {
     fn delete_relation_type_file(&self, relative_path: &str) -> Result<(), RepositoryError>;
     fn ensure_relation_types_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
 
-    // --- Views (L1) ---
+    // --- Views (L1) and Document Views (L2) ---
 
-    fn save_view(&self, relative_path: &str, view: &View) -> Result<(), RepositoryError>;
-    fn update_view_file(&self, relative_path: &str, view: &View) -> Result<(), RepositoryError>;
-    fn delete_view_file(&self, relative_path: &str) -> Result<(), RepositoryError>;
-    fn ensure_views_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
+    // Typed logical-id methods (ADR-041 G3-G5, ADR-042 template; srs-rust#730), the
+    // same shape as the Field methods above: the caller names a package boundary and
+    // a View or Composition (by value or id), never a path. The defaults are the
+    // shared file-tree adapter over the generic instance primitives; a non-file
+    // backend overrides them and stores rows.
 
-    // --- Document Views (L2) ---
+    /// Persist a View in `boundary`. The same id and version already in that
+    /// boundary is rewritten in place; otherwise a new file is named by the ADR-050
+    /// scheme and indexed in the boundary's `views` array.
+    fn save_view(&self, boundary: &PackageSelector, view: &View) -> Result<(), RepositoryError> {
+        let value = definition_value(view, boundary, srs_schema::VIEW_SCHEMA_ID)?;
+        save_definition_impl(
+            self,
+            boundary,
+            DefinitionKind::View,
+            (&view.id, &view.name, view.version),
+            &value,
+        )
+    }
 
+    /// Rewrite an existing View in place (full replace), found by its id in
+    /// whichever boundary owns it. `ViewNotFound` when no boundary holds it.
+    fn update_view(&self, view: &View) -> Result<(), RepositoryError> {
+        let found =
+            find_definition_file(self, &view.id, DefinitionKind::View, None)?.ok_or_else(|| {
+                RepositoryError::ViewNotFound {
+                    view_id: view.id.clone(),
+                }
+            })?;
+        let value = definition_value(view, &found.owner, srs_schema::VIEW_SCHEMA_ID)?;
+        self.save_instance_json(&found.full_path, &value)
+    }
+
+    /// Load a View by logical id with the boundary that owns it. `Ok(None)` when
+    /// no boundary holds it.
+    fn load_view_by_id(
+        &self,
+        id: &str,
+    ) -> Result<Option<(View, PackageSelector)>, RepositoryError> {
+        load_definition_impl(self, id, DefinitionKind::View)
+    }
+
+    /// Delete a View by logical id and drop it from its boundary's index.
+    /// `ViewNotFound` when absent.
+    fn delete_view(&self, id: &str) -> Result<(), RepositoryError> {
+        let found =
+            find_definition_file(self, id, DefinitionKind::View, None)?.ok_or_else(|| {
+                RepositoryError::ViewNotFound {
+                    view_id: id.to_string(),
+                }
+            })?;
+        let _ = self.delete_instance_file(&found.full_path); // best-effort; may already be gone
+        self.remove_definition_from_boundary(&found.owner, DefinitionKind::View, &found.rel_path)
+    }
+
+    /// Persist a Composition in `boundary` (same rules as [`Self::save_view`]).
     fn save_composition(
         &self,
-        relative_path: &str,
-        view: &Composition,
-    ) -> Result<(), RepositoryError>;
-    fn update_composition_file(
+        boundary: &PackageSelector,
+        composition: &Composition,
+    ) -> Result<(), RepositoryError> {
+        let value = definition_value(composition, boundary, srs_schema::COMPOSITION_SCHEMA_ID)?;
+        save_definition_impl(
+            self,
+            boundary,
+            DefinitionKind::Composition,
+            (&composition.id, &composition.name, composition.version),
+            &value,
+        )
+    }
+
+    /// Rewrite an existing Composition in place (full replace), found by its id.
+    /// `CompositionNotFoundById` when no boundary holds it.
+    fn update_composition(&self, composition: &Composition) -> Result<(), RepositoryError> {
+        let found = find_definition_file(self, &composition.id, DefinitionKind::Composition, None)?
+            .ok_or_else(|| RepositoryError::CompositionNotFoundById {
+                composition_id: composition.id.clone(),
+            })?;
+        let value = definition_value(composition, &found.owner, srs_schema::COMPOSITION_SCHEMA_ID)?;
+        self.save_instance_json(&found.full_path, &value)
+    }
+
+    /// Load a Composition by logical id with the boundary that owns it.
+    fn load_composition_by_id(
         &self,
-        relative_path: &str,
-        view: &Composition,
-    ) -> Result<(), RepositoryError>;
-    fn delete_composition_file(&self, relative_path: &str) -> Result<(), RepositoryError>;
-    fn ensure_compositions_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
+        id: &str,
+    ) -> Result<Option<(Composition, PackageSelector)>, RepositoryError> {
+        load_definition_impl(self, id, DefinitionKind::Composition)
+    }
+
+    /// Delete a Composition by logical id and drop it from its boundary's index.
+    /// `CompositionNotFoundById` when absent.
+    fn delete_composition(&self, id: &str) -> Result<(), RepositoryError> {
+        let found = find_definition_file(self, id, DefinitionKind::Composition, None)?.ok_or_else(
+            || RepositoryError::CompositionNotFoundById {
+                composition_id: id.to_string(),
+            },
+        )?;
+        let _ = self.delete_instance_file(&found.full_path); // best-effort; may already be gone
+        self.remove_definition_from_boundary(
+            &found.owner,
+            DefinitionKind::Composition,
+            &found.rel_path,
+        )
+    }
 
     // --- Themes ---
 
@@ -2354,62 +2440,6 @@ impl RepositoryStore for FileStore {
         self.ensure_dir(relative_dir)
     }
 
-    // --- Views (L1) ---
-
-    fn save_view(&self, relative_path: &str, view: &View) -> Result<(), RepositoryError> {
-        let value = serde_json::to_value(view).map_err(|e| RepositoryError::Serialize {
-            path: self.abs(relative_path),
-            source: e,
-        })?;
-        let mut value = value;
-        inject_definition_schema(&mut value, srs_schema::VIEW_SCHEMA_ID);
-        self.write_json(relative_path, &value)
-    }
-
-    fn update_view_file(&self, relative_path: &str, view: &View) -> Result<(), RepositoryError> {
-        self.save_view(relative_path, view)
-    }
-
-    fn delete_view_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.delete_file(relative_path)
-    }
-
-    fn ensure_views_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
-        self.ensure_dir(relative_dir)
-    }
-
-    // --- Document Views (L2) ---
-
-    fn save_composition(
-        &self,
-        relative_path: &str,
-        view: &Composition,
-    ) -> Result<(), RepositoryError> {
-        let value = serde_json::to_value(view).map_err(|e| RepositoryError::Serialize {
-            path: self.abs(relative_path),
-            source: e,
-        })?;
-        let mut value = value;
-        inject_definition_schema(&mut value, srs_schema::COMPOSITION_SCHEMA_ID);
-        self.write_json(relative_path, &value)
-    }
-
-    fn update_composition_file(
-        &self,
-        relative_path: &str,
-        view: &Composition,
-    ) -> Result<(), RepositoryError> {
-        self.save_composition(relative_path, view)
-    }
-
-    fn delete_composition_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.delete_file(relative_path)
-    }
-
-    fn ensure_compositions_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
-        self.ensure_dir(relative_dir)
-    }
-
     // --- Themes ---
 
     fn save_theme(
@@ -3147,6 +3177,128 @@ fn save_field_impl<S: RepositoryStore + ?Sized>(
     store.ensure_instance_dir(&format!("{prefix}/fields"))?;
     store.save_instance_json(&format!("{prefix}/{rel}"), &value)?;
     store.add_definition_to_boundary(boundary, DefinitionKind::Field, &rel)
+}
+
+// ── View / Composition definition files (ADR-041 G3-G5, srs-rust#730) ──────────
+// The shared file-tree adapter behind the typed `save_view` / `load_view_by_id` /
+// `delete_view` (and Composition) defaults. Paths are built here and never leave
+// the store.
+
+struct FoundDefinitionFile {
+    full_path: String,
+    rel_path: String,
+    owner: PackageSelector,
+}
+
+/// The `package.json` array that indexes a definition kind's files.
+fn definition_array_key(kind: DefinitionKind) -> &'static str {
+    match kind {
+        DefinitionKind::Composition => "compositions",
+        _ => "views",
+    }
+}
+
+/// Locate a View/Composition file by logical id (and version when given) in the
+/// boundary that owns it, via that boundary's own `package.json` index.
+fn find_definition_file<S: RepositoryStore + ?Sized>(
+    store: &S,
+    id: &str,
+    kind: DefinitionKind,
+    version: Option<u32>,
+) -> Result<Option<FoundDefinitionFile>, RepositoryError> {
+    let owner = match store.resolve_definition_owner(id, kind) {
+        Ok(sel) => sel,
+        Err(RepositoryError::DefinitionNotFound { .. }) => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    scan_definition_index(store, owner, id, kind, version)
+}
+
+/// Scan one boundary's own `package.json` index for a View/Composition file by id
+/// (and version when given). No catalog is consulted, so it also serves a
+/// repository that has not been migrated yet.
+fn scan_definition_index<S: RepositoryStore + ?Sized>(
+    store: &S,
+    owner: PackageSelector,
+    id: &str,
+    kind: DefinitionKind,
+    version: Option<u32>,
+) -> Result<Option<FoundDefinitionFile>, RepositoryError> {
+    let prefix = owner.as_deref().unwrap_or("package").to_string();
+    let pkg_json = store.load_instance_json(&format!("{prefix}/package.json"))?;
+    let entries = pkg_json[definition_array_key(kind)]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    for entry in &entries {
+        let Some(rel) = entry.as_str() else { continue };
+        let full_path = format!("{prefix}/{rel}");
+        if let Ok(value) = store.load_instance_json(&full_path) {
+            if value["id"].as_str() == Some(id)
+                && version.is_none_or(|v| value["version"].as_u64() == Some(u64::from(v)))
+            {
+                return Ok(Some(FoundDefinitionFile {
+                    full_path,
+                    rel_path: rel.to_string(),
+                    owner,
+                }));
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// Serialize a definition and stamp its `$schema`, as every definition write does.
+fn definition_value<T: serde::Serialize>(
+    def: &T,
+    boundary: &PackageSelector,
+    schema_id: &str,
+) -> Result<serde_json::Value, RepositoryError> {
+    let mut value = serde_json::to_value(def).map_err(|e| RepositoryError::Serialize {
+        path: PathBuf::from(boundary.as_deref().unwrap_or("package")),
+        source: e,
+    })?;
+    inject_definition_schema(&mut value, schema_id);
+    Ok(value)
+}
+
+fn save_definition_impl<S: RepositoryStore + ?Sized>(
+    store: &S,
+    boundary: &PackageSelector,
+    kind: DefinitionKind,
+    (id, name, version): (&str, &str, u32),
+    value: &serde_json::Value,
+) -> Result<(), RepositoryError> {
+    store.load_package_boundary(boundary)?;
+    let prefix = boundary.as_deref().unwrap_or("package");
+    // Same id and version already in this boundary: rewrite in place.
+    if let Some(found) = scan_definition_index(store, boundary.clone(), id, kind, Some(version))? {
+        return store.save_instance_json(&found.full_path, value);
+    }
+    let rel = crate::package_service::definition_rel_path(kind, name, id, u64::from(version));
+    let dir = match kind {
+        DefinitionKind::Composition => "compositions",
+        _ => "views",
+    };
+    store.ensure_instance_dir(&format!("{prefix}/{dir}"))?;
+    store.save_instance_json(&format!("{prefix}/{rel}"), value)?;
+    store.add_definition_to_boundary(boundary, kind, &rel)
+}
+
+fn load_definition_impl<S: RepositoryStore + ?Sized, T: serde::de::DeserializeOwned>(
+    store: &S,
+    id: &str,
+    kind: DefinitionKind,
+) -> Result<Option<(T, PackageSelector)>, RepositoryError> {
+    let Some(found) = find_definition_file(store, id, kind, None)? else {
+        return Ok(None);
+    };
+    let value = store.load_instance_json(&found.full_path)?;
+    let def: T = serde_json::from_value(value).map_err(|e| RepositoryError::Serialize {
+        path: PathBuf::from(&found.full_path),
+        source: e,
+    })?;
+    Ok(Some((def, found.owner)))
 }
 
 /// One catalog snapshot ([R24] applied), returning a container's locator.
@@ -4084,64 +4236,6 @@ pub mod memory {
         }
 
         fn ensure_relation_types_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
-            Ok(())
-        }
-
-        fn save_view(&self, relative_path: &str, view: &View) -> Result<(), RepositoryError> {
-            let mut v = serde_json::to_value(view).unwrap();
-            inject_definition_schema(&mut v, srs_schema::VIEW_SCHEMA_ID);
-            self.data.borrow_mut().insert(relative_path.to_string(), v);
-            Ok(())
-        }
-
-        fn update_view_file(
-            &self,
-            relative_path: &str,
-            view: &View,
-        ) -> Result<(), RepositoryError> {
-            if !self.data.borrow().contains_key(relative_path) {
-                return Err(not_found(relative_path));
-            }
-            self.save_view(relative_path, view)
-        }
-
-        fn delete_view_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-            self.data.borrow_mut().remove(relative_path);
-            Ok(())
-        }
-
-        fn ensure_views_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
-            Ok(())
-        }
-
-        fn save_composition(
-            &self,
-            relative_path: &str,
-            view: &Composition,
-        ) -> Result<(), RepositoryError> {
-            let mut v = serde_json::to_value(view).unwrap();
-            inject_definition_schema(&mut v, srs_schema::COMPOSITION_SCHEMA_ID);
-            self.data.borrow_mut().insert(relative_path.to_string(), v);
-            Ok(())
-        }
-
-        fn update_composition_file(
-            &self,
-            relative_path: &str,
-            view: &Composition,
-        ) -> Result<(), RepositoryError> {
-            if !self.data.borrow().contains_key(relative_path) {
-                return Err(not_found(relative_path));
-            }
-            self.save_composition(relative_path, view)
-        }
-
-        fn delete_composition_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-            self.data.borrow_mut().remove(relative_path);
-            Ok(())
-        }
-
-        fn ensure_compositions_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
             Ok(())
         }
 
