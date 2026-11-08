@@ -1265,6 +1265,28 @@ fn ensure_relation_type_key_free(
     Ok(())
 }
 
+/// RFC-023 I-88: a relation-type key must not equal a `sourceRole` value. Enforced on
+/// create and update only; the loader stays lenient so a collision already at rest still
+/// loads and `repo validate` reports `SOURCEROLE_RELATIONTYPE_COLLISION` (warning).
+fn ensure_key_not_source_role(
+    def: &RelationTypeDefinition,
+    path: &str,
+) -> Result<(), RepositoryError> {
+    if srs_core::types::source_reference::SourceRole::is_source_role_value(&def.key) {
+        return Err(RepositoryError::RelationTypeDefinitionValidation {
+            path: std::path::PathBuf::from(path),
+            source: srs_core::error::CoreError::InvalidFieldValue {
+                key: "key".to_string(),
+                reason: format!(
+                    "I-88: relation-type key '{k}' equals a sourceRole value; use a namespaced key such as 'com.acme/{k}'",
+                    k = def.key
+                ),
+            },
+        });
+    }
+    Ok(())
+}
+
 /// Create a new relation type definition in a specific package boundary.
 /// Pass `selector = None` for the primary package; `Some(path)` for a sub-package.
 /// Writes the definition JSON file and updates the boundary index.
@@ -1311,6 +1333,7 @@ pub fn create_relation_type(
         }
     })?;
 
+    ensure_key_not_source_role(&def, &full_path)?;
     ensure_relation_type_key_free(store, &def)?;
     refuse_cross_boundary_duplicate_id(
         store,
@@ -1361,6 +1384,7 @@ pub fn update_relation_type(
         }
     })?;
 
+    ensure_key_not_source_role(&def, &relative_path)?;
     ensure_relation_type_key_free(store, &def)?;
 
     let stored_key = store
@@ -4062,6 +4086,26 @@ mod tests {
             updated_at: None,
             meta: None,
         }
+    }
+
+    /// srs-rust#1610 (RFC-023 I-88): a key equal to a sourceRole value is refused on
+    /// create and on update; a namespaced key is fine.
+    #[test]
+    fn relation_type_key_equal_to_source_role_is_refused() {
+        let store = MemoryStore::default();
+        let err =
+            create_relation_type(&store, rt_def_for_key("rt-e", "evidence"), None).unwrap_err();
+        assert!(err.to_string().contains("I-88"), "got {err:?}");
+        assert!(store
+            .load_package()
+            .unwrap()
+            .relation_types()
+            .iter()
+            .all(|d| d.key != "evidence"));
+
+        create_relation_type(&store, rt_def_for_key("rt-a", "com.acme/evidence"), None).unwrap();
+        let err = update_relation_type(&store, rt_def_for_key("rt-a", "attaches")).unwrap_err();
+        assert!(err.to_string().contains("I-88"), "got {err:?}");
     }
 
     /// srs-rust#1474: a key another definition holds is refused before anything is written.
