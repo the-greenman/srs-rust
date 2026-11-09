@@ -272,6 +272,11 @@ fn cmd_blueprint_validate(ctx: CliContext, id: String) -> Result<String> {
             id: result.id,
             valid: result.valid,
             diagnostics: result.diagnostics,
+            diagnostics_structured: result
+                .diagnostics_structured
+                .into_iter()
+                .map(Into::into)
+                .collect(),
         },
     )
 }

@@ -80,6 +80,9 @@ pub struct ValidateBlueprintResult {
     pub id: String,
     pub valid: bool,
     pub diagnostics: Vec<String>,
+    /// `diagnostics` as structured findings, entry for entry (ADR-057,
+    /// srs-rust#1339); the text list is unchanged until srs-rust#1496.
+    pub diagnostics_structured: Vec<crate::diagnostic::Diagnostic>,
 }
 
 // ── Private helpers ───────────────────────────────────────────────────────────
@@ -451,23 +454,24 @@ pub fn validate_blueprint_by_id(
     match get_blueprint_by_id(store, blueprint_id)? {
         GetBlueprintResult::Found(bp) => {
             let result = validate_blueprint(&bp);
-            let diagnostics: Vec<String> = result
-                .diagnostics
-                .into_iter()
-                .map(|d| {
-                    let severity = match d.severity {
-                        srs_core::types::blueprint::BlueprintDiagnosticSeverity::Error => "ERROR",
-                        srs_core::types::blueprint::BlueprintDiagnosticSeverity::Warning => {
-                            "WARNING"
-                        }
-                    };
-                    format!("[{severity}] {}", d.message)
-                })
-                .collect();
+            let mut collected = crate::diagnostic::Diagnostics::new();
+            for d in result.diagnostics {
+                let (sev, label, code) = match d.severity {
+                    srs_core::types::blueprint::BlueprintDiagnosticSeverity::Error => {
+                        (DiagnosticSeverity::Error, "ERROR", "blueprint-error")
+                    }
+                    srs_core::types::blueprint::BlueprintDiagnosticSeverity::Warning => {
+                        (DiagnosticSeverity::Warning, "WARNING", "blueprint-warning")
+                    }
+                };
+                collected.push(sev, code, format!("[{label}] {}", d.message));
+            }
+            let (diagnostics, diagnostics_structured) = collected.into_parts();
             Ok(ValidateBlueprintResult {
                 id: blueprint_id.to_string(),
                 valid: result.valid,
                 diagnostics,
+                diagnostics_structured,
             })
         }
         GetBlueprintResult::NotFound => Err(RepositoryError::BlueprintNotFound {
@@ -754,6 +758,15 @@ mod tests {
         let result = validate_blueprint_by_id(&store, &bp.id).unwrap();
         assert!(!result.valid);
         assert!(result.diagnostics.iter().any(|d| d.contains("version 0")));
+        crate::diagnostic::assert_parallel(&result.diagnostics, &result.diagnostics_structured);
+        let d = result
+            .diagnostics_structured
+            .iter()
+            .find(|d| d.message.contains("version 0"))
+            .unwrap();
+        assert!(d.message.starts_with("[ERROR] "));
+        assert_eq!(d.severity, DiagnosticSeverity::Error);
+        assert_eq!(d.code, "blueprint-error");
     }
 
     #[test]
