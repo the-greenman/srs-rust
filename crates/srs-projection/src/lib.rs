@@ -1,5 +1,5 @@
-//! SRS projections — the JSON Schema projection (RFC-035 / srs-rust#770), and
-//! future SQL, search, and graph views.
+//! SRS projections — the JSON Schema projection (RFC-035 / srs-rust#770), the
+//! relational projection (srs-rust#1603), and future search and graph views.
 //!
 //! Per `docs/architecture/capability-layering.md` the semantics live here once,
 //! typed in and typed out. The CLI (`srs type json-schema`, `srs schema
@@ -7,6 +7,9 @@
 //! client re-derives a schema.
 
 pub mod json_schema;
+pub mod sql;
+
+pub use sql::{sql_projection, SqlProjectionInput, SqlProjectionResult, SqlRowCounts, SqlTable};
 
 use json_schema::{
     emit_entity, emit_entity_for, EntitySchema, OrderedMap, ProjectionContext, ProjectionError,
