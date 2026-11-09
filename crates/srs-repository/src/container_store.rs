@@ -273,6 +273,29 @@ fn prior_value<S: RepositoryStore + ?Sized>(
     }
 }
 
+/// Write a head carried in unchanged from another copy (srs-rust#1580).
+pub(crate) fn write_carried_head<S: RepositoryStore + ?Sized>(
+    store: &S,
+    container_id: &str,
+    head: &Value,
+) -> Result<(), RepositoryError> {
+    write_line(store, &head_path(container_id), head)
+}
+
+/// Write an entry carried in unchanged from another copy, its `parent` and `key` as stored
+/// (RFC-051 [R9]; `instanceId` breaks a key tie).
+pub(crate) fn write_carried_entry<S: RepositoryStore + ?Sized>(
+    store: &S,
+    container_id: &str,
+    entry: &StoredEntry,
+) -> Result<(), RepositoryError> {
+    write_line(
+        store,
+        &entry_path(container_id, &entry.instance_id),
+        &entry_value(container_id, entry),
+    )
+}
+
 /// Persist `container` in directory form: the head only when it differs from the stored one
 /// (a member operation never writes it, [R8]), then exactly the entries the write set names,
 /// each as one canonical line ([R3]).

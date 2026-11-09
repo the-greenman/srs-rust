@@ -60,6 +60,10 @@ pub struct TreeNode {
 pub struct TreeResult {
     pub roots: Vec<TreeNode>,
     pub diagnostics: Vec<String>,
+    /// `diagnostics` as structured findings, entry for entry (ADR-057,
+    /// srs-rust#1339); the text list is unchanged until srs-rust#1496.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics_structured: Vec<crate::diagnostic::Diagnostic>,
 }
 
 /// The subset of an instance's data a tree node needs to render itself and
@@ -150,7 +154,7 @@ pub fn build_tree(
 
     let root_ids = resolve_roots(store, &options, &relations)?;
 
-    let mut diagnostics = Vec::new();
+    let mut diagnostics = crate::diagnostic::Diagnostics::new();
     let mut roots = Vec::new();
     // Global to the whole `build_tree` call (srs-rust#1117), not per-root: a
     // node reached under one root and again under another (or again later
@@ -175,7 +179,12 @@ pub fn build_tree(
         }
     }
 
-    Ok(TreeResult { roots, diagnostics })
+    let (diagnostics, diagnostics_structured) = diagnostics.into_parts();
+    Ok(TreeResult {
+        roots,
+        diagnostics,
+        diagnostics_structured,
+    })
 }
 
 fn resolve_roots(
@@ -234,7 +243,7 @@ fn build_node(
     depth: u32,
     ancestors: &mut HashSet<String>,
     expanded: &mut HashSet<String>,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut crate::diagnostic::Diagnostics,
     container_children: &HashMap<String, Vec<String>>,
 ) -> Result<Option<TreeNode>, RepositoryError> {
     // Tier-aware: a Tier-0 note is a legal member of the part-of tree (RFC-013
@@ -242,9 +251,12 @@ fn build_node(
     // `build_node_headers`) carries an empty type and no lifecycle, exactly
     // as a fresh `get_instance_by_id` parse would.
     let Some(header) = headers.get(instance_id) else {
-        diagnostics.push(format!(
-            "tree: instance {instance_id} does not resolve — skipped"
-        ));
+        diagnostics.push_for(
+            crate::validation::DiagnosticSeverity::Warning,
+            "tree-instance-unresolved",
+            format!("tree: instance {instance_id} does not resolve — skipped"),
+            Some(instance_id.to_string()),
+        );
         return Ok(None);
     };
 
@@ -924,5 +936,27 @@ mod tests {
             !a_again.already_expanded,
             "cycle_pruned wins over already_expanded when both are true"
         );
+    }
+
+    #[test]
+    fn unresolved_root_is_reported_in_both_lists() {
+        let store = make_store(
+            vec![make_field("f-title", "title")],
+            vec![make_type("t-node", "node", &["f-title"])],
+        );
+        let result = build_tree(
+            &store,
+            TreeOptions {
+                root_ids: Some(vec!["no-such-instance".to_string()]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert!(result.roots.is_empty());
+        crate::diagnostic::assert_parallel(&result.diagnostics, &result.diagnostics_structured);
+        let d = &result.diagnostics_structured[0];
+        assert_eq!(d.code, "tree-instance-unresolved");
+        assert_eq!(d.instance_id.as_deref(), Some("no-such-instance"));
     }
 }

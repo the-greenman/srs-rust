@@ -89,6 +89,12 @@ pub fn create_lifecycle(
     refuse_invalid_lifecycle(&lifecycle)?;
 
     let boundary_path = selector.as_deref().unwrap_or("package");
+    crate::package_service::refuse_cross_boundary_duplicate_id(
+        store,
+        crate::catalog::CatalogKind::Lifecycle,
+        &lifecycle.id,
+        boundary_path,
+    )?;
     let rel_filename = crate::package_service::definition_rel_path(
         DefinitionKind::Lifecycle,
         &lifecycle.name,

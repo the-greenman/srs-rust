@@ -77,6 +77,9 @@ pub struct ValidateProtocolResult {
     pub protocol_id: String,
     pub valid: bool,
     pub diagnostics: Vec<String>,
+    /// `diagnostics` as structured findings, entry for entry (ADR-057,
+    /// srs-rust#1339); the text list is unchanged until srs-rust#1496.
+    pub diagnostics_structured: Vec<crate::diagnostic::Diagnostic>,
 }
 
 /// Summary of a protocol for list operations.
@@ -261,21 +264,28 @@ pub fn validate_protocol_definition(
         GetProtocolResult::Found(val) => {
             let proto = protocol_from_value(&val)?;
             let validation = validate_protocol(&proto);
-            let diagnostics: Vec<String> = validation
-                .diagnostics
-                .into_iter()
-                .map(|d| {
-                    let sev = match d.severity {
-                        ProtocolDiagnosticSeverity::Error => "ERROR",
-                        ProtocolDiagnosticSeverity::Warning => "WARNING",
-                    };
-                    format!("[{}] {}", sev, d.message)
-                })
-                .collect();
+            let mut collected = crate::diagnostic::Diagnostics::new();
+            for d in validation.diagnostics {
+                let (sev, label, code) = match d.severity {
+                    ProtocolDiagnosticSeverity::Error => (
+                        crate::validation::DiagnosticSeverity::Error,
+                        "ERROR",
+                        "protocol-error",
+                    ),
+                    ProtocolDiagnosticSeverity::Warning => (
+                        crate::validation::DiagnosticSeverity::Warning,
+                        "WARNING",
+                        "protocol-warning",
+                    ),
+                };
+                collected.push(sev, code, format!("[{}] {}", label, d.message));
+            }
+            let (diagnostics, diagnostics_structured) = collected.into_parts();
             Ok(ValidateProtocolResult {
                 protocol_id: proto.id,
                 valid: validation.valid,
                 diagnostics,
+                diagnostics_structured,
             })
         }
         GetProtocolResult::NotFound => Err(RepositoryError::NotFound {
@@ -331,6 +341,12 @@ pub fn create_protocol(
     check_protocol(&protocol)?;
 
     let boundary_path = selector.as_deref().unwrap_or("package");
+    crate::package_service::refuse_cross_boundary_duplicate_id(
+        store,
+        crate::catalog::CatalogKind::Protocol,
+        &protocol.id,
+        boundary_path,
+    )?;
     let rel_filename = crate::package_service::definition_rel_path(
         DefinitionKind::Protocol,
         &protocol.name,
@@ -540,6 +556,35 @@ mod tests {
         let found = result.expect("should find protocol for type-b");
         assert_eq!(found.protocol_id, "proto-002");
         assert_eq!(found.protocol_name, "Beta");
+    }
+
+    #[test]
+    fn validate_protocol_definition_structured_list_matches_text_list() {
+        let mut lp = make_protocol("proto-001", "type-a", "Alpha");
+        let stage: srs_core::types::protocol::ProtocolStage = serde_json::from_value(
+            serde_json::json!({"stageId": "s1", "name": "S1", "order": 1, "dependsOn": ["s1"]}),
+        )
+        .unwrap();
+        lp.protocol.stages = vec![stage];
+        lp.raw = serde_json::to_value(&lp.protocol).unwrap();
+        let store = MemoryStore::empty().with_protocol(lp);
+        let result = validate_protocol_definition(&store, "proto-001").unwrap();
+        assert!(!result.valid);
+        assert!(!result.diagnostics.is_empty());
+        assert_eq!(
+            result.diagnostics.len(),
+            result.diagnostics_structured.len()
+        );
+        for (text, d) in result
+            .diagnostics
+            .iter()
+            .zip(result.diagnostics_structured.iter())
+        {
+            assert_eq!(text, &d.message);
+            assert!(text.starts_with("[ERROR] "));
+            assert_eq!(d.severity, crate::validation::DiagnosticSeverity::Error);
+            assert_eq!(d.code, "protocol-error");
+        }
     }
 
     #[test]

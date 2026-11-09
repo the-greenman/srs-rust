@@ -25,6 +25,11 @@ pub fn dispatch(ctx: CliContext, args: TreeArgs) -> Result<String> {
                     roots,
                     text,
                     diagnostics: result.diagnostics,
+                    diagnostics_structured: result
+                        .diagnostics_structured
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
                 },
             )
         }

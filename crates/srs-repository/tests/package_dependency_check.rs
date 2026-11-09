@@ -414,7 +414,7 @@ fn package_dependency_diags(store: &dyn RepositoryStore) -> Vec<(DiagnosticSever
 }
 
 #[test]
-fn legacy_entry_loads_with_diagnostics() {
+fn legacy_entry_loads_but_fails_validation() {
     let store = repo(json!([
         {"namespace": "com.mudemocracy.governance", "name": "governance", "version": "1.0.0"}
     ]));
@@ -425,9 +425,19 @@ fn legacy_entry_loads_with_diagnostics() {
         .expect("legacy entry must not fail the package load");
     let diags = package_dependency_diags(&store);
     assert_eq!(diags.len(), 2, "{diags:?}");
-    assert!(diags.iter().all(|(s, _)| *s == DiagnosticSeverity::Warning));
+    // RFC-044 [R11]: the missing packageId is an error; the derived
+    // unsatisfied finding stays a warning.
+    assert_eq!(diags[0].0, DiagnosticSeverity::Error);
     assert!(diags[0].1.starts_with(CODE_INVALID));
+    assert_eq!(diags[1].0, DiagnosticSeverity::Warning);
     assert!(diags[1].1.contains("reason: no-package-id"));
+    // `repo validate` fails on it (the load above did not).
+    let report = validate_repository(&store).unwrap();
+    assert!(
+        report.summary.errors >= 1,
+        "a legacy entry must be a validation error: {:?}",
+        report.summary
+    );
 }
 
 #[test]
@@ -547,6 +557,7 @@ fn install_carries_package_dependencies() {
             name: "installed".to_string(),
             version: "1.0.0".to_string(),
             package_dependencies: Some(deps.clone()),
+            readme: None,
             definitions: vec![],
         },
         InstallBundleOptions::default(),

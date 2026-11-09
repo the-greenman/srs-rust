@@ -105,7 +105,20 @@ pub fn create_vocabulary(
         }
     }
 
+    // Mint first, then validate: the V5 check `repo validate` runs over a
+    // Vocabulary, before anything is written (srs-rust#1546).
+    let violations = crate::validation::vocabulary_duplicate_key_messages(&vocabulary);
+    if !violations.is_empty() {
+        return Err(RepositoryError::VocabularyValidation { violations });
+    }
+
     let boundary_path = selector.as_deref().unwrap_or("package");
+    crate::package_service::refuse_cross_boundary_duplicate_id(
+        store,
+        crate::catalog::CatalogKind::Vocabulary,
+        &vocabulary.id,
+        boundary_path,
+    )?;
     let rel_filename = crate::package_service::definition_rel_path(
         DefinitionKind::Vocabulary,
         &vocabulary.name,
@@ -573,6 +586,51 @@ mod tests {
             Ok(_) => panic!("expected SchemaValidation (version must be >= 1 per vocabulary.json)"),
             Err(e) => panic!("expected SchemaValidation, got: {e:?}"),
         }
+    }
+
+    /// srs-rust#1546: `create_vocabulary` runs the V5 check `repo validate` runs;
+    /// a duplicate key or alias is refused and nothing is written.
+    #[test]
+    fn create_vocabulary_refuses_duplicate_keys_and_writes_nothing() {
+        let dup_key = {
+            let mut v = make_vocab("dup");
+            v.mode = VocabularyMode::Closed;
+            v.terms = vec![make_term("a"), make_term("a")];
+            v
+        };
+        let dup_alias = {
+            let mut v = make_vocab("dup-alias");
+            let mut t = make_term("b");
+            t.aliases = Some(vec!["a".to_string()]);
+            v.terms = vec![make_term("a"), t];
+            v
+        };
+        for (vocab, needle) in [
+            (dup_key, "duplicate key 'a'"),
+            (dup_alias, "duplicate key 'a'"),
+        ] {
+            let store = MemoryStore::default();
+            match create_vocabulary(&store, vocab, None) {
+                Err(RepositoryError::VocabularyValidation { violations }) => {
+                    assert!(
+                        violations.iter().any(|v| v.contains(needle)),
+                        "{violations:?}"
+                    );
+                }
+                other => panic!("expected VocabularyValidation, got {:?}", other.map(|_| ())),
+            }
+            assert!(list_vocabularies(&store).unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn create_vocabulary_accepts_distinct_keys_and_ignores_retired_duplicates() {
+        let store = MemoryStore::default();
+        let mut v = make_vocab("ok");
+        let mut retired = make_term("a");
+        retired.status = Some(VocabularyEntryStatus::Retired);
+        v.terms = vec![make_term("a"), retired, make_term("b")];
+        create_vocabulary(&store, v, None).unwrap();
     }
 
     #[test]

@@ -109,6 +109,9 @@ pub struct PackageSourceBundle {
     /// requirements stay checkable. `None` = absent.
     pub package_dependencies: Option<Vec<serde_json::Value>>,
     pub definitions: Vec<PackageSourceDefinition>,
+    /// The bundle's valid `readme` (RFC-045), kept unchanged ([R5]). Writing it
+    /// out on install is srs-rust#1164 slice 2.
+    pub readme: Option<crate::bundled_readme::BundledReadme>,
 }
 
 /// Read an external package directory (containing `package.json` plus the
@@ -152,6 +155,7 @@ pub fn load_package_source_dir(source_dir: &Path) -> Result<PackageSourceBundle,
         version: meta_str("version")?,
         package_dependencies: pkg_json["packageDependencies"].as_array().cloned(),
         definitions: Vec::new(),
+        readme: None,
     };
 
     for kind in INSTALL_ORDER {
@@ -704,6 +708,10 @@ pub struct InstallPackageResult {
     /// `migration-memberorder-dropped`, ...). Always empty for a directory install.
     #[serde(default)]
     pub notes: Vec<String>,
+    /// `notes` as structured findings, entry for entry (ADR-057, srs-rust#1339);
+    /// the text list is unchanged until srs-rust#1496.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics_structured: Vec<crate::diagnostic::Diagnostic>,
 }
 
 /// A bundle must carry non-empty package identity (id, namespace, name, version).
@@ -1066,6 +1074,15 @@ pub fn install_package_bundle(
         })();
     }
 
+    // ── Phase 6: the bundled readme, after every other file (RFC-045 [R3], [R6]) ──
+    let mut findings = crate::diagnostic::Diagnostics::new();
+    if let Some(readme) = &bundle.readme {
+        if let Some(msg) = crate::bundled_readme::write_readme(store, &boundary_path, readme) {
+            findings.warning(crate::bundled_readme::README_WRITE_CONFLICT, msg);
+        }
+    }
+    let (notes, diagnostics_structured) = findings.into_parts();
+
     let kinds = INSTALL_ORDER
         .iter()
         .filter_map(|kind| counts.remove(kind_label(*kind)))
@@ -1082,7 +1099,8 @@ pub fn install_package_bundle(
         skipped_identical: skipped_total,
         conflicts,
         kinds,
-        notes: vec![],
+        notes,
+        diagnostics_structured,
     })
 }
 
@@ -1098,7 +1116,17 @@ pub fn install_package_bundle_bytes(
 ) -> Result<InstallPackageResult, RepositoryError> {
     let read = crate::package_bundle::read_package_bundle(bytes)?;
     let mut result = install_package_bundle(store, &read.bundle, options)?;
-    result.notes = read.notes;
+    let mut findings = crate::diagnostic::Diagnostics::new();
+    for note in read.notes {
+        findings.push_note(note, "package-bundle-note");
+    }
+    if let Some(e) = read.readme_error {
+        findings.error(crate::bundled_readme::README_INVALID, e);
+    }
+    let (notes, structured) = findings.into_parts();
+    // The reader's findings lead; the install's own (readme-write-conflict) follow.
+    result.notes.splice(0..0, notes);
+    result.diagnostics_structured.splice(0..0, structured);
     Ok(result)
 }
 
@@ -1221,6 +1249,19 @@ pub struct UpgradePackageResult {
     /// RFC-044 requirement outcomes that are not satisfied; never blocking.
     pub dependency_warnings: Vec<UpgradeDependencyWarning>,
     pub notes: Vec<String>,
+    /// `notes` as structured findings, entry for entry (ADR-057, srs-rust#1339);
+    /// the text list is unchanged until srs-rust#1496.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics_structured: Vec<crate::diagnostic::Diagnostic>,
+}
+
+/// Add one upgrade note to both lists, so they stay parallel (ADR-057).
+fn upgrade_note(result: &mut UpgradePackageResult, code: &str, message: String) {
+    let mut findings = crate::diagnostic::Diagnostics::new();
+    findings.warning(code, message);
+    let (texts, structured) = findings.into_parts();
+    result.notes.extend(texts);
+    result.diagnostics_structured.extend(structured);
 }
 
 fn upgrade_item(def: &PackageSourceDefinition) -> UpgradeItem {
@@ -1256,7 +1297,16 @@ pub fn upgrade_package_bundle(
         priors.push(prior);
     }
     let mut result = upgrade_with_priors(store, &read.bundle, &priors, options)?;
-    result.notes.splice(0..0, read.notes);
+    let mut findings = crate::diagnostic::Diagnostics::new();
+    for note in read.notes {
+        findings.push_note(note, "package-bundle-note");
+    }
+    if let Some(e) = read.readme_error {
+        findings.error(crate::bundled_readme::README_INVALID, e);
+    }
+    let (texts, structured) = findings.into_parts();
+    result.notes.splice(0..0, texts);
+    result.diagnostics_structured.splice(0..0, structured);
     Ok(result)
 }
 
@@ -1465,6 +1515,7 @@ fn upgrade_with_priors(
         removed_upstream: vec![],
         dependency_warnings: vec![],
         notes: vec![],
+        diagnostics_structured: vec![],
     };
     // (bundle index, file path inside the boundary, what to write)
     let mut acts: Vec<(usize, String, Act)> = Vec::new();
@@ -1481,10 +1532,14 @@ fn upgrade_with_priors(
             }
             Decision::Conflict => {
                 if options.adopt.contains(&item.id) {
-                    result.notes.push(format!(
-                        "not adoptable: {} '{}' ({}) is a key-collision",
-                        item.kind, item.name, item.id
-                    ));
+                    upgrade_note(
+                        &mut result,
+                        "adopt-not-adoptable-key-collision",
+                        format!(
+                            "not adoptable: {} '{}' ({}) is a key-collision",
+                            item.kind, item.name, item.id
+                        ),
+                    );
                 }
                 result.conflicts.push(UpgradeConflict {
                     item,
@@ -1548,10 +1603,14 @@ fn upgrade_with_priors(
                             continue;
                         }
                     } else if adopt {
-                        result.notes.push(format!(
-                            "not adoptable: {} '{}' ({}) is a local-edit",
-                            item.kind, item.name, item.id
-                        ));
+                        upgrade_note(
+                            &mut result,
+                            "adopt-not-adoptable-local-edit",
+                            format!(
+                                "not adoptable: {} '{}' ({}) is a local-edit",
+                                item.kind, item.name, item.id
+                            ),
+                        );
                     }
                     result.conflicts.push(UpgradeConflict {
                         item,
@@ -1573,7 +1632,11 @@ fn upgrade_with_priors(
                 .iter()
                 .any(|n| n.starts_with("not adoptable") && n.contains(id.as_str()));
         if !handled {
-            result.notes.push(format!("adopt {id}: nothing to adopt"));
+            upgrade_note(
+                &mut result,
+                "adopt-nothing-to-adopt",
+                format!("adopt {id}: nothing to adopt"),
+            );
         }
     }
     let in_bundle: HashSet<_> = bundle.definitions.iter().map(identity).collect();
@@ -1750,6 +1813,7 @@ mod tests {
             name: "ext".to_string(),
             version: "1.0.0".to_string(),
             package_dependencies: None,
+            readme: None,
             definitions: vec![
                 PackageSourceDefinition {
                     kind: DefinitionKind::Field,

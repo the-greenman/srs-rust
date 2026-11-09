@@ -154,6 +154,22 @@ async fn one_server_serves_a_registry_of_repositories() {
         instructions.contains(&format!("default repository is {main}")),
         "{instructions}"
     );
+    // The opening line says several repositories, and each is named by namespace and title.
+    assert!(!instructions.contains("exposes one SRS"), "{instructions}");
+    assert!(
+        instructions.contains("serves several SRS"),
+        "{instructions}"
+    );
+    assert!(
+        instructions.contains(&format!("{main} (main) \u{2014} com.example.main \"main\"")),
+        "{instructions}"
+    );
+    assert!(
+        instructions.contains(&format!(
+            "{reference} \u{2014} com.example.reference \"reference\", read-only"
+        )),
+        "{instructions}"
+    );
     let tools = client.list_tools(None).await.unwrap();
     assert!(tools.tools.iter().all(|t| t
         .input_schema

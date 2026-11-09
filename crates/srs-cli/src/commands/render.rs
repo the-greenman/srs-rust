@@ -161,6 +161,11 @@ fn cmd_render_okf_bundle(
                     file_count,
                     output_dir: output_path.to_string_lossy().into_owned(),
                     diagnostics: bundle.diagnostics,
+                    diagnostics_structured: bundle
+                        .diagnostics_structured
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
                 },
             )
         }

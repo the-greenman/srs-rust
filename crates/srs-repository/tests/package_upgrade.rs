@@ -338,6 +338,7 @@ fn source(version: &str, defs: Vec<(DefinitionKind, &str, Value)>) -> PackageSou
         name: "upg".to_string(),
         version: version.to_string(),
         package_dependencies: None,
+        readme: None,
         definitions: defs
             .into_iter()
             .map(|(kind, rel, value)| PackageSourceDefinition {
@@ -807,6 +808,12 @@ fn adopt_is_refused_for_a_local_edit() {
         "{:?}",
         r.notes
     );
+    assert_eq!(r.notes.len(), r.diagnostics_structured.len());
+    assert_eq!(
+        r.diagnostics_structured[0].code,
+        "adopt-not-adoptable-local-edit"
+    );
+    assert_eq!(r.diagnostics_structured[0].message, r.notes[0]);
     let kept: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
     assert_eq!(kept["description"], "Edited locally.");
 }
@@ -871,6 +878,14 @@ fn proof_and_adopt_refresh_import_records_and_adopt_converges() {
         let again = with_opts(&store, &newer, &prior, ids, false);
         assert!(again.conflicts.is_empty() && again.adopted.is_empty() && again.updated.is_empty());
         assert!(again.notes.iter().any(|n| n.contains("nothing to adopt")) == adopt);
+        assert_eq!(again.notes.len(), again.diagnostics_structured.len());
+        assert_eq!(
+            again
+                .diagnostics_structured
+                .iter()
+                .any(|d| d.code == "adopt-nothing-to-adopt"),
+            adopt
+        );
     }
 }
 
@@ -890,6 +905,11 @@ fn adopt_is_refused_for_a_key_collision() {
         r.notes.iter().any(|n| n.contains("not adoptable")),
         "{:?}",
         r.notes
+    );
+    assert_eq!(r.notes.len(), r.diagnostics_structured.len());
+    assert_eq!(
+        r.diagnostics_structured[0].code,
+        "adopt-not-adoptable-key-collision"
     );
 }
 

@@ -2193,26 +2193,6 @@ mod tests {
             fn save_package_json(&self, _: &serde_json::Value) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
-            fn save_field(
-                &self,
-                _: &str,
-                _: &srs_core::types::field::Field,
-            ) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn update_field_file(
-                &self,
-                _: &str,
-                _: &srs_core::types::field::Field,
-            ) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn delete_field_file(&self, _: &str) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn ensure_fields_dir(&self, _: &str) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
             fn save_type(
                 &self,
                 _: &str,
@@ -2244,46 +2224,6 @@ mod tests {
                 unimplemented!()
             }
             fn ensure_relation_types_dir(&self, _: &str) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn save_view(
-                &self,
-                _: &str,
-                _: &srs_core::types::view::View,
-            ) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn update_view_file(
-                &self,
-                _: &str,
-                _: &srs_core::types::view::View,
-            ) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn delete_view_file(&self, _: &str) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn ensure_views_dir(&self, _: &str) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn save_composition(
-                &self,
-                _: &str,
-                _: &srs_core::types::view::Composition,
-            ) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn update_composition_file(
-                &self,
-                _: &str,
-                _: &srs_core::types::view::Composition,
-            ) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn delete_composition_file(&self, _: &str) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn ensure_compositions_dir(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
             fn save_blueprint(

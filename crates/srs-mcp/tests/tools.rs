@@ -697,15 +697,15 @@ async fn tool_type_schema_happy_and_unknown_id() {
     )
     .unwrap();
     assert_eq!(structured, &serde_json::to_value(&direct).unwrap());
-    // RFC-039: schema keys are Field.name; x-srs-field-id is retired.
+    // RFC-039: schema keys are Field.name; RFC-053 [R1]: x-srs-field-id rides beside it.
     assert!(
         structured["schema"]["properties"]["title"].is_object(),
         "schema properties must be keyed by field name: {structured}"
     );
     let text = serde_json::to_string(structured).unwrap();
     assert!(
-        !text.contains("x-srs-field-id"),
-        "x-srs-field-id must not be emitted (RFC-039)"
+        text.contains("x-srs-field-id"),
+        "x-srs-field-id must be emitted (RFC-053 [R1])"
     );
 
     // Unknown id → tool-level error, server keeps serving.
