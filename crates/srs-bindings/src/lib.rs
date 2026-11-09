@@ -52,6 +52,7 @@ use srs_repository::services::{
 use srs_repository::store::RepositoryStore as _;
 use srs_repository::tag_service;
 use srs_repository::type_schema_service::{self, TypeSchemaInput};
+use srs_repository::type_subtypes_service::{self, TypeSubtypesInput};
 use srs_repository::validation;
 use srs_repository::view_service::{
     self, CompositionListFilter, GetCompositionResult, GetViewResult,
@@ -1445,6 +1446,27 @@ impl SrsRepository {
         let summaries = container_service::containers_for_instance(&self.store, instance_id)
             .map_err(|e| js_err(&e))?;
         to_js(&summaries)
+    }
+
+    /// Every Type whose `extendsTypeId` chain transitively reaches `type_id` (RFC-032
+    /// ext:type-inheritance; same service as `srs type subtypes`). `include_self` also lists
+    /// the Type itself. Returns `{ "typeId", "subtypes": [{id, namespace, name, version}] }`
+    /// sorted by id, latest version per Type. An unknown Type is an error. An ancestor check
+    /// is membership in this list; clients never walk `extendsTypeId` themselves.
+    pub fn get_type_subtypes(
+        &self,
+        type_id: &str,
+        include_self: Option<bool>,
+    ) -> Result<JsValue, JsValue> {
+        let result = type_subtypes_service::type_subtypes(
+            &self.store,
+            TypeSubtypesInput {
+                type_id: type_id.to_string(),
+                include_self: include_self.unwrap_or(false),
+            },
+        )
+        .map_err(|e| js_err(&e))?;
+        to_js(&result)
     }
 
     /// Project a Type into a draft-07 JSON Schema describing a single record's `fieldValues`,

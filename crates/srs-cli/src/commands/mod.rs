@@ -1302,6 +1302,14 @@ pub enum TypeCommand {
         #[arg(long)]
         type_version: Option<u32>,
     },
+    /// List every Type that transitively extends this one (ext:type-inheritance)
+    Subtypes {
+        /// Type definition ID
+        id: String,
+        /// Also list the Type itself
+        #[arg(long)]
+        include_self: bool,
+    },
     /// Project this Type into a standard JSON Schema 2020-12 definition schema
     /// (RFC-035). Distinct from `type schema`, which emits the editor-facing
     /// draft-07 + `x-srs-*` projection.

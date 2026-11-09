@@ -656,3 +656,236 @@ fn a_member_id_that_cannot_name_a_file_is_refused_before_any_write() {
         assert!(store.catalog().is_ok(), "{bad}: the repository still loads");
     }
 }
+
+// ── Follow-ups from the #1463 challenger review (srs-rust#1464) ─────────────────────
+
+/// A `Vfs` over a shared `MemVfs` that fails the Nth write (counting from the call to `arm`).
+#[derive(Debug)]
+struct FailingVfs {
+    inner: std::rc::Rc<srs_repository::vfs::MemVfs>,
+    writes_left: std::cell::Cell<Option<usize>>,
+}
+
+impl srs_repository::vfs::Vfs for FailingVfs {
+    fn read_to_string(&self, rel: &str) -> Result<String, srs_repository::error::RepositoryError> {
+        self.inner.read_to_string(rel)
+    }
+    fn read_bytes(&self, rel: &str) -> Result<Vec<u8>, srs_repository::error::RepositoryError> {
+        self.inner.read_bytes(rel)
+    }
+    fn write(&self, rel: &str, bytes: &[u8]) -> Result<(), srs_repository::error::RepositoryError> {
+        if let Some(n) = self.writes_left.get() {
+            if n == 0 {
+                self.writes_left.set(None); // one failure; the undo's writes succeed
+                return Err(srs_repository::error::RepositoryError::Io {
+                    path: rel.into(),
+                    source: std::io::Error::other("injected write failure"),
+                });
+            }
+            self.writes_left.set(Some(n - 1));
+        }
+        self.inner.write(rel, bytes)
+    }
+    fn remove(&self, rel: &str) -> Result<(), srs_repository::error::RepositoryError> {
+        self.inner.remove(rel)
+    }
+    fn exists(&self, rel: &str) -> bool {
+        self.inner.exists(rel)
+    }
+    fn is_dir(&self, rel: &str) -> bool {
+        self.inner.is_dir(rel)
+    }
+    fn is_file(&self, rel: &str) -> bool {
+        self.inner.is_file(rel)
+    }
+    fn byte_len(&self, rel: &str) -> Result<u64, srs_repository::error::RepositoryError> {
+        self.inner.byte_len(rel)
+    }
+    fn list_dir(
+        &self,
+        rel: &str,
+    ) -> Result<Vec<srs_repository::vfs::VfsEntry>, srs_repository::error::RepositoryError> {
+        self.inner.list_dir(rel)
+    }
+    fn list_recursive(&self, rel: &str) -> Vec<String> {
+        self.inner.list_recursive(rel)
+    }
+    fn create_dir_all(&self, rel: &str) -> Result<(), srs_repository::error::RepositoryError> {
+        self.inner.create_dir_all(rel)
+    }
+    fn check_dir_within_root(
+        &self,
+        rel: &str,
+    ) -> Result<srs_repository::vfs::DirCheck, srs_repository::error::RepositoryError> {
+        self.inner.check_dir_within_root(rel)
+    }
+    fn as_mem_snapshot(&self) -> Option<BTreeMap<String, Vec<u8>>> {
+        self.inner.as_mem_snapshot()
+    }
+}
+
+/// Finding 3: a save that fails part-way leaves the container directory as it was.
+#[test]
+fn a_save_that_fails_part_way_leaves_the_container_as_it_was() {
+    use srs_repository::vfs::Vfs;
+    let inner = std::rc::Rc::new(srs_repository::vfs::MemVfs::new());
+    let vfs = std::rc::Rc::new(FailingVfs {
+        inner: inner.clone(),
+        writes_left: std::cell::Cell::new(None),
+    });
+    let store = FileStore::from_vfs(vfs.clone());
+    create_repository(
+        &store,
+        &InitializeRepositoryInput {
+            repository: RepositoryMetadata {
+                repository_id: "05100000-0000-4000-8000-000000000001".into(),
+                namespace: "com.test.rfc051".into(),
+                srs_version: "2.0-draft".into(),
+                title: None,
+                description: None,
+            },
+            primary_package: PrimaryPackageMetadata {
+                id: "05100000-0000-4000-8000-000000000002".into(),
+                namespace: "com.test.rfc051".into(),
+                name: "primary".into(),
+                version: "1.0.0".into(),
+            },
+        },
+    )
+    .unwrap();
+    create_container(
+        &store,
+        serde_json::from_value::<Container>(json!({"containerId": C, "title": "Box"})).unwrap(),
+    )
+    .unwrap();
+    let first = id(1);
+    let mut container = get_container(&store, C).unwrap();
+    container.member_instance_ids = Some(vec![ContainerEntry::new(&first)]);
+    srs_repository::container_store::save(
+        &store,
+        &container,
+        srs_repository::container_store::Keying::Op { moved: None },
+    )
+    .unwrap();
+
+    // Replace the outline with three new members, a changed head and the first removed, and
+    // fail the third write: the head and the first entry have been written by then.
+    let before = inner.as_mem_snapshot().unwrap();
+    let mut next = container.clone();
+    next.title = "Renamed".into();
+    next.member_instance_ids = Some((2..=4).map(|n| ContainerEntry::new(id(n))).collect());
+    vfs.writes_left.set(Some(2));
+    let err = srs_repository::container_store::save(
+        &store,
+        &next,
+        srs_repository::container_store::Keying::Op { moved: None },
+    )
+    .unwrap_err();
+    assert_eq!(err.code(), "io", "{err}");
+    assert_eq!(
+        inner.as_mem_snapshot().unwrap(),
+        before,
+        "every earlier write is undone"
+    );
+    let kept = srs_repository::container_store::read_entries(&store, C).unwrap();
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].instance_id, first);
+}
+
+/// Finding 8, [R10]: both sides move the same member to different places; the move is one
+/// one-line file on each side. Plain git does not pair a rename between one-line files, so
+/// the same path changed on both sides is a visible conflict, and the same change on both
+/// sides merges cleanly, per path.
+#[test]
+fn a_member_moved_on_both_sides_merges_per_path() {
+    let (tmp, ids) = base(3);
+    let d = tmp.path();
+    on_branch(d, "seed", "main", |s| {
+        for i in &ids {
+            add_member(s, C, i, None, None).unwrap();
+        }
+    });
+    // Same move on both sides: identical content at one path, a clean merge.
+    on_branch(d, "left", "seed", |s| {
+        move_member(s, C, &ids[2], Some(0), None).unwrap();
+    });
+    on_branch(d, "right", "seed", |s| {
+        move_member(s, C, &ids[2], Some(0), None).unwrap();
+    });
+    assert!(merge(d, "left", "right"), "identical moves merge cleanly");
+    let store = FileStore::new(d);
+    let report = srs_repository::validation::validate_repository(&store).unwrap();
+    assert_eq!(report.summary.errors, 0, "{:?}", report.diagnostics);
+    assert_eq!(outline(&store, C)[0], ContainerEntry::new(&ids[2]));
+
+    // Different moves of one member: the same path, two contents, a visible conflict.
+    on_branch(d, "up", "seed", |s| {
+        move_member(s, C, &ids[2], Some(0), None).unwrap();
+    });
+    on_branch(d, "down", "seed", |s| {
+        move_member(s, C, &ids[2], Some(1), None).unwrap();
+    });
+    assert!(
+        !merge(d, "up", "down"),
+        "different moves of one entry conflict"
+    );
+    ok(d, &["merge", "--abort"]);
+
+    // Moves of different members touch different paths and merge, loadable.
+    on_branch(d, "m1", "seed", |s| {
+        move_member(s, C, &ids[0], Some(2), None).unwrap();
+    });
+    on_branch(d, "m2", "seed", |s| {
+        remove_member(s, C, &ids[2]).unwrap();
+    });
+    assert!(merge(d, "m1", "m2"), "changes to different entries merge");
+    let store = FileStore::new(d);
+    assert!(store.catalog().is_ok());
+}
+
+/// Finding 10, [R12]: heads and entries are told apart by content. Two files swapped between
+/// their places are each refused as `container-schema`, not read as the other kind.
+#[test]
+fn heads_and_entries_are_classified_by_content() {
+    let (tmp, store) = repo();
+    container(&store, C);
+    let a = note(&store, &id(1));
+    add_member(&store, C, &a, None, None).unwrap();
+    let d = tmp.path();
+    let head = std::fs::read_to_string(d.join(head_path(C))).unwrap();
+    let ent = std::fs::read_to_string(d.join(entry_path(C, &a))).unwrap();
+    write(d, &head_path(C), &ent);
+    write(d, &entry_path(C, &a), &head);
+    let store = FileStore::new(d);
+    let codes = catalog_codes(&store);
+    let schema = codes
+        .iter()
+        .filter(|(c, _)| c == "container-schema")
+        .count();
+    assert_eq!(schema, 2, "{codes:?}");
+    assert!(store.catalog().is_err(), "a swapped pair is fatal");
+}
+
+/// Finding 9: snapshot import re-keys a container's entries as successive appends from its
+/// outline (the snapshot carries the logical outline, not entry keys). A source built by
+/// appends copies to identical entry files; the outline always survives.
+#[test]
+fn snapshot_import_keeps_the_outline_and_rekeys_as_appends() {
+    let (tmp, store) = repo();
+    container(&store, C);
+    let ids: Vec<String> = (1..=3).map(|n| note(&store, &id(n))).collect();
+    for i in &ids {
+        add_member(&store, C, i, None, None).unwrap();
+    }
+    let snapshot =
+        srs_repository::repository_portability::export_repository_snapshot(&store).unwrap();
+    let dest = TempDir::new().unwrap();
+    let target = FileStore::new(dest.path());
+    srs_repository::repository_portability::import_repository_snapshot(&target, &snapshot).unwrap();
+    assert_eq!(outline(&target, C), outline(&store, C));
+    assert_eq!(
+        files(dest.path(), C),
+        files(tmp.path(), C),
+        "an append-built source copies to identical entry files"
+    );
+}
