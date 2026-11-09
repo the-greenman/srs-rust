@@ -1457,6 +1457,8 @@ pub struct ProtocolValidatePayload {
     pub protocol_id: String,
     pub valid: bool,
     pub diagnostics: Vec<String>,
+    /// `diagnostics` as structured findings, entry for entry (ADR-057, srs-rust#1339).
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
