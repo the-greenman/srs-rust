@@ -254,8 +254,9 @@ the package is installed at several.";
 pub const DESC_ATTACHMENT_ADD: &str = "Store a file as a source-document attachment (content file + \
     .meta.json sidecar) and return its documentId. Give `content` (UTF-8 text) or `contentBase64` \
     (binary), not both. The repository's attachment_policy (size / MIME / total limits) is enforced: \
-    a violating file is rejected and nothing is written. Follow with attachment_link to attach it \
-    to a record.";
+    a violating file is rejected and nothing is written. An SVG with a script, event attribute, \
+    foreign content or external reference is refused (code svg-unsafe), never rewritten. Follow \
+    with attachment_link to attach it to a record.";
 pub const DESC_ATTACHMENT_LINK: &str = "Attach a stored source document to a record (appends a \
     sourceRef with sourceRole 'attaches'). The document must already exist (attachment_add); \
     linking the same pair twice is an error.";
