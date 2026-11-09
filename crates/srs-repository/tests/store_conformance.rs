@@ -19,6 +19,7 @@
 //!   2. Container CRUD (typed logical-id — the ADR-041 gold standard)
 //!   3. Instance persistence (ADR-042 typed methods: save_record/note, load, delete, find, list)
 //!   4. Batch write mode — commit path (ADR-021 / ADR-041 G6)
+//!   5. Field definition persistence (ADR-041 G3-G5: typed logical-id save, load, delete)
 //!
 //! Separate standalone tests cover:
 //!   - Cross-store portability via `copy_repository` (ADR-008)
@@ -171,6 +172,8 @@ fn run_conformance_suite(store: &dyn RepositoryStore) {
     suite_container_crud(store);
     suite_instance_persistence(store);
     suite_batch_commit(store);
+    suite_field_definitions(store);
+    suite_view_definitions(store);
 }
 
 // --- Area 1: Manifest round-trip ---
@@ -396,6 +399,210 @@ fn suite_batch_commit(store: &dyn RepositoryStore) {
         Some("Batch Commit Note"),
         "data saved in batch must be visible after commit_batch"
     );
+}
+
+// --- Area 5: Field definitions (ADR-041 G3-G5, srs-rust#728) ---
+
+fn make_field(
+    id: &str,
+    name: &str,
+    version: u32,
+    description: &str,
+) -> srs_core::types::field::Field {
+    srs_core::types::field::Field {
+        schema: None,
+        id: id.to_string(),
+        namespace: "com.test.conf".to_string(),
+        name: name.to_string(),
+        version,
+        field_type: srs_core::types::field::FieldType::string(),
+        description: description.to_string(),
+        instructions: None,
+        ai_guidance: Some(srs_core::types::field::AiGuidance {
+            purpose: "Conformance".to_string(),
+            ..Default::default()
+        }),
+        editor_hint: None,
+        tags: None,
+        lineage: None,
+        provenance: None,
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+    }
+}
+
+/// Every store returns the same Field set after save, rewrite in place, a second
+/// version, and delete — keyed by logical id, never by path.
+fn suite_field_definitions(store: &dyn RepositoryStore) {
+    let id = "f1e1d000-0001-4000-8000-aabbccddee01";
+    assert!(store.load_field_by_id(id, None).unwrap().is_none());
+
+    store
+        .save_field(&None, &make_field(id, "conf-field", 1, "first"))
+        .expect("save_field must succeed");
+    let (loaded, owner) = store
+        .load_field_by_id(id, Some(1))
+        .unwrap()
+        .expect("saved field loads");
+    assert_eq!(loaded.description, "first");
+    assert_eq!(owner, None, "the primary package owns it");
+
+    // Same id and version: rewritten in place, still one field.
+    store
+        .save_field(&None, &make_field(id, "conf-field", 1, "second"))
+        .unwrap();
+    assert_eq!(
+        store
+            .load_field_by_id(id, Some(1))
+            .unwrap()
+            .unwrap()
+            .0
+            .description,
+        "second"
+    );
+    // The boundary index is the shared view: both stores keep it.
+    let count = |s: &dyn RepositoryStore| s.load_package_boundary(&None).unwrap().field_paths.len();
+    assert_eq!(count(store), 1, "an in-place rewrite must not add a field");
+
+    // A new version sits beside the first.
+    store
+        .save_field(&None, &make_field(id, "conf-field", 2, "v2"))
+        .unwrap();
+    assert_eq!(count(store), 2);
+    assert_eq!(
+        store
+            .load_field_by_id(id, Some(2))
+            .unwrap()
+            .unwrap()
+            .0
+            .description,
+        "v2"
+    );
+
+    // Delete by id and version drops only that version from the store and its index.
+    store.delete_field(id, Some(2)).unwrap();
+    assert!(store.load_field_by_id(id, Some(2)).unwrap().is_none());
+    assert_eq!(count(store), 1);
+    store.delete_field(id, None).unwrap();
+    assert!(store.load_field_by_id(id, None).unwrap().is_none());
+    assert_eq!(count(store), 0);
+    assert!(matches!(
+        store.delete_field(id, None),
+        Err(RepositoryError::FieldNotFound { .. })
+    ));
+}
+
+// --- Area 6: View and Composition definitions (ADR-041 G3-G5, srs-rust#730) ---
+
+fn make_view(id: &str, description: &str) -> srs_core::types::view::View {
+    serde_json::from_value(serde_json::json!({
+        "id": id,
+        "namespace": "com.test.conf",
+        "name": "conf-view",
+        "version": 1,
+        "description": description,
+        "fieldViews": [],
+        "createdAt": "2026-01-01T00:00:00Z"
+    }))
+    .expect("view fixture")
+}
+
+fn make_composition(id: &str, description: &str) -> srs_core::types::view::Composition {
+    serde_json::from_value(serde_json::json!({
+        "id": id,
+        "namespace": "com.test.conf",
+        "name": "conf-composition",
+        "version": 1,
+        "description": description,
+        "sections": [],
+        "createdAt": "2026-01-01T00:00:00Z"
+    }))
+    .expect("composition fixture")
+}
+
+/// Every store returns the same View and Composition after save, update and delete,
+/// keyed by logical id, never by path; the boundary index follows.
+fn suite_view_definitions(store: &dyn RepositoryStore) {
+    let vid = "a1e1d000-0001-4000-8000-aabbccddee11";
+    let cid = "a1e1d000-0001-4000-8000-aabbccddee12";
+    let view_count = |s: &dyn RepositoryStore| {
+        s.load_package_json().unwrap()["views"]
+            .as_array()
+            .map_or(0, Vec::len)
+    };
+    let comp_count = |s: &dyn RepositoryStore| {
+        s.load_package_json().unwrap()["compositions"]
+            .as_array()
+            .map_or(0, Vec::len)
+    };
+    let (v0, c0) = (view_count(store), comp_count(store));
+
+    assert!(store.load_view_by_id(vid).unwrap().is_none());
+    store.save_view(&None, &make_view(vid, "first")).unwrap();
+    let (loaded, owner) = store
+        .load_view_by_id(vid)
+        .unwrap()
+        .expect("saved view loads");
+    assert_eq!(loaded.description, "first");
+    assert_eq!(owner, None);
+    assert_eq!(view_count(store), v0 + 1);
+
+    // Same id and version: rewritten in place, still one view.
+    store.save_view(&None, &make_view(vid, "second")).unwrap();
+    assert_eq!(view_count(store), v0 + 1);
+    store.update_view(&make_view(vid, "third")).unwrap();
+    assert_eq!(
+        store.load_view_by_id(vid).unwrap().unwrap().0.description,
+        "third"
+    );
+    assert!(matches!(
+        store.update_view(&make_view("a1e1d000-0001-4000-8000-aabbccddee99", "x")),
+        Err(RepositoryError::ViewNotFound { .. })
+    ));
+
+    store.delete_view(vid).unwrap();
+    assert!(store.load_view_by_id(vid).unwrap().is_none());
+    assert_eq!(view_count(store), v0);
+    assert!(matches!(
+        store.delete_view(vid),
+        Err(RepositoryError::ViewNotFound { .. })
+    ));
+
+    store
+        .save_composition(&None, &make_composition(cid, "first"))
+        .unwrap();
+    assert_eq!(
+        store
+            .load_composition_by_id(cid)
+            .unwrap()
+            .unwrap()
+            .0
+            .description,
+        "first"
+    );
+    assert_eq!(comp_count(store), c0 + 1);
+    store
+        .save_composition(&None, &make_composition(cid, "second"))
+        .unwrap();
+    assert_eq!(comp_count(store), c0 + 1);
+    store
+        .update_composition(&make_composition(cid, "third"))
+        .unwrap();
+    assert_eq!(
+        store
+            .load_composition_by_id(cid)
+            .unwrap()
+            .unwrap()
+            .0
+            .description,
+        "third"
+    );
+    store.delete_composition(cid).unwrap();
+    assert!(store.load_composition_by_id(cid).unwrap().is_none());
+    assert_eq!(comp_count(store), c0);
+    assert!(matches!(
+        store.delete_composition(cid),
+        Err(RepositoryError::CompositionNotFoundById { .. })
+    ));
 }
 
 // ---------------------------------------------------------------------------

@@ -3,7 +3,7 @@ use crate::repository_portability::{
     export_repository_snapshot, PackageBoundarySnapshot, RepositorySnapshot,
 };
 use crate::store::RepositoryStore;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -176,6 +176,30 @@ pub struct RepoDiff {
     pub relations: DiffRelations,
     pub containers: DiffContainers,
     pub package: DiffPackage,
+}
+
+/// What one keyed set holds against another, compared as parsed JSON values, so formatting
+/// and key order are not differences. Ids in ascending order.
+#[derive(Debug, Default)]
+pub struct KeyedDiff {
+    pub only_in_to: Vec<String>,
+    pub differ: Vec<String>,
+}
+
+/// The comparer for `merge_service` (srs-rust#1580), over any keyed object.
+pub fn diff_keyed(
+    from: &BTreeMap<String, serde_json::Value>,
+    to: &BTreeMap<String, serde_json::Value>,
+) -> KeyedDiff {
+    let mut out = KeyedDiff::default();
+    for (id, value) in to {
+        match from.get(id) {
+            None => out.only_in_to.push(id.clone()),
+            Some(existing) if existing != value => out.differ.push(id.clone()),
+            Some(_) => {}
+        }
+    }
+    out
 }
 
 pub fn diff_repositories(

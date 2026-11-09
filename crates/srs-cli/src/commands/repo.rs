@@ -3,6 +3,7 @@ use crate::commands::{
     RepoPresentationCommand, StoreBackend,
 };
 use crate::output;
+use crate::payload::RepoMergePayload;
 use crate::payload::{
     InstancePathRename, MigrationSummaryPayload, RepoAgentIndexPayload, RepoApplyMigrationPayload,
     RepoCopyPayload, RepoCreatePayload, RepoDiffInstanceAdded, RepoDiffInstanceModified,
@@ -27,6 +28,7 @@ use srs_repository::manifest_service::{
     remove_rendered_presentation, set_manifest_root_container, unset_manifest_root_container,
     AddRenderedPresentationInput, RenderedPresentation, SetManifestRootContainerInput,
 };
+use srs_repository::merge_service::{merge_apply, merge_preview, MergeSelection};
 use srs_repository::migrate_identity_service;
 use srs_repository::migration_registry_service;
 use srs_repository::repository_lifecycle::{
@@ -85,6 +87,10 @@ pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
             from_store,
             to_store,
         } => cmd_repo_diff(ctx, from, to, from_store, to_store),
+        RepoCommand::MergePreview { from, selection } => {
+            cmd_repo_merge_preview(ctx, from, selection)
+        }
+        RepoCommand::MergeApply { from } => cmd_repo_merge_apply(ctx, from),
         RepoCommand::Validate { json: _ } => cmd_repo_validate(ctx),
         RepoCommand::Extensions(ext_cmd) => cmd_repo_extensions_dispatch(ctx, ext_cmd),
         RepoCommand::Presentation(pres_cmd) => cmd_repo_presentation_dispatch(ctx, pres_cmd),
@@ -472,6 +478,33 @@ fn cmd_repo_copy(
         }
     }
     output::serialize("repo copy", RepoCopyPayload { from, to })
+}
+
+fn open_merge_source(from: &std::path::Path) -> Result<std::fs::File> {
+    std::fs::File::open(from)
+        .map_err(|e| crate::commands::io_failure("cannot open archive", from, e))
+}
+
+fn cmd_repo_merge_preview(
+    ctx: CliContext,
+    from: std::path::PathBuf,
+    selection: bool,
+) -> Result<String> {
+    let file = open_merge_source(&from)?;
+    let selection: Option<MergeSelection> = selection
+        .then(|| crate::input::from_stdin("merge selection"))
+        .transpose()?;
+    let report = with_store(&ctx, |store| {
+        Ok(merge_preview(store, file, selection.as_ref())?)
+    })?;
+    output::serialize("repo merge-preview", RepoMergePayload::from(report))
+}
+
+fn cmd_repo_merge_apply(ctx: CliContext, from: std::path::PathBuf) -> Result<String> {
+    let file = open_merge_source(&from)?;
+    let selection: MergeSelection = crate::input::from_stdin("merge selection")?;
+    let report = with_store(&ctx, |store| Ok(merge_apply(store, file, &selection)?))?;
+    output::serialize("repo merge-apply", RepoMergePayload::from(report))
 }
 
 fn cmd_repo_diff(

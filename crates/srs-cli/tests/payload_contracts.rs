@@ -745,6 +745,11 @@ fn slice_export() {
     check::<SliceExportPayload>("slice-export");
 }
 
+#[test]
+fn repo_merge() {
+    check::<RepoMergePayload>("repo-merge");
+}
+
 // ── Error envelope ────────────────────────────────────────────────────────────
 
 #[test]

@@ -314,15 +314,13 @@ pub fn check_bundle(
 /// [R1]/[R2] over the `packageDependencies` of every package manifest at
 /// `package_roots` (the catalog's list). Never fatal ([R9]).
 ///
-/// Severity: an [R1]/[R2] violation is an error ([R11]), except a missing
-/// `packageId`, which is a **warning in this release**. Reason: the release
-/// corpus gate fails on any error, and every tracked corpus still carries
-/// legacy entries that cannot be repaired until a binary that tolerates
-/// `packageId` is published — reporting them as errors now would re-create
-/// the RFC-043 publish deadlock (srs-rust#1145). The legacy entry is also
-/// reported as `package-dependency-unsatisfied` (`no-package-id`). Raise it to
-/// error with the package-manifest schema mirror sync, once the corpora are
-/// repaired (RFC-044 landing order).
+/// Severity: every [R1]/[R2] violation is an error ([R11]), a missing
+/// `packageId` included. It was a warning while the tracked corpora still
+/// carried legacy entries (an error would have re-created the RFC-043 publish
+/// deadlock, srs-rust#1145); every corpus the release gate validates now
+/// carries a `packageId` on each entry, so the ruling is executed
+/// (srs-rust#1169). The legacy entry is also reported as
+/// `package-dependency-unsatisfied` (`no-package-id`).
 pub fn shape_diagnostics(
     store: &dyn RepositoryStore,
     package_roots: &[String],
@@ -353,7 +351,7 @@ pub fn shape_diagnostics(
                     for sv in shape_violations(e) {
                         out.push(match sv {
                             ShapeViolation::MissingPackageId => finding(
-                                DiagnosticSeverity::Warning,
+                                DiagnosticSeverity::Error,
                                 d.clone(),
                                 format!(
                                     "packageDependencies[{i}] ({}/{}@{}) has no packageId (RFC-044 [R1]/[R11]); repair it with `srs package dependency add --package-id <uuid> --version <semver>`",

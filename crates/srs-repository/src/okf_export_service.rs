@@ -7,6 +7,7 @@ use crate::relation_graph;
 use crate::relation_service;
 use crate::store::RepositoryStore;
 use crate::tree_service;
+use crate::validation::DiagnosticSeverity;
 use crate::writer::slugify_instance_name;
 use srs_core::types::field::{EditorHint, Field};
 use srs_core::types::field_type::{Datatype, StringFormat};
@@ -51,6 +52,9 @@ pub struct OkfBundle {
     pub container_title: String,
     pub entries: Vec<OkfEntry>,
     pub diagnostics: Vec<String>,
+    /// `diagnostics` as structured findings, entry for entry (ADR-057,
+    /// srs-rust#1339); the text list is unchanged until srs-rust#1496.
+    pub diagnostics_structured: Vec<crate::diagnostic::Diagnostic>,
 }
 
 pub fn export_okf_bundle(
@@ -70,12 +74,17 @@ pub fn export_okf_bundle(
     let container_children = container_service::direct_children_by_root(store)?;
 
     let mut member_instances: Vec<LoadedInstance> = Vec::new();
-    let mut diagnostics: Vec<String> = Vec::new();
+    let mut diagnostics = crate::diagnostic::Diagnostics::new();
 
     for id in &member_ids {
         match record_store::get_instance_by_id(store, id)? {
             Some(inst) => member_instances.push(inst),
-            None => diagnostics.push(format!("instance not found: {id}")),
+            None => diagnostics.push_for(
+                DiagnosticSeverity::Warning,
+                "okf-instance-not-found",
+                format!("instance not found: {id}"),
+                Some(id.clone()),
+            ),
         }
     }
 
@@ -106,10 +115,12 @@ pub fn export_okf_bundle(
 
     attach_relation_links(&mut entries, &all_relations, &mut diagnostics);
 
+    let (diagnostics, diagnostics_structured) = diagnostics.into_parts();
     Ok(OkfBundle {
         container_title: container.title,
         entries,
         diagnostics,
+        diagnostics_structured,
     })
 }
 
@@ -121,7 +132,7 @@ pub fn export_okf_bundle(
 fn attach_relation_links(
     entries: &mut [OkfEntry],
     all_relations: &[Relation],
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut crate::diagnostic::Diagnostics,
 ) {
     let id_to_path: HashMap<&str, &str> = entries
         .iter()
@@ -151,10 +162,15 @@ fn attach_relation_links(
                         target_display_label: (*label).to_string(),
                     });
             }
-            _ => diagnostics.push(format!(
-                "relation {} ({}) from {source} points outside the bundle: {target}",
-                rel.relation_id, rel.relation_type
-            )),
+            _ => diagnostics.push_for(
+                DiagnosticSeverity::Warning,
+                "okf-relation-outside-bundle",
+                format!(
+                    "relation {} ({}) from {source} points outside the bundle: {target}",
+                    rel.relation_id, rel.relation_type
+                ),
+                Some(source.to_string()),
+            ),
         }
     }
 
@@ -209,7 +225,7 @@ fn collect_entries(
     visited: &mut HashSet<String>,
     used_slots: &mut HashSet<String>,
     entries: &mut Vec<OkfEntry>,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut crate::diagnostic::Diagnostics,
 ) -> Result<(), RepositoryError> {
     if !visited.insert(instance_id.to_string()) {
         return Ok(());
@@ -218,7 +234,12 @@ fn collect_entries(
     let instance = match record_store::get_instance_by_id(store, instance_id)? {
         Some(inst) => inst,
         None => {
-            diagnostics.push(format!("instance not found: {instance_id}"));
+            diagnostics.push_for(
+                DiagnosticSeverity::Warning,
+                "okf-instance-not-found",
+                format!("instance not found: {instance_id}"),
+                Some(instance_id.to_string()),
+            );
             return Ok(());
         }
     };
@@ -1379,6 +1400,10 @@ mod tests {
         assert_eq!(bundle.diagnostics.len(), 1);
         assert!(bundle.diagnostics[0].contains(outside_id));
         assert!(bundle.diagnostics[0].contains("depends-on"));
+        crate::diagnostic::assert_parallel(&bundle.diagnostics, &bundle.diagnostics_structured);
+        let d = &bundle.diagnostics_structured[0];
+        assert_eq!(d.code, "okf-relation-outside-bundle");
+        assert_eq!(d.severity, DiagnosticSeverity::Warning);
     }
 
     #[test]

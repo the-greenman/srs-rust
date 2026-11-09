@@ -180,8 +180,10 @@ fn field_to_property(
     // definition-layer site any more — the projection into a `default` JSON
     // Schema keyword this block used to do is retired along with the field.
 
-    // RFC-039: `x-srs-field-id` is retired — instance keys and schema keys are
-    // both `Field.name`, so there is no id-keyed instance left to bridge to.
+    // RFC-053 [R1]/[R2]: the authoring projection carries the assigned Field's
+    // id beside its name, at every depth. An annotation only (RFC-053 [R4]):
+    // instance keys stay `Field.name`.
+    prop.insert("x-srs-field-id".into(), json!(field.id));
     prop.insert("x-srs-order".into(), json!(assignment.order));
 
     // aiGuidance.purpose becomes `description`; any richer structured
@@ -1159,10 +1161,11 @@ mod tests {
         // RFC-040 [R4] (srs#477/#867): no `defaultValue` mechanism exists any more —
         // the projected schema property must never carry a `default` keyword.
         assert!(reparsed["properties"]["title"].get("default").is_none());
-        // RFC-039: schema keys are Field.name; no id bridge key is emitted.
+        // RFC-039: schema keys are Field.name; RFC-053 [R1]: the Field id
+        // rides beside the name as an annotation.
         assert!(reparsed["properties"]["title"]
             .get("x-srs-field-id")
-            .is_none());
+            .is_some_and(|v| v.is_string()));
     }
 
     #[test]
@@ -1320,10 +1323,10 @@ mod tests {
         assert_eq!(keys, names.iter().collect::<Vec<_>>());
     }
 
-    /// RFC-039: `x-srs-field-id` is retired — no property anywhere in the
-    /// projected schema (including expanded composite interiors) carries it.
+    /// RFC-053 [R1]/[R2]: every property, including expanded composite
+    /// interiors, carries `x-srs-field-id` equal to the assigned Field's id.
     #[test]
-    fn no_x_srs_field_id_emitted() {
+    fn x_srs_field_id_on_every_property_at_every_depth() {
         use srs_core::types::field_type::ExactTypeRef;
 
         const RANGE_TID: &str = "00000000-0000-4000-8000-0000000000bb";
@@ -1354,20 +1357,37 @@ mod tests {
         )
         .unwrap();
 
-        fn assert_no_field_id(value: &Value) {
-            match value {
-                Value::Object(map) => {
-                    assert!(
-                        !map.contains_key("x-srs-field-id"),
-                        "x-srs-field-id must not be emitted anywhere: {map:?}"
-                    );
-                    map.values().for_each(assert_no_field_id);
-                }
-                Value::Array(items) => items.iter().for_each(assert_no_field_id),
-                _ => {}
-            }
-        }
-        assert_no_field_id(&result.schema);
+        let props = &result.schema["properties"];
+        assert_eq!(props["title"]["x-srs-field-id"], json!(fid(3)));
+        assert_eq!(props["rows"]["x-srs-field-id"], json!(fid(2)));
+        assert_eq!(
+            props["rows"]["items"]["properties"]["cells"]["x-srs-field-id"],
+            json!(fid(1))
+        );
+    }
+
+    /// RFC-053 [R6]: an assignment naming a Field the package does not hold is
+    /// omitted from `properties` and `required`, with a warning.
+    #[test]
+    fn unresolved_assignment_is_omitted_with_warning() {
+        let title = field(&fid(3), "title", FieldType::string());
+        let rt = make_type(
+            TID,
+            vec![assignment(&fid(3), 0, true), assignment(&fid(9), 1, true)],
+        );
+        let store = store_with_types(vec![title], vec![rt]);
+        let result = type_schema(
+            &store,
+            TypeSchemaInput {
+                type_id: TID.to_string(),
+                type_version: None,
+            },
+        )
+        .unwrap();
+        let props = result.schema["properties"].as_object().unwrap();
+        assert_eq!(props.len(), 1);
+        assert_eq!(result.schema["required"], json!(["title"]));
+        assert!(result.diagnostics.iter().any(|d| d.contains(&fid(9))));
     }
 
     /// The projected schema describes a record's `fieldValues` object only —

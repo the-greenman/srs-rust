@@ -602,16 +602,6 @@ pub fn create_field_in_package(
         &field.id,
         boundary_path,
     )?;
-    let rel_filename = definition_rel_path(
-        DefinitionKind::Field,
-        &field.name,
-        &field.id,
-        u64::from(field.version),
-    );
-    let full_path = format!("{boundary_path}/{rel_filename}");
-
-    store.ensure_fields_dir(&format!("{boundary_path}/fields"))?;
-
     let created_at = if field.created_at.trim().is_empty() {
         chrono::Utc::now().to_rfc3339()
     } else {
@@ -623,8 +613,7 @@ pub fn create_field_in_package(
         ..field
     };
 
-    store.save_field(&full_path, &field_with_timestamp)?;
-    store.add_definition_to_boundary(&selector, DefinitionKind::Field, &rel_filename)?;
+    store.save_field(&selector, &field_with_timestamp)?;
 
     Ok(CreateFieldResult {
         field: field_with_timestamp,
@@ -658,11 +647,13 @@ fn update_field_inner(
     check_records: bool,
 ) -> Result<UpdateFieldResult, RepositoryError> {
     ensure_field_type_conforms(&field)?;
-    let same_version = find_field_path(store, &field.id, Some(field.version))?;
-    let (_, owner) =
-        find_field_path(store, &field.id, None)?.ok_or_else(|| RepositoryError::FieldNotFound {
-            field_id: field.id.clone(),
-        })?;
+    let same_version = store.field_owner(&field.id, Some(field.version))?;
+    let owner =
+        store
+            .field_owner(&field.id, None)?
+            .ok_or_else(|| RepositoryError::FieldNotFound {
+                field_id: field.id.clone(),
+            })?;
     if check_records {
         // The package as either write leaves it: this version replaced in place, or added
         // beside the earlier ones.
@@ -673,8 +664,8 @@ fn update_field_inner(
             package.fields.push(field.clone());
         })?;
     }
-    if let Some((relative_path, _)) = same_version {
-        store.update_field_file(&relative_path, &field)?;
+    if let Some(same_owner) = same_version {
+        store.save_field(&same_owner, &field)?;
         return Ok(UpdateFieldResult { field });
     }
     let field = create_field_in_package(store, field, owner)?.field;
@@ -768,8 +759,9 @@ pub fn delete_field(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<DeleteFieldResult, RepositoryError> {
-    let (full_path, owner) =
-        find_field_path(store, id, None)?.ok_or_else(|| RepositoryError::FieldNotFound {
+    store
+        .field_owner(id, None)?
+        .ok_or_else(|| RepositoryError::FieldNotFound {
             field_id: id.to_string(),
         })?;
 
@@ -782,19 +774,13 @@ pub fn delete_field(
         });
     }
 
-    let boundary_prefix = owner.as_deref().unwrap_or("package");
-    let rel_path = full_path
-        .strip_prefix(&format!("{boundary_prefix}/"))
-        .unwrap_or(&full_path)
-        .to_string();
-
-    store.delete_field_file(&full_path)?;
-    store.remove_definition_from_boundary(&owner, DefinitionKind::Field, &rel_path)?;
+    store.delete_field(id, None)?;
     Ok(DeleteFieldResult { id: id.to_string() })
 }
 
-/// Find the repo-root-relative path and owner boundary for a field by its ID; with
-/// `version`, the file holding that version (srs-rust#1473).
+/// Test-only: the repo-root-relative path and owner boundary for a field by its ID, to
+/// assert on-disk file names. Services use `RepositoryStore::load_field_by_id`.
+#[cfg(test)]
 pub(crate) fn find_field_path(
     store: &dyn RepositoryStore,
     id: &str,
@@ -1279,6 +1265,28 @@ fn ensure_relation_type_key_free(
     Ok(())
 }
 
+/// RFC-023 I-88: a relation-type key must not equal a `sourceRole` value. Enforced on
+/// create and update only; the loader stays lenient so a collision already at rest still
+/// loads and `repo validate` reports `SOURCEROLE_RELATIONTYPE_COLLISION` (warning).
+fn ensure_key_not_source_role(
+    def: &RelationTypeDefinition,
+    path: &str,
+) -> Result<(), RepositoryError> {
+    if srs_core::types::source_reference::SourceRole::is_source_role_value(&def.key) {
+        return Err(RepositoryError::RelationTypeDefinitionValidation {
+            path: std::path::PathBuf::from(path),
+            source: srs_core::error::CoreError::InvalidFieldValue {
+                key: "key".to_string(),
+                reason: format!(
+                    "I-88: relation-type key '{k}' equals a sourceRole value; use a namespaced key such as 'com.acme/{k}'",
+                    k = def.key
+                ),
+            },
+        });
+    }
+    Ok(())
+}
+
 /// Create a new relation type definition in a specific package boundary.
 /// Pass `selector = None` for the primary package; `Some(path)` for a sub-package.
 /// Writes the definition JSON file and updates the boundary index.
@@ -1325,7 +1333,14 @@ pub fn create_relation_type(
         }
     })?;
 
+    ensure_key_not_source_role(&def, &full_path)?;
     ensure_relation_type_key_free(store, &def)?;
+    refuse_cross_boundary_duplicate_id(
+        store,
+        crate::catalog::CatalogKind::RelationType,
+        &def.id,
+        boundary_path,
+    )?;
 
     store.ensure_relation_types_dir(&format!("{boundary_path}/relation-types"))?;
     store.save_relation_type_definition(&full_path, &def)?;
@@ -1369,6 +1384,7 @@ pub fn update_relation_type(
         }
     })?;
 
+    ensure_key_not_source_role(&def, &relative_path)?;
     ensure_relation_type_key_free(store, &def)?;
 
     let stored_key = store
@@ -4072,6 +4088,26 @@ mod tests {
         }
     }
 
+    /// srs-rust#1610 (RFC-023 I-88): a key equal to a sourceRole value is refused on
+    /// create and on update; a namespaced key is fine.
+    #[test]
+    fn relation_type_key_equal_to_source_role_is_refused() {
+        let store = MemoryStore::default();
+        let err =
+            create_relation_type(&store, rt_def_for_key("rt-e", "evidence"), None).unwrap_err();
+        assert!(err.to_string().contains("I-88"), "got {err:?}");
+        assert!(store
+            .load_package()
+            .unwrap()
+            .relation_types()
+            .iter()
+            .all(|d| d.key != "evidence"));
+
+        create_relation_type(&store, rt_def_for_key("rt-a", "com.acme/evidence"), None).unwrap();
+        let err = update_relation_type(&store, rt_def_for_key("rt-a", "attaches")).unwrap_err();
+        assert!(err.to_string().contains("I-88"), "got {err:?}");
+    }
+
     /// srs-rust#1474: a key another definition holds is refused before anything is written.
     #[test]
     fn create_relation_type_refuses_key_held_by_another_definition() {
@@ -4163,6 +4199,7 @@ mod tests {
             name: "lpi".to_string(),
             version: "1.0.0".to_string(),
             package_dependencies: None,
+            readme: None,
             definitions: vec![PackageSourceDefinition {
                 kind: DefinitionKind::Field,
                 rel_path: "fields/alpha.json".to_string(),

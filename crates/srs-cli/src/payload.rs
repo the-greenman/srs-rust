@@ -1095,6 +1095,7 @@ impl From<FacetCount> for FacetCountPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct FieldFacetPayload {
+    pub field_id: String,
     pub field: String,
     #[serde(flatten)]
     pub counts: FacetCountsPayload,
@@ -1102,8 +1103,13 @@ pub struct FieldFacetPayload {
 
 impl From<FieldFacet> for FieldFacetPayload {
     fn from(f: FieldFacet) -> Self {
-        let FieldFacet { field, counts } = f;
+        let FieldFacet {
+            field_id,
+            field,
+            counts,
+        } = f;
         Self {
+            field_id,
             field,
             counts: counts.into(),
         }
@@ -1451,6 +1457,8 @@ pub struct ProtocolValidatePayload {
     pub protocol_id: String,
     pub valid: bool,
     pub diagnostics: Vec<String>,
+    /// `diagnostics` as structured findings, entry for entry (ADR-057, srs-rust#1339).
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -1515,6 +1523,9 @@ impl From<RunSummary> for ProtocolRunListEntry {
 pub struct BlueprintListPayload {
     pub blueprints: Vec<BlueprintListEntry>,
     pub diagnostics: Vec<String>,
+    /// `diagnostics` as structured findings, entry for entry (ADR-057, srs-rust#1339).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -1536,6 +1547,8 @@ pub struct BlueprintValidatePayload {
     pub id: String,
     pub valid: bool,
     pub diagnostics: Vec<String>,
+    /// `diagnostics` as structured findings, entry for entry (ADR-057, srs-rust#1339).
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -2919,6 +2932,9 @@ pub struct TreePayload {
     pub roots: Vec<TreeNodePayload>,
     pub text: String,
     pub diagnostics: Vec<String>,
+    /// `diagnostics` as structured findings, entry for entry (ADR-057, srs-rust#1339).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -3482,6 +3498,9 @@ pub struct OkfBundlePayload {
     pub output_dir: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<String>,
+    /// `diagnostics` as structured findings, entry for entry (ADR-057, srs-rust#1339).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -3738,4 +3757,195 @@ fn error_report_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::sc
     }));
     serde_json::from_value::<Schema>(serde_json::json!({ "oneOf": branches }))
         .expect("error report schema is well formed")
+}
+
+/// Payload for `srs repo merge-preview` and `srs repo merge-apply` (srs-rust#1580): a mirror
+/// of `merge_service::MergeReport`, guarded by `payload_mirror_fidelity`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoMergePayload {
+    pub repository_id: String,
+    pub applied: bool,
+    pub source_migrations: Vec<String>,
+    pub bring: RepoMergeItems,
+    pub differ: Vec<RepoMergeItemRef>,
+    pub held_back: Vec<RepoMergeHeldBack>,
+    pub not_chosen: Vec<RepoMergeItemRef>,
+    pub unavailable: Vec<RepoMergeItemRef>,
+    pub orphaned_entries: Vec<RepoMergeEntryId>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoMergeItems {
+    pub instances: Vec<RepoMergeInstance>,
+    pub relations: Vec<RepoMergeRelation>,
+    pub containers: Vec<RepoMergeContainer>,
+    pub container_entries: Vec<RepoMergeEntry>,
+    pub attachments: Vec<RepoMergeAttachment>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoMergeInstance {
+    pub instance_id: String,
+    pub tier: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoMergeRelation {
+    pub relation_id: String,
+    pub relation_type: String,
+    pub source_instance_id: String,
+    pub target_instance_id: String,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoMergeContainer {
+    pub container_id: String,
+    pub title: String,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoMergeEntry {
+    pub container_id: String,
+    pub instance_id: String,
+    pub depth: u32,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoMergeAttachment {
+    pub document_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoMergeItemRef {
+    pub kind: String,
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoMergeHeldBack {
+    pub kind: String,
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container_id: Option<String>,
+    pub reason: String,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoMergeEntryId {
+    pub container_id: String,
+    pub instance_id: String,
+}
+
+impl From<srs_repository::merge_service::MergeItemRef> for RepoMergeItemRef {
+    fn from(i: srs_repository::merge_service::MergeItemRef) -> Self {
+        Self {
+            kind: i.kind,
+            id: i.id,
+            container_id: i.container_id,
+        }
+    }
+}
+
+impl From<srs_repository::merge_service::MergeReport> for RepoMergePayload {
+    fn from(r: srs_repository::merge_service::MergeReport) -> Self {
+        fn refs(v: Vec<srs_repository::merge_service::MergeItemRef>) -> Vec<RepoMergeItemRef> {
+            v.into_iter().map(Into::into).collect()
+        }
+        Self {
+            repository_id: r.repository_id,
+            applied: r.applied,
+            source_migrations: r.source_migrations,
+            bring: RepoMergeItems {
+                instances: r
+                    .bring
+                    .instances
+                    .into_iter()
+                    .map(|i| RepoMergeInstance {
+                        instance_id: i.instance_id,
+                        tier: i.tier,
+                        title: i.title,
+                        created_by: i.created_by,
+                    })
+                    .collect(),
+                relations: r
+                    .bring
+                    .relations
+                    .into_iter()
+                    .map(|x| RepoMergeRelation {
+                        relation_id: x.relation_id,
+                        relation_type: x.relation_type,
+                        source_instance_id: x.source_instance_id,
+                        target_instance_id: x.target_instance_id,
+                    })
+                    .collect(),
+                containers: r
+                    .bring
+                    .containers
+                    .into_iter()
+                    .map(|c| RepoMergeContainer {
+                        container_id: c.container_id,
+                        title: c.title,
+                    })
+                    .collect(),
+                container_entries: r
+                    .bring
+                    .container_entries
+                    .into_iter()
+                    .map(|e| RepoMergeEntry {
+                        container_id: e.container_id,
+                        instance_id: e.instance_id,
+                        depth: e.depth,
+                    })
+                    .collect(),
+                attachments: r
+                    .bring
+                    .attachments
+                    .into_iter()
+                    .map(|a| RepoMergeAttachment {
+                        document_id: a.document_id,
+                        title: a.title,
+                    })
+                    .collect(),
+            },
+            differ: refs(r.differ),
+            held_back: r
+                .held_back
+                .into_iter()
+                .map(|h| RepoMergeHeldBack {
+                    kind: h.item.kind,
+                    id: h.item.id,
+                    container_id: h.item.container_id,
+                    reason: h.reason,
+                })
+                .collect(),
+            not_chosen: refs(r.not_chosen),
+            unavailable: refs(r.unavailable),
+            orphaned_entries: r
+                .orphaned_entries
+                .into_iter()
+                .map(|e| RepoMergeEntryId {
+                    container_id: e.container_id,
+                    instance_id: e.instance_id,
+                })
+                .collect(),
+        }
+    }
 }

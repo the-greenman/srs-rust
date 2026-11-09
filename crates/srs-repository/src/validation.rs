@@ -390,6 +390,25 @@ pub fn validate_repository(
         });
     }
 
+    // --- RFC-023 I-88: an installed relation-type key equal to a sourceRole value ---
+    // Create/update refuse it; this reports one already at rest (warning).
+    if let Ok(pkg) = store.load_package() {
+        for d in pkg.relation_types() {
+            if srs_core::types::source_reference::SourceRole::is_source_role_value(&d.key) {
+                diagnostics.push(ValidationDiagnostic {
+                    code: Some("SOURCEROLE_RELATIONTYPE_COLLISION".to_string()),
+                    severity: DiagnosticSeverity::Warning,
+                    relative_path: "package/package.json".to_string(),
+                    schema_id: None,
+                    message: format!(
+                        "RFC-023 I-88: relation-type key '{}' (definition {}) equals a sourceRole value; the vocabularies must be disjoint, so re-key it to a namespaced key",
+                        d.key, d.id
+                    ),
+                });
+            }
+        }
+    }
+
     // --- RFC-026 slice block ([R3], [R4], [R10], [R12]; Change E 1) ---
     if let Some(slice) = manifest_value.get("slice") {
         diagnostics.extend(slice_block_diagnostics(&manifest_value, slice));
@@ -9788,6 +9807,84 @@ mod tests {
         write_json(temp.path(), "records/notes/a.json", &valid_note(&a));
         write_json(temp.path(), "records/notes/b.json", &valid_note(&b));
         (a, b)
+    }
+
+    #[test]
+    fn validate_reports_sourcerole_relationtype_collision_at_rest() {
+        // RFC-023 I-88 / srs-rust#1610: a relation-type key equal to a sourceRole
+        // value already at rest is a SOURCEROLE_RELATIONTYPE_COLLISION warning;
+        // a namespaced key does not collide.
+        let temp = TempDir::new().unwrap();
+        let a = "00000000-0000-4000-8000-00000000000a".to_string();
+        write_json(
+            temp.path(),
+            "manifest.json",
+            &minimal_manifest(json!([
+                {"instanceId": a, "tier": 0, "path": "records/notes/a.json"},
+            ])),
+        );
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &json!({
+                "$schema": srs_schema::PACKAGE_MANIFEST_SCHEMA_ID,
+                "id": "00000000-0000-4000-8000-000000000010",
+                "namespace": "com.test",
+                "name": "test-package",
+                "version": "1.0.0",
+                "title": "test-package",
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "fields": [],
+                "types": [],
+                "views": [],
+                "vocabularies": [],
+                "relationTypes": [
+                    "relation-types/evidence.json",
+                    "relation-types/acme-evidence.json"
+                ]
+            }),
+        );
+        for (file, id, key) in [
+            (
+                "evidence",
+                "00000000-0000-4000-8000-00000000da01",
+                "evidence",
+            ),
+            (
+                "acme-evidence",
+                "00000000-0000-4000-8000-00000000da02",
+                "com.acme/evidence",
+            ),
+        ] {
+            write_json(
+                temp.path(),
+                &format!("package/relation-types/{file}.json"),
+                &json!({
+                    "id": id,
+                    "version": 1,
+                    "key": key,
+                    "namespace": "com.test",
+                    "label": "evidence",
+                    "description": "",
+                    "category": "dependency",
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }),
+            );
+        }
+        write_json(temp.path(), "records/notes/a.json", &valid_note(&a));
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let hits: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.code.as_deref() == Some("SOURCEROLE_RELATIONTYPE_COLLISION"))
+            .collect();
+        assert_eq!(hits.len(), 1, "got: {:?}", report.diagnostics);
+        assert_eq!(hits[0].severity, DiagnosticSeverity::Warning);
+        assert!(hits[0].message.contains("'evidence'"));
     }
 
     #[test]
