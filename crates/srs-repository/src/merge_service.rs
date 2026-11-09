@@ -509,6 +509,10 @@ fn build_plan(
 
     // Instances.
     let package = target.load_package()?;
+    // A typed record's title is its display label, resolved against the package of the copy
+    // it comes from (srs-rust#1597); only a note carries a title of its own.
+    let (label_fields, label_identity) =
+        crate::record_label::build_label_indexes_from_package(&source.load_package()?);
     let instance_values = |s: &RepositorySnapshot| -> BTreeMap<String, Value> {
         s.instances
             .iter()
@@ -557,7 +561,19 @@ fn build_plan(
         report.bring.instances.push(MergeInstance {
             instance_id: i.instance_id.clone(),
             tier: i.tier,
-            title: i.title.as_ref().and_then(Value::as_str).map(str::to_string),
+            title: if i.tier == 0 {
+                i.title.as_ref().and_then(Value::as_str).map(str::to_string)
+            } else {
+                serde_json::from_value::<srs_core::types::record::Record>(i.value.clone())
+                    .ok()
+                    .map(|r| {
+                        crate::record_label::record_display_label(
+                            &r,
+                            &label_identity,
+                            &label_fields,
+                        )
+                    })
+            },
             created_by: i.value.get(actor_service::CREATED_BY_KEY).cloned(),
         });
         plan_instances.push((i.tier, i.value.clone()));
