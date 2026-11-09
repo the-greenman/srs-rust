@@ -21,7 +21,7 @@
 //!   orphan. The error includes the orphaned path.
 
 use crate::error::RepositoryError;
-use crate::package_types::{validate_package_selector, DefinitionKind, PackageSelector};
+use crate::package_types::{validate_package_selector, PackageSelector};
 use crate::store::RepositoryStore;
 use crate::validation::DiagnosticSeverity;
 use crate::writer::new_instance_id;
@@ -86,35 +86,6 @@ pub struct ValidateBlueprintResult {
 }
 
 // ── Private helpers ───────────────────────────────────────────────────────────
-
-/// Locate the full repo-root-relative path for a blueprint by ID.
-fn find_blueprint_path(
-    store: &dyn RepositoryStore,
-    id: &str,
-) -> Result<Option<(String, PackageSelector)>, RepositoryError> {
-    let owner = match store.resolve_definition_owner(id, DefinitionKind::Blueprint) {
-        Ok(sel) => sel,
-        Err(RepositoryError::DefinitionNotFound { .. }) => return Ok(None),
-        Err(e) => return Err(e),
-    };
-    let prefix = owner.as_deref().unwrap_or("package");
-    let pkg_json = store.load_instance_json(&format!("{prefix}/package.json"))?;
-    let paths = pkg_json["blueprints"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
-    for entry in &paths {
-        if let Some(rel) = entry.as_str() {
-            let full = format!("{prefix}/{rel}");
-            if let Ok(val) = store.load_instance_json(&full) {
-                if val["id"].as_str() == Some(id) {
-                    return Ok(Some((full, owner)));
-                }
-            }
-        }
-    }
-    Ok(None)
-}
 
 fn load_blueprint_from_value(value: &serde_json::Value) -> Option<Blueprint> {
     serde_json::from_value(value.clone()).ok()
@@ -199,15 +170,11 @@ pub fn get_blueprint_by_id(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<GetBlueprintResult, RepositoryError> {
-    match find_blueprint_path(store, id)? {
-        Some((path, _owner)) => {
-            let val = store.load_instance_json(&path)?;
-            match load_blueprint_from_value(&val) {
-                Some(bp) => Ok(GetBlueprintResult::Found(Box::new(bp))),
-                None => Ok(GetBlueprintResult::NotFound),
-            }
-        }
-        None => Ok(GetBlueprintResult::NotFound),
+    match store.load_blueprint_by_id(id) {
+        Ok(Some((bp, _owner))) => Ok(GetBlueprintResult::Found(Box::new(bp))),
+        // A file that does not deserialize as a Blueprint reads as absent.
+        Ok(None) | Err(RepositoryError::Serialize { .. }) => Ok(GetBlueprintResult::NotFound),
+        Err(e) => Err(e),
     }
 }
 
@@ -343,30 +310,8 @@ pub fn create_blueprint(
         &blueprint.id,
         boundary_path,
     )?;
-    store.ensure_blueprints_dir(&format!("{boundary_path}/blueprints"))?;
-
-    let rel_filename = crate::package_service::definition_rel_path(
-        DefinitionKind::Blueprint,
-        &blueprint.name,
-        &blueprint.id,
-        u64::from(blueprint.version),
-    );
-    let full_path = format!("{boundary_path}/{rel_filename}");
-
-    // Write file first (atomicity: file before index).
-    store.save_blueprint(&full_path, &blueprint)?;
-
-    // Then register in the boundary's package.json.
-    if let Err(e) =
-        store.add_definition_to_boundary(&selector, DefinitionKind::Blueprint, &rel_filename)
-    {
-        return Err(RepositoryError::InvalidRepositoryInitialization {
-            message: format!(
-                "blueprint file written to '{full_path}' but package.json update failed: {e}; \
-                 repair by deleting the orphaned file or re-running create"
-            ),
-        });
-    }
+    // The store writes the file, then registers it in the boundary's package.json.
+    store.save_blueprint(&selector, &blueprint)?;
 
     Ok(CreateBlueprintResult { blueprint })
 }
@@ -380,17 +325,14 @@ pub fn update_blueprint(
     blueprint_id: &str,
     mut blueprint: Blueprint,
 ) -> Result<UpdateBlueprintResult, RepositoryError> {
-    let (path, _owner) = find_blueprint_path(store, blueprint_id)?.ok_or_else(|| {
+    let (stored, _owner) = store.load_blueprint_by_id(blueprint_id)?.ok_or_else(|| {
         RepositoryError::BlueprintNotFound {
             blueprint_id: blueprint_id.to_string(),
         }
     })?;
 
     // Preserve the original created_at.
-    let stored_value = store.load_instance_json(&path)?;
-    if let Some(original_created_at) = stored_value["createdAt"].as_str() {
-        blueprint.created_at = original_created_at.to_string();
-    }
+    blueprint.created_at = stored.created_at;
 
     let validation = validate_blueprint(&blueprint);
     if !validation.valid {
@@ -404,7 +346,7 @@ pub fn update_blueprint(
         });
     }
 
-    store.update_blueprint_file(&path, &blueprint)?;
+    store.update_blueprint(&blueprint)?;
     Ok(UpdateBlueprintResult { blueprint })
 }
 
@@ -416,30 +358,7 @@ pub fn delete_blueprint(
     store: &dyn RepositoryStore,
     blueprint_id: &str,
 ) -> Result<DeleteBlueprintResult, RepositoryError> {
-    let (full_path, owner) = find_blueprint_path(store, blueprint_id)?.ok_or_else(|| {
-        RepositoryError::BlueprintNotFound {
-            blueprint_id: blueprint_id.to_string(),
-        }
-    })?;
-
-    let boundary_prefix = owner.as_deref().unwrap_or("package");
-    let rel_path = full_path
-        .strip_prefix(&format!("{boundary_prefix}/"))
-        .unwrap_or(&full_path)
-        .to_string();
-
-    // Remove from package.json first (atomicity: index before file).
-    store.remove_definition_from_boundary(&owner, DefinitionKind::Blueprint, &rel_path)?;
-
-    // Then delete the file.
-    if let Err(e) = store.delete_blueprint_file(&full_path) {
-        return Err(RepositoryError::InvalidRepositoryInitialization {
-            message: format!(
-                "[WARN] removed '{full_path}' from package index but file deletion failed: {e}; \
-                 orphaned file may remain at '{full_path}'"
-            ),
-        });
-    }
+    store.delete_blueprint(blueprint_id)?;
 
     Ok(DeleteBlueprintResult {
         id: blueprint_id.to_string(),
@@ -695,16 +614,7 @@ mod tests {
         let store = MemoryStore::default();
         store.register_package_boundary(&None).unwrap();
         bp.id = "test-id-abc12345".to_string();
-        store
-            .save_blueprint("package/blueprints/no-roots-test-id-a.json", &bp)
-            .unwrap();
-        store
-            .add_definition_to_boundary(
-                &None,
-                DefinitionKind::Blueprint,
-                "blueprints/no-roots-test-id-a.json",
-            )
-            .unwrap();
+        store.save_blueprint(&None, &bp).unwrap();
         let result = validate_blueprint_by_id(&store, &bp.id).unwrap();
         assert!(!result.valid);
         assert!(result.diagnostics.iter().any(|d| d.contains("root_types")));
@@ -720,16 +630,7 @@ mod tests {
         let store = MemoryStore::default();
         store.register_package_boundary(&None).unwrap();
         bp.id = "test-id-bad12345".to_string();
-        store
-            .save_blueprint("package/blueprints/bad-required-test-id-b.json", &bp)
-            .unwrap();
-        store
-            .add_definition_to_boundary(
-                &None,
-                DefinitionKind::Blueprint,
-                "blueprints/bad-required-test-id-b.json",
-            )
-            .unwrap();
+        store.save_blueprint(&None, &bp).unwrap();
         let result = validate_blueprint_by_id(&store, &bp.id).unwrap();
         assert!(!result.valid);
         assert!(result
@@ -745,16 +646,7 @@ mod tests {
         let store = MemoryStore::default();
         store.register_package_boundary(&None).unwrap();
         bp.id = "test-id-zero1234".to_string();
-        store
-            .save_blueprint("package/blueprints/zero-version-test-id-z.json", &bp)
-            .unwrap();
-        store
-            .add_definition_to_boundary(
-                &None,
-                DefinitionKind::Blueprint,
-                "blueprints/zero-version-test-id-z.json",
-            )
-            .unwrap();
+        store.save_blueprint(&None, &bp).unwrap();
         let result = validate_blueprint_by_id(&store, &bp.id).unwrap();
         assert!(!result.valid);
         assert!(result.diagnostics.iter().any(|d| d.contains("version 0")));

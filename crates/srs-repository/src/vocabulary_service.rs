@@ -119,13 +119,16 @@ pub fn create_vocabulary(
         &vocabulary.id,
         boundary_path,
     )?;
-    let rel_filename = crate::package_service::definition_rel_path(
-        DefinitionKind::Vocabulary,
-        &vocabulary.name,
-        &vocabulary.id,
-        u64::from(vocabulary.version),
+    // Label for diagnostics only; the store alone decides where the file lives.
+    let full_path = format!(
+        "{boundary_path}/{}",
+        crate::package_service::definition_rel_path(
+            DefinitionKind::Vocabulary,
+            &vocabulary.name,
+            &vocabulary.id,
+            u64::from(vocabulary.version),
+        )
     );
-    let full_path = format!("{boundary_path}/{rel_filename}");
 
     // vocabulary.json closes the object without declaring `$schema` (srs-rust#1058) — strip it
     // before validating, exactly as the catalog loader's `body_for_definition_schema` does, so
@@ -144,9 +147,7 @@ pub fn create_vocabulary(
     }
     validate_definition_write_schema(VOCABULARY_SCHEMA_ID, &raw, std::path::Path::new(&full_path))?;
 
-    store.ensure_vocabularies_dir(&format!("{boundary_path}/vocabularies"))?;
-    store.save_vocabulary(&full_path, &vocabulary)?;
-    store.add_definition_to_boundary(&selector, DefinitionKind::Vocabulary, &rel_filename)?;
+    store.save_vocabulary(&selector, &vocabulary)?;
 
     Ok(CreateVocabularyResult { vocabulary })
 }
@@ -180,8 +181,6 @@ pub fn create_term(
             path: std::path::PathBuf::from(format!("vocabulary/{}", vocabulary_id)),
         })?;
 
-    let vocab_path = find_vocabulary_file_path(store, vocabulary_id)?;
-
     if term.id.trim().is_empty() {
         term.id = new_instance_id();
     }
@@ -196,50 +195,12 @@ pub fn create_term(
     let mut updated_vocab = vocab;
     updated_vocab.terms.push(term.clone());
 
-    store.save_vocabulary(&vocab_path, &updated_vocab)?;
+    store.update_vocabulary(&updated_vocab)?;
 
     Ok(CreateTermResult {
         term,
         vocabulary: updated_vocab,
     })
-}
-
-/// Find the repo-root-relative path for a vocabulary file, searching the
-/// primary package AND every `manifest.packageRefs[]` local boundary
-/// (srs-rust#1007) — the same union `load_package()`/`resolve_definition_owner`
-/// already resolve reads against, so `promote_vocabulary`/`create_term` no
-/// longer disagree with `vocabulary get`/`list` about where a vocabulary lives.
-pub(crate) fn find_vocabulary_file_path(
-    store: &dyn RepositoryStore,
-    vocabulary_id: &str,
-) -> Result<String, RepositoryError> {
-    let not_found = || RepositoryError::NotFound {
-        path: std::path::PathBuf::from(format!("vocabulary file for {}", vocabulary_id)),
-    };
-    let owner = store
-        .resolve_definition_owner(vocabulary_id, DefinitionKind::Vocabulary)
-        .map_err(|_| not_found())?;
-    let prefix = owner.as_deref().unwrap_or("package");
-    let pkg_json = store
-        .load_instance_json(&format!("{prefix}/package.json"))
-        .map_err(|_| not_found())?;
-    let vocab_paths: Vec<String> = pkg_json["vocabularies"]
-        .as_array()
-        .unwrap_or(&vec![])
-        .iter()
-        .filter_map(|v| v.as_str().map(str::to_string))
-        .collect();
-    vocab_paths
-        .iter()
-        .find(|rel| {
-            let full = format!("{prefix}/{rel}");
-            store
-                .load_instance_json(&full)
-                .map(|v| v["id"].as_str() == Some(vocabulary_id))
-                .unwrap_or(false)
-        })
-        .map(|rel| format!("{prefix}/{rel}"))
-        .ok_or_else(not_found)
 }
 
 /// Collect value counts for the values that actually **participate** in a
@@ -502,12 +463,10 @@ pub fn promote_vocabulary(
         });
     }
 
-    let vocab_path = find_vocabulary_file_path(store, &input.vocabulary_id)?;
-
     let mut promoted = vocab;
     promoted.mode = VocabularyMode::Closed;
 
-    store.save_vocabulary(&vocab_path, &promoted)?;
+    store.update_vocabulary(&promoted)?;
 
     Ok(PromoteVocabularyResult {
         vocabulary: promoted,
