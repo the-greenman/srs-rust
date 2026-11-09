@@ -2193,26 +2193,6 @@ mod tests {
             fn save_package_json(&self, _: &serde_json::Value) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
-            fn save_type(
-                &self,
-                _: &str,
-                _: &srs_core::types::record_type::RecordType,
-            ) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn update_type_file(
-                &self,
-                _: &str,
-                _: &srs_core::types::record_type::RecordType,
-            ) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn delete_type_file(&self, _: &str) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn ensure_types_dir(&self, _: &str) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
             fn save_relation_type_definition(
                 &self,
                 _: &str,
