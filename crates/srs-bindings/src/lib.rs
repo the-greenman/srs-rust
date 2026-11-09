@@ -1526,6 +1526,18 @@ impl SrsRepository {
         })
     }
 
+    /// Project the repository into relational SQL (srs-rust#1603): `{ sql,
+    /// tables, rows, inexpressible }`. With `include_data`, the inserts follow
+    /// the DDL. A derived projection, never a store.
+    pub fn schema_sql(&self, include_data: bool) -> Result<JsValue, JsValue> {
+        let result = srs_projection::sql_projection(
+            &self.store,
+            srs_projection::SqlProjectionInput { include_data },
+        )
+        .map_err(|e| js_err(&e))?;
+        to_js(&result)
+    }
+
     /// List blueprint summaries across all package boundaries.
     /// Returns a JS value matching `BlueprintListResult`; WARN-level
     /// provenance issues (missing files, duplicate IDs) surface in `diagnostics`.
