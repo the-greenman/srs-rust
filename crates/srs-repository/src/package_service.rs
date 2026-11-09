@@ -1316,9 +1316,7 @@ pub fn create_relation_type(
         boundary_path,
     )?;
 
-    store.ensure_relation_types_dir(&format!("{boundary_path}/relation-types"))?;
-    store.save_relation_type_definition(&full_path, &def)?;
-    store.add_definition_to_boundary(&selector, DefinitionKind::RelationType, &rel_filename)?;
+    store.save_relation_type_definition(&selector, &def)?;
 
     Ok(CreateRelationTypeResult {
         relation_type_definition: def,
@@ -1400,7 +1398,7 @@ pub fn update_relation_type(
         }
     }
 
-    store.save_relation_type_definition(&relative_path, &def)?;
+    store.update_relation_type_definition(&def)?;
     Ok(UpdateRelationTypeResult {
         relation_type_definition: def,
     })
@@ -1427,7 +1425,7 @@ pub fn delete_relation_type(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<DeleteRelationTypeResult, RepositoryError> {
-    let (full_path, owner) = find_relation_type_path(store, id)?
+    let (full_path, _owner) = find_relation_type_path(store, id)?
         .ok_or_else(|| RepositoryError::DefinitionNotFound { id: id.to_string() })?;
 
     // Resolve the type's key so we can match against relation_type strings.
@@ -1504,14 +1502,7 @@ pub fn delete_relation_type(
         }
     }
 
-    let boundary_prefix = owner.as_deref().unwrap_or("package");
-    let rel_path = full_path
-        .strip_prefix(&format!("{boundary_prefix}/"))
-        .unwrap_or(&full_path)
-        .to_string();
-
-    store.delete_relation_type_file(&full_path)?;
-    store.remove_definition_from_boundary(&owner, DefinitionKind::RelationType, &rel_path)?;
+    store.delete_relation_type_definition(id)?;
     let (diagnostics, diagnostics_structured) = diagnostics.into_parts();
     Ok(DeleteRelationTypeResult {
         id: id.to_string(),
@@ -3723,18 +3714,7 @@ mod tests {
         // repository would hold it): `create_relation_type` now refuses a held key
         // (srs-rust#1474).
         let second = make_def("bbb2-shared-key-def");
-        let rel_filename = definition_rel_path(
-            DefinitionKind::RelationType,
-            &second.key,
-            &second.id,
-            u64::from(second.version),
-        );
-        store
-            .save_relation_type_definition(&format!("package/{rel_filename}"), &second)
-            .unwrap();
-        store
-            .add_definition_to_boundary(&None, DefinitionKind::RelationType, &rel_filename)
-            .unwrap();
+        store.save_relation_type_definition(&None, &second).unwrap();
 
         let rel_json = serde_json::json!({
             "relations": [{

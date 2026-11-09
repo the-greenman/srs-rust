@@ -490,13 +490,63 @@ pub trait RepositoryStore {
 
     // --- Relation type definitions ---
 
+    // Typed logical-id methods (ADR-041 G3-G5, ADR-042 template; srs-rust#731), the
+    // same shape as the Field, Type and View methods: the caller names a package
+    // boundary and a definition (by value or id), never a path. The defaults are the
+    // shared file-tree adapter; a non-file backend overrides them and stores rows.
+
+    /// Persist a RelationTypeDefinition in `boundary`. The same id and version
+    /// already in that boundary is rewritten in place; otherwise a new file is named
+    /// by the ADR-050 scheme and indexed in the boundary's `relationTypes` array.
     fn save_relation_type_definition(
         &self,
-        relative_path: &str,
+        boundary: &PackageSelector,
         relation_type: &RelationTypeDefinition,
-    ) -> Result<(), RepositoryError>;
-    fn delete_relation_type_file(&self, relative_path: &str) -> Result<(), RepositoryError>;
-    fn ensure_relation_types_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
+    ) -> Result<(), RepositoryError> {
+        let value = definition_value(relation_type, boundary, srs_schema::RELATION_TYPE_SCHEMA_ID)?;
+        save_definition_impl(
+            self,
+            boundary,
+            DefinitionKind::RelationType,
+            (&relation_type.id, &relation_type.key, relation_type.version),
+            &value,
+        )
+    }
+
+    /// Rewrite an existing RelationTypeDefinition in place (full replace), found by
+    /// its id in whichever boundary owns it. `DefinitionNotFound` when none does.
+    fn update_relation_type_definition(
+        &self,
+        relation_type: &RelationTypeDefinition,
+    ) -> Result<(), RepositoryError> {
+        update_definition_impl(
+            self,
+            DefinitionKind::RelationType,
+            (&relation_type.id, None),
+            relation_type,
+            Some(srs_schema::RELATION_TYPE_SCHEMA_ID),
+            || RepositoryError::DefinitionNotFound {
+                id: relation_type.id.clone(),
+            },
+        )
+    }
+
+    /// Load a RelationTypeDefinition by logical id with the boundary that owns it.
+    /// `Ok(None)` when no boundary holds it.
+    fn load_relation_type_definition_by_id(
+        &self,
+        id: &str,
+    ) -> Result<Option<(RelationTypeDefinition, PackageSelector)>, RepositoryError> {
+        load_definition_impl(self, id, DefinitionKind::RelationType)
+    }
+
+    /// Delete a RelationTypeDefinition by logical id and drop it from its boundary's
+    /// index. `DefinitionNotFound` when absent.
+    fn delete_relation_type_definition(&self, id: &str) -> Result<(), RepositoryError> {
+        delete_definition_impl(self, DefinitionKind::RelationType, id, None, || {
+            RepositoryError::DefinitionNotFound { id: id.to_string() }
+        })
+    }
 
     // --- Views (L1) and Document Views (L2) ---
 
@@ -608,56 +658,193 @@ pub trait RepositoryStore {
 
     // --- Themes ---
 
+    /// Persist a Theme in `boundary` (same rules as [`Self::save_relation_type_definition`];
+    /// indexed in `themes`).
     fn save_theme(
         &self,
-        relative_path: &str,
+        boundary: &PackageSelector,
         theme: &srs_core::types::theme::Theme,
-    ) -> Result<(), RepositoryError>;
-    fn update_theme_file(
+    ) -> Result<(), RepositoryError> {
+        let value = definition_value(theme, boundary, srs_schema::THEME_SCHEMA_ID)?;
+        save_definition_impl(
+            self,
+            boundary,
+            DefinitionKind::Theme,
+            (&theme.id, &theme.name, theme.version),
+            &value,
+        )
+    }
+
+    /// Rewrite an existing Theme in place (full replace), found by its id.
+    /// `ThemeNotFound` when no boundary holds it.
+    fn update_theme(&self, theme: &srs_core::types::theme::Theme) -> Result<(), RepositoryError> {
+        update_definition_impl(
+            self,
+            DefinitionKind::Theme,
+            (&theme.id, None),
+            theme,
+            Some(srs_schema::THEME_SCHEMA_ID),
+            || RepositoryError::ThemeNotFound {
+                theme_id: theme.id.clone(),
+            },
+        )
+    }
+
+    /// Load a Theme by logical id with the boundary that owns it.
+    fn load_theme_by_id(
         &self,
-        relative_path: &str,
-        theme: &srs_core::types::theme::Theme,
-    ) -> Result<(), RepositoryError>;
-    fn delete_theme_file(&self, relative_path: &str) -> Result<(), RepositoryError>;
-    fn ensure_themes_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
+        id: &str,
+    ) -> Result<Option<(srs_core::types::theme::Theme, PackageSelector)>, RepositoryError> {
+        load_definition_impl(self, id, DefinitionKind::Theme)
+    }
+
+    /// Delete a Theme by logical id and drop it from its boundary's index.
+    /// `ThemeNotFound` when absent.
+    fn delete_theme(&self, id: &str) -> Result<(), RepositoryError> {
+        delete_definition_impl(self, DefinitionKind::Theme, id, None, || {
+            RepositoryError::ThemeNotFound {
+                theme_id: id.to_string(),
+            }
+        })
+    }
 
     // --- Blueprints ---
 
+    /// Persist a Blueprint in `boundary` (indexed in `blueprints`).
     fn save_blueprint(
         &self,
-        relative_path: &str,
+        boundary: &PackageSelector,
         blueprint: &srs_core::types::blueprint::Blueprint,
-    ) -> Result<(), RepositoryError>;
-    fn update_blueprint_file(
+    ) -> Result<(), RepositoryError> {
+        let value = definition_value(blueprint, boundary, None)?;
+        save_definition_impl(
+            self,
+            boundary,
+            DefinitionKind::Blueprint,
+            (&blueprint.id, &blueprint.name, blueprint.version),
+            &value,
+        )
+    }
+
+    /// Rewrite an existing Blueprint in place (full replace), found by its id.
+    /// `BlueprintNotFound` when no boundary holds it.
+    fn update_blueprint(
         &self,
-        relative_path: &str,
         blueprint: &srs_core::types::blueprint::Blueprint,
-    ) -> Result<(), RepositoryError>;
-    fn delete_blueprint_file(&self, relative_path: &str) -> Result<(), RepositoryError>;
-    fn ensure_blueprints_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
+    ) -> Result<(), RepositoryError> {
+        update_definition_impl(
+            self,
+            DefinitionKind::Blueprint,
+            (&blueprint.id, None),
+            blueprint,
+            None,
+            || RepositoryError::BlueprintNotFound {
+                blueprint_id: blueprint.id.clone(),
+            },
+        )
+    }
+
+    /// Load a Blueprint by logical id with the boundary that owns it.
+    fn load_blueprint_by_id(
+        &self,
+        id: &str,
+    ) -> Result<Option<(srs_core::types::blueprint::Blueprint, PackageSelector)>, RepositoryError>
+    {
+        load_definition_impl(self, id, DefinitionKind::Blueprint)
+    }
+
+    /// Delete a Blueprint by logical id and drop it from its boundary's index.
+    /// `BlueprintNotFound` when absent.
+    fn delete_blueprint(&self, id: &str) -> Result<(), RepositoryError> {
+        delete_definition_impl(self, DefinitionKind::Blueprint, id, None, || {
+            RepositoryError::BlueprintNotFound {
+                blueprint_id: id.to_string(),
+            }
+        })
+    }
 
     // --- Vocabularies ---
 
+    /// Persist a Vocabulary in `boundary` (indexed in `vocabularies`). Versions of
+    /// one vocabulary coexist, each in its own file (srs-rust#1550).
     fn save_vocabulary(
         &self,
-        relative_path: &str,
+        boundary: &PackageSelector,
         vocabulary: &Vocabulary,
-    ) -> Result<(), RepositoryError>;
-    fn ensure_vocabularies_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
+    ) -> Result<(), RepositoryError> {
+        let value = definition_value(vocabulary, boundary, None)?;
+        save_definition_impl(
+            self,
+            boundary,
+            DefinitionKind::Vocabulary,
+            (&vocabulary.id, &vocabulary.name, vocabulary.version),
+            &value,
+        )
+    }
+
+    /// Rewrite an existing Vocabulary in place (full replace), found by its id and
+    /// version. `NotFound` when no boundary holds that version.
+    fn update_vocabulary(&self, vocabulary: &Vocabulary) -> Result<(), RepositoryError> {
+        update_definition_impl(
+            self,
+            DefinitionKind::Vocabulary,
+            (&vocabulary.id, Some(vocabulary.version)),
+            vocabulary,
+            None,
+            || RepositoryError::NotFound {
+                path: PathBuf::from(format!("vocabulary file for {}", vocabulary.id)),
+            },
+        )
+    }
+
+    /// Load a Vocabulary by logical id with the boundary that owns it.
+    fn load_vocabulary_by_id(
+        &self,
+        id: &str,
+    ) -> Result<Option<(Vocabulary, PackageSelector)>, RepositoryError> {
+        load_definition_impl(self, id, DefinitionKind::Vocabulary)
+    }
 
     // --- Lifecycles ---
 
+    /// Persist a Lifecycle in `boundary` (indexed in `lifecycles`).
     fn save_lifecycle(
         &self,
-        relative_path: &str,
+        boundary: &PackageSelector,
         lifecycle: &Lifecycle,
-    ) -> Result<(), RepositoryError>;
-    fn update_lifecycle_file(
+    ) -> Result<(), RepositoryError> {
+        let value = definition_value(lifecycle, boundary, None)?;
+        save_definition_impl(
+            self,
+            boundary,
+            DefinitionKind::Lifecycle,
+            (&lifecycle.id, &lifecycle.name, lifecycle.version),
+            &value,
+        )
+    }
+
+    /// Rewrite an existing Lifecycle in place (full replace), found by its id.
+    /// `LifecycleNotFound` when no boundary holds it.
+    fn update_lifecycle(&self, lifecycle: &Lifecycle) -> Result<(), RepositoryError> {
+        update_definition_impl(
+            self,
+            DefinitionKind::Lifecycle,
+            (&lifecycle.id, None),
+            lifecycle,
+            None,
+            || RepositoryError::LifecycleNotFound {
+                id: lifecycle.id.clone(),
+            },
+        )
+    }
+
+    /// Load a Lifecycle by logical id with the boundary that owns it.
+    fn load_lifecycle_by_id(
         &self,
-        relative_path: &str,
-        lifecycle: &Lifecycle,
-    ) -> Result<(), RepositoryError>;
-    fn ensure_lifecycles_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
+        id: &str,
+    ) -> Result<Option<(Lifecycle, PackageSelector)>, RepositoryError> {
+        load_definition_impl(self, id, DefinitionKind::Lifecycle)
+    }
 
     // --- Instances (Notes, Records) ---
 
@@ -2425,131 +2612,6 @@ impl RepositoryStore for FileStore {
 
     // --- Types ---
 
-    fn save_relation_type_definition(
-        &self,
-        relative_path: &str,
-        relation_type: &RelationTypeDefinition,
-    ) -> Result<(), RepositoryError> {
-        let value =
-            serde_json::to_value(relation_type).map_err(|e| RepositoryError::Serialize {
-                path: self.abs(relative_path),
-                source: e,
-            })?;
-        let mut value = value;
-        inject_definition_schema(&mut value, srs_schema::RELATION_TYPE_SCHEMA_ID);
-        self.write_json(relative_path, &value)
-    }
-
-    fn delete_relation_type_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.delete_file(relative_path)
-    }
-
-    fn ensure_relation_types_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
-        self.ensure_dir(relative_dir)
-    }
-
-    // --- Themes ---
-
-    fn save_theme(
-        &self,
-        relative_path: &str,
-        theme: &srs_core::types::theme::Theme,
-    ) -> Result<(), RepositoryError> {
-        let value = serde_json::to_value(theme).map_err(|e| RepositoryError::Serialize {
-            path: self.abs(relative_path),
-            source: e,
-        })?;
-        let mut value = value;
-        inject_definition_schema(&mut value, srs_schema::THEME_SCHEMA_ID);
-        self.write_json(relative_path, &value)
-    }
-
-    fn update_theme_file(
-        &self,
-        relative_path: &str,
-        theme: &srs_core::types::theme::Theme,
-    ) -> Result<(), RepositoryError> {
-        self.save_theme(relative_path, theme)
-    }
-
-    fn delete_theme_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.delete_file(relative_path)
-    }
-
-    fn ensure_themes_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
-        self.ensure_dir(relative_dir)
-    }
-
-    // --- Blueprints ---
-
-    fn save_blueprint(
-        &self,
-        relative_path: &str,
-        blueprint: &srs_core::types::blueprint::Blueprint,
-    ) -> Result<(), RepositoryError> {
-        let value = serde_json::to_value(blueprint).map_err(|e| RepositoryError::Serialize {
-            path: self.abs(relative_path),
-            source: e,
-        })?;
-        self.write_json(relative_path, &value)
-    }
-
-    fn update_blueprint_file(
-        &self,
-        relative_path: &str,
-        blueprint: &srs_core::types::blueprint::Blueprint,
-    ) -> Result<(), RepositoryError> {
-        self.save_blueprint(relative_path, blueprint)
-    }
-
-    fn delete_blueprint_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.delete_file(relative_path)
-    }
-
-    fn ensure_blueprints_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
-        self.ensure_dir(relative_dir)
-    }
-
-    fn save_vocabulary(
-        &self,
-        relative_path: &str,
-        vocabulary: &Vocabulary,
-    ) -> Result<(), RepositoryError> {
-        let value = serde_json::to_value(vocabulary).map_err(|e| RepositoryError::Serialize {
-            path: self.abs(relative_path),
-            source: e,
-        })?;
-        self.write_json(relative_path, &value)
-    }
-
-    fn ensure_vocabularies_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
-        self.ensure_dir(relative_dir)
-    }
-
-    fn save_lifecycle(
-        &self,
-        relative_path: &str,
-        lifecycle: &Lifecycle,
-    ) -> Result<(), RepositoryError> {
-        let value = serde_json::to_value(lifecycle).map_err(|e| RepositoryError::Serialize {
-            path: self.abs(relative_path),
-            source: e,
-        })?;
-        self.write_json(relative_path, &value)
-    }
-
-    fn update_lifecycle_file(
-        &self,
-        relative_path: &str,
-        lifecycle: &Lifecycle,
-    ) -> Result<(), RepositoryError> {
-        self.save_lifecycle(relative_path, lifecycle)
-    }
-
-    fn ensure_lifecycles_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
-        self.ensure_dir(relative_dir)
-    }
-
     // --- Instances ---
 
     fn load_instance_json(
@@ -3273,10 +3335,7 @@ struct FoundDefinitionFile {
 
 /// The `package.json` array that indexes a definition kind's files.
 fn definition_array_key(kind: DefinitionKind) -> &'static str {
-    match kind {
-        DefinitionKind::Composition => "compositions",
-        _ => "views",
-    }
+    definition_kind_key(kind)
 }
 
 /// Locate a View/Composition file by logical id (and version when given) in the
@@ -3330,16 +3389,18 @@ fn scan_definition_index<S: RepositoryStore + ?Sized>(
 }
 
 /// Serialize a definition and stamp its `$schema`, as every definition write does.
-fn definition_value<T: serde::Serialize>(
+fn definition_value<'a, T: serde::Serialize>(
     def: &T,
     boundary: &PackageSelector,
-    schema_id: &str,
+    schema_id: impl Into<Option<&'a str>>,
 ) -> Result<serde_json::Value, RepositoryError> {
     let mut value = serde_json::to_value(def).map_err(|e| RepositoryError::Serialize {
         path: PathBuf::from(boundary.as_deref().unwrap_or("package")),
         source: e,
     })?;
-    inject_definition_schema(&mut value, schema_id);
+    if let Some(schema_id) = schema_id.into() {
+        inject_definition_schema(&mut value, schema_id);
+    }
     Ok(value)
 }
 
@@ -3357,10 +3418,8 @@ fn save_definition_impl<S: RepositoryStore + ?Sized>(
         return store.save_instance_json(&found.full_path, value);
     }
     let rel = crate::package_service::definition_rel_path(kind, name, id, u64::from(version));
-    let dir = match kind {
-        DefinitionKind::Composition => "compositions",
-        _ => "views",
-    };
+    // The directory is the first segment of the ADR-050 relative path.
+    let dir = rel.split('/').next().unwrap_or_default();
     store.ensure_instance_dir(&format!("{prefix}/{dir}"))?;
     store.save_instance_json(&format!("{prefix}/{rel}"), value)?;
     store.add_definition_to_boundary(boundary, kind, &rel)
@@ -3380,6 +3439,36 @@ fn load_definition_impl<S: RepositoryStore + ?Sized, T: serde::de::DeserializeOw
         source: e,
     })?;
     Ok(Some((def, found.owner)))
+}
+
+/// Rewrite an existing definition in place (full replace), found by id (and
+/// version when given) in whichever boundary owns it. `not_found` builds the
+/// kind's own error when no boundary holds it.
+fn update_definition_impl<S: RepositoryStore + ?Sized, T: serde::Serialize>(
+    store: &S,
+    kind: DefinitionKind,
+    (id, version): (&str, Option<u32>),
+    def: &T,
+    schema_id: Option<&str>,
+    not_found: impl FnOnce() -> RepositoryError,
+) -> Result<(), RepositoryError> {
+    let found = find_definition_file(store, id, kind, version)?.ok_or_else(not_found)?;
+    let value = definition_value(def, &found.owner, schema_id)?;
+    store.save_instance_json(&found.full_path, &value)
+}
+
+/// Delete a definition by id (and version when given) and drop it from its
+/// boundary's index. The file removal is best-effort: the file may already be gone.
+fn delete_definition_impl<S: RepositoryStore + ?Sized>(
+    store: &S,
+    kind: DefinitionKind,
+    id: &str,
+    version: Option<u32>,
+    not_found: impl FnOnce() -> RepositoryError,
+) -> Result<(), RepositoryError> {
+    let found = find_definition_file(store, id, kind, version)?.ok_or_else(not_found)?;
+    let _ = store.delete_instance_file(&found.full_path);
+    store.remove_definition_from_boundary(&found.owner, kind, &found.rel_path)
 }
 
 /// One catalog snapshot ([R24] applied), returning a container's locator.
@@ -3667,6 +3756,34 @@ pub mod memory {
     }
 
     impl MemoryStore {
+        fn sync_relation_type(&self, def: &RelationTypeDefinition) {
+            let mut pkg = self.package.borrow_mut();
+            match pkg
+                .relation_type_definitions
+                .iter_mut()
+                .find(|rt| rt.id == def.id)
+            {
+                Some(existing) => *existing = def.clone(),
+                None => pkg.relation_type_definitions.push(def.clone()),
+            }
+        }
+
+        fn sync_vocabulary(&self, vocabulary: &Vocabulary) {
+            let mut pkg = self.package.borrow_mut();
+            match pkg.vocabularies.iter_mut().find(|v| v.id == vocabulary.id) {
+                Some(existing) => *existing = vocabulary.clone(),
+                None => pkg.vocabularies.push(vocabulary.clone()),
+            }
+        }
+
+        fn sync_lifecycle(&self, lifecycle: &Lifecycle) {
+            let mut pkg = self.package.borrow_mut();
+            match pkg.lifecycles.iter_mut().find(|l| l.id == lifecycle.id) {
+                Some(existing) => *existing = lifecycle.clone(),
+                None => pkg.lifecycles.push(lifecycle.clone()),
+            }
+        }
+
         pub fn new(mut manifest: Manifest, package: Package) -> Self {
             // A canonical repositoryId: a copy to a file tree names its root container's
             // directory by it (RFC-051 [R2]).
@@ -4235,175 +4352,119 @@ pub mod memory {
             Ok(())
         }
 
+        // The typed definition methods keep the shared file-tree defaults over `data`;
+        // these overrides also mirror each write into `self.package`, so `load_package()`
+        // reflects it (the in-memory package is not rebuilt from `data`).
+
         fn save_relation_type_definition(
             &self,
-            relative_path: &str,
+            boundary: &PackageSelector,
             relation_type: &RelationTypeDefinition,
         ) -> Result<(), RepositoryError> {
-            let mut v = serde_json::to_value(relation_type).unwrap();
-            inject_definition_schema(&mut v, srs_schema::RELATION_TYPE_SCHEMA_ID);
-            self.data.borrow_mut().insert(relative_path.to_string(), v);
-            // Keep self.package in sync so load_package() reflects writes.
-            let mut pkg = self.package.borrow_mut();
-            if let Some(existing) = pkg
+            let value =
+                definition_value(relation_type, boundary, srs_schema::RELATION_TYPE_SCHEMA_ID)?;
+            save_definition_impl(
+                self,
+                boundary,
+                DefinitionKind::RelationType,
+                (&relation_type.id, &relation_type.key, relation_type.version),
+                &value,
+            )?;
+            self.sync_relation_type(relation_type);
+            Ok(())
+        }
+
+        fn update_relation_type_definition(
+            &self,
+            relation_type: &RelationTypeDefinition,
+        ) -> Result<(), RepositoryError> {
+            update_definition_impl(
+                self,
+                DefinitionKind::RelationType,
+                (&relation_type.id, None),
+                relation_type,
+                Some(srs_schema::RELATION_TYPE_SCHEMA_ID),
+                || RepositoryError::DefinitionNotFound {
+                    id: relation_type.id.clone(),
+                },
+            )?;
+            self.sync_relation_type(relation_type);
+            Ok(())
+        }
+
+        fn delete_relation_type_definition(&self, id: &str) -> Result<(), RepositoryError> {
+            delete_definition_impl(self, DefinitionKind::RelationType, id, None, || {
+                RepositoryError::DefinitionNotFound { id: id.to_string() }
+            })?;
+            // A post-delete load_package() must not still resolve the key.
+            self.package
+                .borrow_mut()
                 .relation_type_definitions
-                .iter_mut()
-                .find(|rt| rt.id == relation_type.id)
-            {
-                *existing = relation_type.clone();
-            } else {
-                pkg.relation_type_definitions.push(relation_type.clone());
-            }
-            Ok(())
-        }
-
-        fn delete_relation_type_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-            // `relative_path` already carries its "package/..." (or sub-package
-            // boundary) prefix, matching how `save_relation_type_definition` keys
-            // `self.data` (it inserts `relative_path` as given, no added prefix).
-            // The previous `format!("package/{relative_path}")` here double-prefixed
-            // the key, so `remove` silently missed every entry and a "deleted"
-            // relation type stayed in `self.data` forever under MemoryStore.
-            let deleted_id = self
-                .data
-                .borrow()
-                .get(relative_path)
-                .and_then(|v| v.get("id"))
-                .and_then(|v| v.as_str())
-                .map(str::to_string);
-            self.data.borrow_mut().remove(relative_path);
-            // Keep self.package in sync so load_package() reflects the deletion,
-            // mirroring save_relation_type_definition's sync on the write side —
-            // otherwise a post-delete load_package() still resolves the deleted
-            // definition's key through it.
-            if let Some(id) = deleted_id {
-                self.package
-                    .borrow_mut()
-                    .relation_type_definitions
-                    .retain(|rt| rt.id != id);
-            }
-            Ok(())
-        }
-
-        fn ensure_relation_types_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
-            Ok(())
-        }
-
-        fn save_theme(
-            &self,
-            relative_path: &str,
-            theme: &srs_core::types::theme::Theme,
-        ) -> Result<(), RepositoryError> {
-            let mut v = serde_json::to_value(theme).unwrap();
-            inject_definition_schema(&mut v, srs_schema::THEME_SCHEMA_ID);
-            self.data.borrow_mut().insert(relative_path.to_string(), v);
-            Ok(())
-        }
-
-        fn update_theme_file(
-            &self,
-            relative_path: &str,
-            theme: &srs_core::types::theme::Theme,
-        ) -> Result<(), RepositoryError> {
-            if !self.data.borrow().contains_key(relative_path) {
-                return Err(not_found(relative_path));
-            }
-            self.save_theme(relative_path, theme)
-        }
-
-        fn delete_theme_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-            self.data.borrow_mut().remove(relative_path);
-            Ok(())
-        }
-
-        fn ensure_themes_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
-            Ok(())
-        }
-
-        fn save_blueprint(
-            &self,
-            relative_path: &str,
-            blueprint: &srs_core::types::blueprint::Blueprint,
-        ) -> Result<(), RepositoryError> {
-            let v = serde_json::to_value(blueprint).unwrap();
-            self.data.borrow_mut().insert(relative_path.to_string(), v);
-            Ok(())
-        }
-
-        fn update_blueprint_file(
-            &self,
-            relative_path: &str,
-            blueprint: &srs_core::types::blueprint::Blueprint,
-        ) -> Result<(), RepositoryError> {
-            if !self.data.borrow().contains_key(relative_path) {
-                return Err(not_found(relative_path));
-            }
-            self.save_blueprint(relative_path, blueprint)
-        }
-
-        fn delete_blueprint_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-            self.data.borrow_mut().remove(relative_path);
-            Ok(())
-        }
-
-        fn ensure_blueprints_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
+                .retain(|rt| rt.id != id);
             Ok(())
         }
 
         fn save_vocabulary(
             &self,
-            relative_path: &str,
+            boundary: &PackageSelector,
             vocabulary: &Vocabulary,
         ) -> Result<(), RepositoryError> {
-            let v = serde_json::to_value(vocabulary).unwrap();
-            self.data.borrow_mut().insert(relative_path.to_string(), v);
-            // Keep self.package in sync so load_package() reflects writes.
-            let mut pkg = self.package.borrow_mut();
-            if let Some(existing) = pkg
-                .vocabularies
-                .iter_mut()
-                .find(|vc| vc.id == vocabulary.id)
-            {
-                *existing = vocabulary.clone();
-            } else {
-                pkg.vocabularies.push(vocabulary.clone());
-            }
+            let value = definition_value(vocabulary, boundary, None)?;
+            save_definition_impl(
+                self,
+                boundary,
+                DefinitionKind::Vocabulary,
+                (&vocabulary.id, &vocabulary.name, vocabulary.version),
+                &value,
+            )?;
+            self.sync_vocabulary(vocabulary);
             Ok(())
         }
 
-        fn ensure_vocabularies_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
+        fn update_vocabulary(&self, vocabulary: &Vocabulary) -> Result<(), RepositoryError> {
+            update_definition_impl(
+                self,
+                DefinitionKind::Vocabulary,
+                (&vocabulary.id, Some(vocabulary.version)),
+                vocabulary,
+                None,
+                || RepositoryError::NotFound {
+                    path: PathBuf::from(format!("vocabulary file for {}", vocabulary.id)),
+                },
+            )?;
+            self.sync_vocabulary(vocabulary);
             Ok(())
         }
 
         fn save_lifecycle(
             &self,
-            relative_path: &str,
+            boundary: &PackageSelector,
             lifecycle: &Lifecycle,
         ) -> Result<(), RepositoryError> {
-            let v = serde_json::to_value(lifecycle).unwrap();
-            self.data.borrow_mut().insert(relative_path.to_string(), v);
-            // Keep self.package in sync so load_package() reflects writes.
-            let mut pkg = self.package.borrow_mut();
-            if let Some(existing) = pkg.lifecycles.iter_mut().find(|lc| lc.id == lifecycle.id) {
-                *existing = lifecycle.clone();
-            } else {
-                pkg.lifecycles.push(lifecycle.clone());
-            }
+            let value = definition_value(lifecycle, boundary, None)?;
+            save_definition_impl(
+                self,
+                boundary,
+                DefinitionKind::Lifecycle,
+                (&lifecycle.id, &lifecycle.name, lifecycle.version),
+                &value,
+            )?;
+            self.sync_lifecycle(lifecycle);
             Ok(())
         }
 
-        fn update_lifecycle_file(
-            &self,
-            relative_path: &str,
-            lifecycle: &Lifecycle,
-        ) -> Result<(), RepositoryError> {
-            if !self.data.borrow().contains_key(relative_path) {
-                return Err(not_found(relative_path));
-            }
-            self.save_lifecycle(relative_path, lifecycle)
-        }
-
-        fn ensure_lifecycles_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
+        fn update_lifecycle(&self, lifecycle: &Lifecycle) -> Result<(), RepositoryError> {
+            update_definition_impl(
+                self,
+                DefinitionKind::Lifecycle,
+                (&lifecycle.id, None),
+                lifecycle,
+                None,
+                || RepositoryError::LifecycleNotFound {
+                    id: lifecycle.id.clone(),
+                },
+            )?;
+            self.sync_lifecycle(lifecycle);
             Ok(())
         }
 
