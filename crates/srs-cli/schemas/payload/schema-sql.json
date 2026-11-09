@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SchemaSqlPayload",
+  "description": "`srs schema sql` — the relational projection (srs-rust#1603). `sql` is the DDL (and inserts with `--data`), one statement per line; `tables` maps each generated table to the Type it projects. What SQL could not carry arrives in the envelope's `diagnostics`, as `inexpressible` does for `schema generate`.",
+  "type": "object",
+  "required": [
+    "rows",
+    "sql",
+    "tables"
+  ],
+  "properties": {
+    "rows": true,
+    "sql": {
+      "type": "string"
+    },
+    "tables": {
+      "type": "array",
+      "items": true
+    }
+  }
+}

@@ -1331,6 +1331,15 @@ pub enum SchemaCommand {
         #[arg(long = "entity")]
         entities: Vec<String>,
     },
+    /// Project the repository into relational SQL (srs-rust#1603): one table per
+    /// Type from the packages, plus the fixed instance/relation/container tables.
+    /// A derived, rebuildable projection — never a store the files are loaded from.
+    Sql {
+        /// Also emit INSERT statements for every record, note, relation and
+        /// container entry.
+        #[arg(long)]
+        data: bool,
+    },
 }
 
 #[derive(Subcommand)]

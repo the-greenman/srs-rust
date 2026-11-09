@@ -1620,6 +1620,20 @@ pub struct SchemaGeneratePayload {
     pub canonical_json: String,
 }
 
+/// `srs schema sql` — the relational projection (srs-rust#1603). `sql` is the
+/// DDL (and inserts with `--data`), one statement per line; `tables` maps each
+/// generated table to the Type it projects. What SQL could not carry arrives
+/// in the envelope's `diagnostics`, as `inexpressible` does for `schema generate`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SchemaSqlPayload {
+    pub sql: String,
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub tables: Vec<srs_projection::SqlTable>,
+    #[schemars(with = "serde_json::Value")]
+    pub rows: srs_projection::SqlRowCounts,
+}
+
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct BriefField {

@@ -121,6 +121,7 @@ fn main() {
     write_schema!("type-schema", TypeSchemaPayload);
     write_schema!("type-json-schema", TypeJsonSchemaPayload);
     write_schema!("schema-generate", SchemaGeneratePayload);
+    write_schema!("schema-sql", SchemaSqlPayload);
 
     // Protocol payloads
     write_schema!("protocol-list", ProtocolListPayload);
