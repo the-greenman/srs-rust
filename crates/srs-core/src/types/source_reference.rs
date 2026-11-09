@@ -55,10 +55,42 @@ pub enum SourceRole {
     Attaches,
 }
 
+impl SourceRole {
+    /// Every `sourceRole` value, as serialized. RFC-023 invariant I-88: installed
+    /// `RelationTypeDefinition` keys MUST be disjoint from this set.
+    pub const ALL: [&'static str; 5] = [
+        "evidence",
+        "extracted-from",
+        "quoted-from",
+        "inspired-by",
+        "attaches",
+    ];
+
+    /// True when `key` equals a `sourceRole` value (literal whole-key equality, I-88).
+    pub fn is_source_role_value(key: &str) -> bool {
+        Self::ALL.contains(&key)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn source_role_all_matches_serde_names() {
+        for r in [
+            SourceRole::Evidence,
+            SourceRole::ExtractedFrom,
+            SourceRole::QuotedFrom,
+            SourceRole::InspiredBy,
+            SourceRole::Attaches,
+        ] {
+            let name = serde_json::to_value(r).unwrap();
+            assert!(SourceRole::is_source_role_value(name.as_str().unwrap()));
+        }
+        assert!(!SourceRole::is_source_role_value("com.acme/evidence"));
+    }
 
     #[test]
     fn source_reference_minimal_roundtrip() {

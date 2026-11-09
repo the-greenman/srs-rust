@@ -24,7 +24,7 @@
 
 use crate::container_service;
 use crate::error::RepositoryError;
-use crate::package_types::{validate_package_selector, DefinitionKind, PackageSelector};
+use crate::package_types::{validate_package_selector, PackageSelector};
 use crate::store::{inject_definition_schema, RepositoryStore};
 use crate::validation::validate_definition_write_schema;
 use crate::writer::new_instance_id;
@@ -124,66 +124,6 @@ pub struct DeleteCompositionResult {
 }
 
 // ── Private helpers ───────────────────────────────────────────────────────────
-
-/// Locate the package-relative path (e.g. `"views/foo-abcd1234.json"`) for a View by ID.
-/// Uses `resolve_definition_owner` to find the boundary, then scans the `package.json` views
-/// array and checks each file's `id` field.
-fn find_view_path(
-    store: &dyn RepositoryStore,
-    id: &str,
-) -> Result<Option<(String, crate::package_types::PackageSelector)>, RepositoryError> {
-    let owner = match store.resolve_definition_owner(id, DefinitionKind::View) {
-        Ok(sel) => sel,
-        Err(RepositoryError::DefinitionNotFound { .. }) => return Ok(None),
-        Err(e) => return Err(e),
-    };
-    // PackageBoundary only carries field_paths/type_paths, not view_paths.
-    // Load the *owner's* package.json (not always the primary one).
-    let prefix = owner.as_deref().unwrap_or("package");
-    let pkg_json = store.load_instance_json(&format!("{prefix}/package.json"))?;
-    let paths = pkg_json["views"].as_array().cloned().unwrap_or_default();
-    for entry in &paths {
-        if let Some(rel) = entry.as_str() {
-            let full = format!("{prefix}/{rel}");
-            if let Ok(val) = store.load_instance_json(&full) {
-                if val["id"].as_str() == Some(id) {
-                    return Ok(Some((full, owner)));
-                }
-            }
-        }
-    }
-    Ok(None)
-}
-
-/// Same as `find_view_path` but scans the `compositions` array.
-fn find_composition_path(
-    store: &dyn RepositoryStore,
-    id: &str,
-) -> Result<Option<(String, crate::package_types::PackageSelector)>, RepositoryError> {
-    let owner = match store.resolve_definition_owner(id, DefinitionKind::Composition) {
-        Ok(sel) => sel,
-        Err(RepositoryError::DefinitionNotFound { .. }) => return Ok(None),
-        Err(e) => return Err(e),
-    };
-    // Load the *owner's* package.json (not always the primary one).
-    let prefix = owner.as_deref().unwrap_or("package");
-    let pkg_json = store.load_instance_json(&format!("{prefix}/package.json"))?;
-    let paths = pkg_json["compositions"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
-    for entry in &paths {
-        if let Some(rel) = entry.as_str() {
-            let full = format!("{prefix}/{rel}");
-            if let Ok(val) = store.load_instance_json(&full) {
-                if val["id"].as_str() == Some(id) {
-                    return Ok(Some((full, owner)));
-                }
-            }
-        }
-    }
-    Ok(None)
-}
 
 // ── Read-only service functions ───────────────────────────────────────────────
 
@@ -614,16 +554,7 @@ pub fn create_view(
         &view.id,
         boundary_path,
     )?;
-    store.ensure_views_dir(&format!("{boundary_path}/views"))?;
-    let rel_filename = crate::package_service::definition_rel_path(
-        DefinitionKind::View,
-        &view.name,
-        &view.id,
-        u64::from(view.version),
-    );
-    let full_path = format!("{boundary_path}/{rel_filename}");
-    store.save_view(&full_path, &view)?;
-    store.add_definition_to_boundary(&selector, DefinitionKind::View, &rel_filename)?;
+    store.save_view(&selector, &view)?;
     Ok(CreateViewResult { view })
 }
 
@@ -631,8 +562,11 @@ pub fn create_view(
 pub fn update_view(
     store: &dyn RepositoryStore,
     view_id: &str,
-    view: View,
+    mut view: View,
 ) -> Result<UpdateViewResult, RepositoryError> {
+    // The positional id is authoritative, as for `update_composition`: the store
+    // locates the file by the View's own id.
+    view.id = view_id.to_string();
     let mut raw = serde_json::to_value(&view).map_err(|e| RepositoryError::Serialize {
         path: std::path::PathBuf::from("package/views"),
         source: e,
@@ -644,11 +578,7 @@ pub fn update_view(
         source: e,
     })?;
     refuse_dangling_view_fields(store, &view)?;
-    let (path, _owner) =
-        find_view_path(store, view_id)?.ok_or_else(|| RepositoryError::ViewNotFound {
-            view_id: view_id.to_string(),
-        })?;
-    store.update_view_file(&path, &view)?;
+    store.update_view(&view)?;
     Ok(UpdateViewResult { view })
 }
 
@@ -683,17 +613,7 @@ pub fn delete_view(
             used_by: refs,
         });
     }
-    let (full_path, owner) =
-        find_view_path(store, view_id)?.ok_or_else(|| RepositoryError::ViewNotFound {
-            view_id: view_id.to_string(),
-        })?;
-    let boundary_prefix = owner.as_deref().unwrap_or("package");
-    let rel_path = full_path
-        .strip_prefix(&format!("{boundary_prefix}/"))
-        .unwrap_or(&full_path)
-        .to_string();
-    let _ = store.delete_view_file(&full_path); // best-effort; ignore if already gone
-    store.remove_definition_from_boundary(&owner, DefinitionKind::View, &rel_path)?;
+    store.delete_view(view_id)?;
     Ok(DeleteViewResult {
         id: view_id.to_string(),
     })
@@ -752,16 +672,7 @@ pub fn create_composition(
         &composition.id,
         boundary_path,
     )?;
-    store.ensure_compositions_dir(&format!("{boundary_path}/compositions"))?;
-    let rel_filename = crate::package_service::definition_rel_path(
-        DefinitionKind::Composition,
-        &composition.name,
-        &composition.id,
-        u64::from(composition.version),
-    );
-    let full_path = format!("{boundary_path}/{rel_filename}");
-    store.save_composition(&full_path, &composition)?;
-    store.add_definition_to_boundary(&selector, DefinitionKind::Composition, &rel_filename)?;
+    store.save_composition(&selector, &composition)?;
     Ok(CreateCompositionResult { composition })
 }
 
@@ -789,12 +700,7 @@ pub fn update_composition(
         source: e,
     })?;
     refuse_dangling_render_views(store, &composition)?;
-    let (path, _owner) = find_composition_path(store, composition_id)?.ok_or_else(|| {
-        RepositoryError::CompositionNotFoundById {
-            composition_id: composition_id.to_string(),
-        }
-    })?;
-    store.update_composition_file(&path, &composition)?;
+    store.update_composition(&composition)?;
     Ok(UpdateCompositionResult { composition })
 }
 
@@ -803,18 +709,7 @@ pub fn delete_composition(
     store: &dyn RepositoryStore,
     composition_id: &str,
 ) -> Result<DeleteCompositionResult, RepositoryError> {
-    let (full_path, owner) = find_composition_path(store, composition_id)?.ok_or_else(|| {
-        RepositoryError::CompositionNotFoundById {
-            composition_id: composition_id.to_string(),
-        }
-    })?;
-    let boundary_prefix = owner.as_deref().unwrap_or("package");
-    let rel_path = full_path
-        .strip_prefix(&format!("{boundary_prefix}/"))
-        .unwrap_or(&full_path)
-        .to_string();
-    let _ = store.delete_composition_file(&full_path); // best-effort
-    store.remove_definition_from_boundary(&owner, DefinitionKind::Composition, &rel_path)?;
+    store.delete_composition(composition_id)?;
     Ok(DeleteCompositionResult {
         id: composition_id.to_string(),
     })
@@ -1013,12 +908,7 @@ mod tests {
         let made = create_composition(&store, comp, None).unwrap().composition;
 
         // Remove the View behind the validator's back (delete_view would refuse it).
-        let (path, owner) = find_view_path(&store, &view.id).unwrap().unwrap();
-        let rel = path.strip_prefix("package/").unwrap().to_string();
-        store.delete_view_file(&path).unwrap();
-        store
-            .remove_definition_from_boundary(&owner, DefinitionKind::View, &rel)
-            .unwrap();
+        store.delete_view(&view.id).unwrap();
         let report = crate::validation::validate_repository(&store).unwrap();
         let hits: Vec<_> = report
             .diagnostics

@@ -141,6 +141,11 @@ fn cmd_protocol_validate(ctx: CliContext, id: String) -> Result<String> {
             protocol_id: result.protocol_id,
             valid: result.valid,
             diagnostics: result.diagnostics,
+            diagnostics_structured: result
+                .diagnostics_structured
+                .into_iter()
+                .map(Into::into)
+                .collect(),
         },
     )
 }

@@ -631,6 +631,14 @@ pub fn export_package_bundle(
         "packageDependencies",
         Value::Array(target.package_dependencies.clone().unwrap_or_default()),
     );
+    // RFC-045 tooling convention: `README.md` beside `package.json`, when it is
+    // a regular UTF-8 file, travels as the bundle's readme; never synthesised.
+    if let Some(r) = crate::bundled_readme::pick_up_readme(store, prefix, "README.md") {
+        put(
+            "readme",
+            serde_json::json!({"path": r.path, "content": r.content}),
+        );
+    }
 
     let value = crate::srsj::canonicalize(Value::Object(bundle), false);
     SchemaRegistry::global()
@@ -849,6 +857,30 @@ mod tests {
             let out = items.iter().find(|i| i["id"] == d.value["id"]).unwrap();
             assert_eq!(out, &crate::srsj::canonicalize(d.value, false));
         }
+    }
+
+    #[test]
+    fn export_picks_up_readme_beside_package_json_and_reads_back() {
+        let (t, store) = with_fixture();
+        let none: Value = serde_json::from_str(&export(&store, Some(FIXTURE)).text).unwrap();
+        assert!(none.get("readme").is_none(), "nothing is synthesised");
+        std::fs::write(t.path().join(FIXTURE).join("README.md"), "# Fixture\n").unwrap();
+        let out = export(&store, Some(FIXTURE));
+        let v: Value = serde_json::from_str(&out.text).unwrap();
+        assert_eq!(
+            v["readme"],
+            json!({"path": "README.md", "content": "# Fixture\n"})
+        );
+        let read = read_package_bundle(out.text.as_bytes()).unwrap();
+        assert_eq!(read.readme_error, None);
+    }
+
+    #[test]
+    fn export_skips_a_non_utf8_readme() {
+        let (t, store) = with_fixture();
+        std::fs::write(t.path().join(FIXTURE).join("README.md"), [0xff, 0xfe, 0x00]).unwrap();
+        let v: Value = serde_json::from_str(&export(&store, Some(FIXTURE)).text).unwrap();
+        assert!(v.get("readme").is_none());
     }
 
     #[test]
