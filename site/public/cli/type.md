@@ -14,6 +14,7 @@ Commands:
   update       Update an existing type definition by ID (reads full type JSON from stdin)
   delete       Delete a type definition by ID
   schema       Emit a draft-07 JSON Schema for a record's fieldValues of this Type
+  subtypes     List every Type that transitively extends this one (ext:type-inheritance)
   json-schema  Project this Type into a standard JSON Schema 2020-12 definition schema (RFC-035). Distinct from `type schema`, which emits the editor-facing draft-07 + `x-srs-*` projection
   help         Print this message or the help of the given subcommand(s)
 
@@ -285,6 +286,52 @@ Options:
 
       --type-version <TYPE_VERSION>
           Type version (defaults to latest)
+
+      --format <FORMAT>
+          Output format
+
+          Possible values:
+          - json: JSON output (default)
+          - yaml: YAML output
+          - text: Human-readable text output (planned, currently returns diagnostic)
+          
+          [default: json]
+
+      --store <STORE>
+          Storage backend override. By default the backend is inferred from the repository location
+          
+          [possible values: file, json]
+
+      --pretty
+          Pretty-print JSON output (no effect on text format)
+
+      --container <CONTAINER_ID>
+          Container scope: constrains list/create/delete to this container's membership; on `context record` it adds the record's arrangement subtree in this container
+
+      --actor <ACTOR>
+          Session actor for everything this invocation creates (RFC-046 `createdBy`): JSON `{"kind":"human|ai","id":"<non-empty>","name":"<optional>"}`. Defaults to the `SRS_ACTOR` environment variable; with neither, creations are unattributed. Host configuration only — a request payload never carries it. An invalid value refuses every creating command (`actor-invalid`); a corpus below dataModelRevision 9 refuses an actor session (`revision-too-old`) until `repo apply-migration --id rfc046-actor-provenance`. A `.srsj` migrated in memory on open refuses every write first (`migration-required-before-write`) until its migrations are applied
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## `srs type subtypes`
+
+```text
+List every Type that transitively extends this one (ext:type-inheritance)
+
+Usage: srs type subtypes [OPTIONS] <ID>
+
+Arguments:
+  <ID>
+          Type definition ID
+
+Options:
+      --include-self
+          Also list the Type itself
+
+      --repo <REPO>
+          Repository path (defaults to auto-detect from current directory)
 
       --format <FORMAT>
           Output format
