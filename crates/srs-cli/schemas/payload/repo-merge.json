@@ -1,0 +1,269 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RepoMergePayload",
+  "description": "Payload for `srs repo merge-preview` and `srs repo merge-apply` (srs-rust#1580): a mirror of `merge_service::MergeReport`, guarded by `payload_mirror_fidelity`.",
+  "type": "object",
+  "required": [
+    "applied",
+    "bring",
+    "differ",
+    "heldBack",
+    "notChosen",
+    "orphanedEntries",
+    "repositoryId",
+    "sourceMigrations",
+    "unavailable"
+  ],
+  "properties": {
+    "applied": {
+      "type": "boolean"
+    },
+    "bring": {
+      "$ref": "#/definitions/RepoMergeItems"
+    },
+    "differ": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/RepoMergeItemRef"
+      }
+    },
+    "heldBack": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/RepoMergeHeldBack"
+      }
+    },
+    "notChosen": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/RepoMergeItemRef"
+      }
+    },
+    "orphanedEntries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/RepoMergeEntryId"
+      }
+    },
+    "repositoryId": {
+      "type": "string"
+    },
+    "sourceMigrations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "unavailable": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/RepoMergeItemRef"
+      }
+    }
+  },
+  "definitions": {
+    "RepoMergeAttachment": {
+      "type": "object",
+      "required": [
+        "documentId"
+      ],
+      "properties": {
+        "documentId": {
+          "type": "string"
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "RepoMergeContainer": {
+      "type": "object",
+      "required": [
+        "containerId",
+        "title"
+      ],
+      "properties": {
+        "containerId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      }
+    },
+    "RepoMergeEntry": {
+      "type": "object",
+      "required": [
+        "containerId",
+        "depth",
+        "instanceId"
+      ],
+      "properties": {
+        "containerId": {
+          "type": "string"
+        },
+        "depth": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "instanceId": {
+          "type": "string"
+        }
+      }
+    },
+    "RepoMergeEntryId": {
+      "type": "object",
+      "required": [
+        "containerId",
+        "instanceId"
+      ],
+      "properties": {
+        "containerId": {
+          "type": "string"
+        },
+        "instanceId": {
+          "type": "string"
+        }
+      }
+    },
+    "RepoMergeHeldBack": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "reason"
+      ],
+      "properties": {
+        "containerId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "RepoMergeInstance": {
+      "type": "object",
+      "required": [
+        "instanceId",
+        "tier"
+      ],
+      "properties": {
+        "createdBy": true,
+        "instanceId": {
+          "type": "string"
+        },
+        "tier": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0.0
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "RepoMergeItemRef": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind"
+      ],
+      "properties": {
+        "containerId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        }
+      }
+    },
+    "RepoMergeItems": {
+      "type": "object",
+      "required": [
+        "attachments",
+        "containerEntries",
+        "containers",
+        "instances",
+        "relations"
+      ],
+      "properties": {
+        "attachments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RepoMergeAttachment"
+          }
+        },
+        "containerEntries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RepoMergeEntry"
+          }
+        },
+        "containers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RepoMergeContainer"
+          }
+        },
+        "instances": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RepoMergeInstance"
+          }
+        },
+        "relations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RepoMergeRelation"
+          }
+        }
+      }
+    },
+    "RepoMergeRelation": {
+      "type": "object",
+      "required": [
+        "relationId",
+        "relationType",
+        "sourceInstanceId",
+        "targetInstanceId"
+      ],
+      "properties": {
+        "relationId": {
+          "type": "string"
+        },
+        "relationType": {
+          "type": "string"
+        },
+        "sourceInstanceId": {
+          "type": "string"
+        },
+        "targetInstanceId": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

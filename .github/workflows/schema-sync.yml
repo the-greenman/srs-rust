@@ -34,7 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check out the existing sync PR's branch, if one is open
+      - name: Find the open sync PR's branch, if one is open
         id: target
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -49,9 +49,10 @@ jobs:
             --jq '[.[] | select(.head.ref | startswith("'"${branch_prefix}"'"))][0].head.ref // empty')"
           echo "existing_branch=${existing_branch}" >> "$GITHUB_OUTPUT"
           if [ -n "${existing_branch}" ]; then
-            echo "Open sync PR already exists on ${existing_branch} — syncing onto it instead of opening a new one."
-            git fetch origin "${existing_branch}"
-            git checkout -B "${existing_branch}" "origin/${existing_branch}"
+            # The sync always runs from the default branch, never onto the PR's old branch: a
+            # stale or conflicted sync branch (#1146) is rebuilt from master and force-pushed
+            # below, so it cannot stay conflicted (#1184).
+            echo "Open sync PR already exists on ${existing_branch} — rebuilding that branch from the default branch."
           fi
 
       - name: Run the canonical sync script
@@ -97,12 +98,13 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if [ -z "${EXISTING_BRANCH}" ]; then
-            git checkout -b "${branch}"
-          fi
+          # Fetch the old branch so --force-with-lease has a remote-tracking ref to lease against.
+          if [ -n "${EXISTING_BRANCH}" ]; then git fetch origin "${EXISTING_BRANCH}"; fi
+          # Recreate the branch from the checked-out default branch in both cases (#1184).
+          git checkout -B "${branch}"
           git add crates/srs-schema/schemas/2.0/
           git commit -m "chore(schema): sync schemas from spec (${RELEASE_TAG:-latest release})"
-          git push -u origin "${branch}"
+          git push -u --force-with-lease origin "${branch}"
 
           # A PR opened (or a branch pushed) with the Actions token never triggers the
           # `pull_request`/`push` workflows that carry the required checks (#979), so
@@ -115,7 +117,7 @@ jobs:
           gh workflow run schema-drift.yml --ref "${branch}"
 
           if [ -n "${EXISTING_BRANCH}" ]; then
-            echo "Pushed new release content to existing sync PR branch ${branch}."
+            echo "Rebuilt existing sync PR branch from the default branch with the new release content: ${branch}."
             exit 0
           fi
 

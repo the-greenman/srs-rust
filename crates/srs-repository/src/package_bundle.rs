@@ -33,6 +33,9 @@ use crate::store::{definition_kind_key, RepositoryStore};
 pub struct ReadPackageBundle {
     pub bundle: PackageSourceBundle,
     pub notes: Vec<String>,
+    /// The `readme-invalid` error (RFC-045 [R4]) when the bundle's readme was
+    /// dropped; the load proceeds without it.
+    pub readme_error: Option<String>,
 }
 
 fn refuse(code: &'static str, message: impl Into<String>) -> RepositoryError {
@@ -82,7 +85,7 @@ fn bring_forward(v: &mut Value, rev: u64) -> Result<Vec<String>, RepositoryError
     Ok(notes)
 }
 
-/// Read a `.srspkg` from its bytes: parse, refuse a `readme` (srs-rust#1164),
+/// Read a `.srspkg` from its bytes: parse,
 /// refuse a newer revision, bring an older one forward through the registry's
 /// bundle forms or refuse naming the missing step ([C6], [`bring_forward`]),
 /// validate against `package-bundle.json`, then validate every definition with
@@ -94,13 +97,6 @@ pub fn read_package_bundle(bytes: &[u8]) -> Result<ReadPackageBundle, Repository
         return Err(refuse(
             "bundle-not-json",
             "a package bundle is a JSON object",
-        ));
-    }
-    if v.get("readme").is_some() {
-        return Err(refuse(
-            "bundle-readme-unsupported",
-            "this srs cannot carry a bundle readme yet (RFC-045, srs-rust#1164); \
-             remove `readme` and retry",
         ));
     }
     let rev = v
@@ -117,6 +113,12 @@ pub fn read_package_bundle(bytes: &[u8]) -> Result<ReadPackageBundle, Repository
         ));
     }
     let notes = bring_forward(&mut v, rev)?;
+    // RFC-045 [R4]: a bad readme is an error diagnostic, dropped, never a refusal.
+    let readme_read = crate::bundled_readme::read_readme(
+        v.get("readme"),
+        &crate::bundled_readme::ReadmeForm::Bundle,
+        "package bundle",
+    );
     SchemaRegistry::global()
         .validate_by_id(PACKAGE_BUNDLE_SCHEMA_ID, &v)
         .map_err(|e| {
@@ -177,8 +179,10 @@ pub fn read_package_bundle(bytes: &[u8]) -> Result<ReadPackageBundle, Repository
             version: s("packageVersion"),
             package_dependencies,
             definitions,
+            readme: readme_read.readme,
         },
         notes,
+        readme_error: readme_read.invalid,
     })
 }
 
@@ -627,6 +631,14 @@ pub fn export_package_bundle(
         "packageDependencies",
         Value::Array(target.package_dependencies.clone().unwrap_or_default()),
     );
+    // RFC-045 tooling convention: `README.md` beside `package.json`, when it is
+    // a regular UTF-8 file, travels as the bundle's readme; never synthesised.
+    if let Some(r) = crate::bundled_readme::pick_up_readme(store, prefix, "README.md") {
+        put(
+            "readme",
+            serde_json::json!({"path": r.path, "content": r.content}),
+        );
+    }
 
     let value = crate::srsj::canonicalize(Value::Object(bundle), false);
     SchemaRegistry::global()
@@ -845,6 +857,30 @@ mod tests {
             let out = items.iter().find(|i| i["id"] == d.value["id"]).unwrap();
             assert_eq!(out, &crate::srsj::canonicalize(d.value, false));
         }
+    }
+
+    #[test]
+    fn export_picks_up_readme_beside_package_json_and_reads_back() {
+        let (t, store) = with_fixture();
+        let none: Value = serde_json::from_str(&export(&store, Some(FIXTURE)).text).unwrap();
+        assert!(none.get("readme").is_none(), "nothing is synthesised");
+        std::fs::write(t.path().join(FIXTURE).join("README.md"), "# Fixture\n").unwrap();
+        let out = export(&store, Some(FIXTURE));
+        let v: Value = serde_json::from_str(&out.text).unwrap();
+        assert_eq!(
+            v["readme"],
+            json!({"path": "README.md", "content": "# Fixture\n"})
+        );
+        let read = read_package_bundle(out.text.as_bytes()).unwrap();
+        assert_eq!(read.readme_error, None);
+    }
+
+    #[test]
+    fn export_skips_a_non_utf8_readme() {
+        let (t, store) = with_fixture();
+        std::fs::write(t.path().join(FIXTURE).join("README.md"), [0xff, 0xfe, 0x00]).unwrap();
+        let v: Value = serde_json::from_str(&export(&store, Some(FIXTURE)).text).unwrap();
+        assert!(v.get("readme").is_none());
     }
 
     #[test]

@@ -59,6 +59,7 @@ fn find_full_and_empty_facets_match() {
             notes: 4,
             tags: counts(1, 0),
             fields: vec![FieldFacet {
+                field_id: "00000000-0000-4000-8000-0000000000f1".into(),
                 field: "status".into(),
                 counts: counts(2, 1),
             }],
@@ -249,4 +250,66 @@ fn render_goldens_accept_output_with_skipped_keys_absent() {
     .unwrap();
     assert!(v.get("diagnostics").is_none());
     assert!(golden("render-okf-bundle").is_valid(&v));
+}
+
+#[test]
+fn repo_merge_payload_serializes_like_the_service_report() {
+    use srs::payload::RepoMergePayload;
+    use srs_repository::merge_service::{
+        MergeAttachment, MergeContainer, MergeEntry, MergeEntryId, MergeHeldBack, MergeInstance,
+        MergeItemRef, MergeItems, MergeRelation, MergeReport,
+    };
+    let item = |container_id: Option<&str>| MergeItemRef {
+        kind: "container-entry".into(),
+        id: "i".into(),
+        container_id: container_id.map(str::to_string),
+    };
+    for full in [true, false] {
+        let s = |x: &str| full.then(|| x.to_string());
+        let report = MergeReport {
+            repository_id: "r".into(),
+            applied: full,
+            source_migrations: vec!["m".into()],
+            bring: MergeItems {
+                instances: vec![MergeInstance {
+                    instance_id: "i".into(),
+                    tier: 2,
+                    title: s("t"),
+                    created_by: full.then(|| serde_json::json!({"kind": "ai", "id": "a"})),
+                }],
+                relations: vec![MergeRelation {
+                    relation_id: "x".into(),
+                    relation_type: "evidences".into(),
+                    source_instance_id: "a".into(),
+                    target_instance_id: "b".into(),
+                }],
+                containers: vec![MergeContainer {
+                    container_id: "c".into(),
+                    title: "T".into(),
+                }],
+                container_entries: vec![MergeEntry {
+                    container_id: "c".into(),
+                    instance_id: "i".into(),
+                    depth: 1,
+                }],
+                attachments: vec![MergeAttachment {
+                    document_id: "d".into(),
+                    title: s("t"),
+                }],
+            },
+            differ: vec![item(s("c").as_deref())],
+            held_back: vec![MergeHeldBack {
+                item: item(s("c").as_deref()),
+                reason: "type-not-resolved".into(),
+            }],
+            not_chosen: vec![item(s("c").as_deref())],
+            unavailable: vec![item(None)],
+            orphaned_entries: vec![MergeEntryId {
+                container_id: "c".into(),
+                instance_id: "i".into(),
+            }],
+        };
+        let direct = to_value(&report).unwrap();
+        assert_eq!(to_value(RepoMergePayload::from(report)).unwrap(), direct);
+    }
 }

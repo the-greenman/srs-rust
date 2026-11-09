@@ -37,6 +37,17 @@ impl std::fmt::Display for FieldOrderProblem {
     }
 }
 
+/// Plain-text rendering of a package selector for [`RepositoryError::PackageNotFound`]:
+/// names the form callers must give (a boundary path, as `srs package list` shows it).
+fn package_selector_hint(selector: &Option<String>) -> String {
+    match selector {
+        Some(s) => {
+            format!("'{s}' (expected a boundary path such as packages/website (srs package list))")
+        }
+        None => "the default package (package/package.json is missing)".to_string(),
+    }
+}
+
 #[derive(Error, Debug, serde::Serialize)]
 #[serde(untagged, rename_all_fields = "camelCase")]
 pub enum RepositoryError {
@@ -392,7 +403,7 @@ pub enum RepositoryError {
     #[error("invalid export bundle: {message}")]
     InvalidExportBundle { message: String },
 
-    #[error("package not found: {selector:?}")]
+    #[error("package not found: {}", package_selector_hint(.selector))]
     PackageNotFound { selector: Option<String> },
 
     #[error("package already registered: id '{id}'")]
@@ -678,6 +689,18 @@ pub enum RepositoryError {
     /// `slice-repository-id-reused`.
     #[error("{message}")]
     SliceRefused {
+        #[serde(skip)]
+        code: &'static str,
+        #[serde(skip)]
+        message: String,
+    },
+
+    /// Bringing items in from another copy was refused and nothing was written
+    /// (srs-rust#1580). `code` is one of `merge-repository-mismatch`,
+    /// `merge-revision-mismatch`, `merge-revision-unsupported`, `merge-selection-invalid`,
+    /// `merge-store-unsupported`, `merge-target-migration-needed`.
+    #[error("{message}")]
+    MergeRefused {
         #[serde(skip)]
         code: &'static str,
         #[serde(skip)]
@@ -1463,6 +1486,7 @@ impl RepositoryError {
             Self::ActorProvenance { code, .. } => code,
             Self::InvalidPackageBundle { code, .. } => code,
             Self::SliceRefused { code, .. } => code,
+            Self::MergeRefused { code, .. } => code,
             Self::BoundaryRefused { code, .. } => code,
             Self::StorageGenerationUnsupported { .. } => "storage-generation-unsupported",
             Self::GzipSrsj { .. } => "srsj-gzip-rejected",
@@ -1493,6 +1517,22 @@ fn successor_undetermined_detail(candidates: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn package_not_found_names_the_expected_form_in_plain_text() {
+        let named = RepositoryError::PackageNotFound {
+            selector: Some("website".into()),
+        }
+        .to_string();
+        assert!(!named.contains("Some("), "debug wrapper leaked: {named}");
+        assert!(named.contains("'website'"), "{named}");
+        assert!(
+            named.contains("expected a boundary path such as packages/website (srs package list)"),
+            "{named}"
+        );
+        let default = RepositoryError::PackageNotFound { selector: None }.to_string();
+        assert!(!default.contains("None"), "{default}");
+    }
 
     fn je() -> serde_json::Error {
         serde_json::from_str::<u8>("x").unwrap_err()
@@ -1876,6 +1916,10 @@ mod tests {
                 code: "bundle-x",
                 message: "x".into(),
             },
+            R::MergeRefused {
+                code: "merge-x",
+                message: "x".into(),
+            },
             R::SliceRefused {
                 code: "slice-y",
                 message: "x".into(),
@@ -1894,7 +1938,7 @@ mod tests {
         let all = all_variants();
         assert_eq!(
             all.len(),
-            109,
+            110,
             "all_variants() is out of step with the enum"
         );
         let mut seen = std::collections::HashSet::new();

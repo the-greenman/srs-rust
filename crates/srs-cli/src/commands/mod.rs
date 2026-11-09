@@ -769,6 +769,24 @@ pub enum RepoCommand {
         #[arg(long = "to-store", value_enum)]
         to_store: Option<StoreBackend>,
     },
+    /// Report what bringing new items in from another copy (a `.srs` archive) of this
+    /// repository would do. Writes nothing.
+    MergePreview {
+        /// The `.srs` archive of the other copy
+        #[arg(long = "from")]
+        from: PathBuf,
+        /// Read a selection from stdin and answer for exactly that choice
+        #[arg(long = "selection")]
+        selection: bool,
+    },
+    /// Bring the items chosen on stdin in from another copy (a `.srs` archive), unchanged,
+    /// or refuse and write nothing. Stdin: `{instanceIds?, relationIds?, containerIds?,
+    /// containerEntries?: [{containerId, instanceId}]}`, ids from `repo merge-preview`.
+    MergeApply {
+        /// The `.srs` archive of the other copy
+        #[arg(long = "from")]
+        from: PathBuf,
+    },
     /// Diff two repository copies, keyed on stable instance_id / relation_id
     Diff {
         /// Source (from) repository root

@@ -109,6 +109,9 @@ pub struct PackageSourceBundle {
     /// requirements stay checkable. `None` = absent.
     pub package_dependencies: Option<Vec<serde_json::Value>>,
     pub definitions: Vec<PackageSourceDefinition>,
+    /// The bundle's valid `readme` (RFC-045), kept unchanged ([R5]). Writing it
+    /// out on install is srs-rust#1164 slice 2.
+    pub readme: Option<crate::bundled_readme::BundledReadme>,
 }
 
 /// Read an external package directory (containing `package.json` plus the
@@ -152,6 +155,7 @@ pub fn load_package_source_dir(source_dir: &Path) -> Result<PackageSourceBundle,
         version: meta_str("version")?,
         package_dependencies: pkg_json["packageDependencies"].as_array().cloned(),
         definitions: Vec::new(),
+        readme: None,
     };
 
     for kind in INSTALL_ORDER {
@@ -1070,6 +1074,15 @@ pub fn install_package_bundle(
         })();
     }
 
+    // ── Phase 6: the bundled readme, after every other file (RFC-045 [R3], [R6]) ──
+    let mut findings = crate::diagnostic::Diagnostics::new();
+    if let Some(readme) = &bundle.readme {
+        if let Some(msg) = crate::bundled_readme::write_readme(store, &boundary_path, readme) {
+            findings.warning(crate::bundled_readme::README_WRITE_CONFLICT, msg);
+        }
+    }
+    let (notes, diagnostics_structured) = findings.into_parts();
+
     let kinds = INSTALL_ORDER
         .iter()
         .filter_map(|kind| counts.remove(kind_label(*kind)))
@@ -1086,8 +1099,8 @@ pub fn install_package_bundle(
         skipped_identical: skipped_total,
         conflicts,
         kinds,
-        notes: vec![],
-        diagnostics_structured: vec![],
+        notes,
+        diagnostics_structured,
     })
 }
 
@@ -1107,7 +1120,13 @@ pub fn install_package_bundle_bytes(
     for note in read.notes {
         findings.push_note(note, "package-bundle-note");
     }
-    (result.notes, result.diagnostics_structured) = findings.into_parts();
+    if let Some(e) = read.readme_error {
+        findings.error(crate::bundled_readme::README_INVALID, e);
+    }
+    let (notes, structured) = findings.into_parts();
+    // The reader's findings lead; the install's own (readme-write-conflict) follow.
+    result.notes.splice(0..0, notes);
+    result.diagnostics_structured.splice(0..0, structured);
     Ok(result)
 }
 
@@ -1281,6 +1300,9 @@ pub fn upgrade_package_bundle(
     let mut findings = crate::diagnostic::Diagnostics::new();
     for note in read.notes {
         findings.push_note(note, "package-bundle-note");
+    }
+    if let Some(e) = read.readme_error {
+        findings.error(crate::bundled_readme::README_INVALID, e);
     }
     let (texts, structured) = findings.into_parts();
     result.notes.splice(0..0, texts);
@@ -1791,6 +1813,7 @@ mod tests {
             name: "ext".to_string(),
             version: "1.0.0".to_string(),
             package_dependencies: None,
+            readme: None,
             definitions: vec![
                 PackageSourceDefinition {
                     kind: DefinitionKind::Field,

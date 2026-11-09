@@ -46,6 +46,11 @@ struct SrsjEnvelope {
     // minimal-diff, idempotent writes (ADR-017/ADR-043).
     #[serde(default)]
     data: BTreeMap<String, serde_json::Value>,
+    /// RFC-045: the repository's readme, beside `data`. Kept as raw JSON here
+    /// and checked by [`crate::bundled_readme::read_readme`] ([R4] is the
+    /// engine's, not the schema's).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    readme: Option<serde_json::Value>,
 }
 
 fn invalid(message: impl Into<String>) -> RepositoryError {
@@ -61,6 +66,20 @@ fn invalid(message: impl Into<String>) -> RepositoryError {
 /// for something the envelope already owns and is refused rather than silently
 /// dropped ([R19]).
 pub fn tree_from_srsj(content: &str) -> Result<BTreeMap<String, Vec<u8>>, RepositoryError> {
+    Ok(decode_srsj(content)?.tree)
+}
+
+/// A decoded `.srsj`: the file tree plus the envelope's readme outcome (RFC-045).
+pub struct DecodedSrsj {
+    pub tree: BTreeMap<String, Vec<u8>>,
+    /// The valid readme to keep ([R5]), or the `readme-invalid` error when it
+    /// was dropped ([R4]); the load proceeds either way.
+    pub readme: crate::bundled_readme::ReadmeRead,
+}
+
+/// Decode a `.srsj` into its tree and its readme outcome. The readme is not
+/// written into the tree here (that is the unpack path, RFC-045 [R6]).
+pub fn decode_srsj(content: &str) -> Result<DecodedSrsj, RepositoryError> {
     let envelope: SrsjEnvelope = serde_json::from_str(content)
         .map_err(|source| invalid(format!("invalid .srsj document: {source}")))?;
     if envelope.srsj != SRSJ_VERSION {
@@ -92,12 +111,39 @@ pub fn tree_from_srsj(content: &str) -> Result<BTreeMap<String, Vec<u8>>, Reposi
         }
     }
 
+    let data_keys: Vec<String> = tree.keys().cloned().collect();
+    let readme = crate::bundled_readme::read_readme(
+        envelope.readme.as_ref(),
+        &crate::bundled_readme::ReadmeForm::Srsj {
+            data_keys: &data_keys,
+            manifest: &envelope.manifest,
+        },
+        ".srsj",
+    );
+    // The marker readme belongs to the repository's own tree: materialise it
+    // so a session opened from this document keeps it (it was projected onto
+    // the envelope field on the way out, RFC-045 [R5]).
+    if let Some(r) = &readme.readme {
+        if r.path == crate::vfs::SRS_MARKER_README_PATH && !tree.contains_key(&r.path) {
+            tree.insert(r.path.clone(), r.content.clone().into_bytes());
+        }
+    }
     tree.insert(
         MANIFEST_KEY.to_string(),
         serde_json::to_vec_pretty(&canonicalize(envelope.manifest, false))
             .map_err(|source| invalid(format!("cannot serialise manifest: {source}")))?,
     );
-    Ok(tree)
+    Ok(DecodedSrsj { tree, readme })
+}
+
+/// Rewrite a `.srsj` from its own document, carrying a valid readme unchanged
+/// (RFC-045 [R5]); an invalid one is dropped, not carried ([R4]).
+pub fn rewrite_srsj(
+    content: &str,
+) -> Result<(String, crate::bundled_readme::ReadmeRead), RepositoryError> {
+    let decoded = decode_srsj(content)?;
+    let out = srsj_from_tree_with_readme(&decoded.tree, decoded.readme.readme.as_ref())?;
+    Ok((out, decoded.readme))
 }
 
 /// Open a `.srsj` document as an in-memory tree session — the identical
@@ -143,6 +189,14 @@ pub fn to_srsj_string(source: &dyn RepositoryStore) -> Result<String, Repository
 /// document's shape depend on whether it had been through a session. A README
 /// with any other content is real content and travels.
 fn srsj_from_tree(tree: &BTreeMap<String, Vec<u8>>) -> Result<String, RepositoryError> {
+    srsj_from_tree_with_readme(tree, None)
+}
+
+/// [`srsj_from_tree`] carrying `readme` in the envelope (RFC-045 [R5]).
+pub fn srsj_from_tree_with_readme(
+    tree: &BTreeMap<String, Vec<u8>>,
+    readme: Option<&crate::bundled_readme::BundledReadme>,
+) -> Result<String, RepositoryError> {
     let manifest_bytes = tree
         .get(MANIFEST_KEY)
         .ok_or_else(|| invalid("cannot project a repository with no manifest.json as `.srsj`"))?;
@@ -157,9 +211,29 @@ fn srsj_from_tree(tree: &BTreeMap<String, Vec<u8>>) -> Result<String, Repository
     .unwrap_or_else(|| "source-documents".to_string());
     let opaque_prefix = format!("{opaque_prefix}/");
 
+    // RFC-045 [R5]: a customised `.srs/README.md` is the repository's readme,
+    // so it rides in the envelope field, not twice (one way per goal). An
+    // explicit readme wins; the marker file then stays in `data` unless the
+    // explicit readme is that same path.
+    let picked;
+    let readme = match readme {
+        Some(r) => Some(r),
+        None => {
+            picked = tree
+                .get(crate::vfs::SRS_MARKER_README_PATH)
+                .filter(|b| b.as_slice() != crate::vfs::SRS_MARKER_README.as_bytes())
+                .and_then(|b| std::str::from_utf8(b).ok())
+                .map(|content| crate::bundled_readme::BundledReadme {
+                    path: crate::vfs::SRS_MARKER_README_PATH.to_string(),
+                    content: content.to_string(),
+                });
+            picked.as_ref()
+        }
+    };
+    let carried_path = readme.map(|r| r.path.as_str());
     let mut data = BTreeMap::new();
     for (path, bytes) in tree {
-        if path == MANIFEST_KEY {
+        if path == MANIFEST_KEY || Some(path.as_str()) == carried_path {
             continue;
         }
         // Legacy `.srs/.gitkeep` placeholders are omitted too, so output stays
@@ -189,6 +263,7 @@ fn srsj_from_tree(tree: &BTreeMap<String, Vec<u8>>) -> Result<String, Repository
         srsj: SRSJ_VERSION.to_string(),
         manifest: canonicalize(manifest, false),
         data,
+        readme: readme.map(|r| serde_json::json!({"path": r.path, "content": r.content})),
     };
     serde_json::to_string_pretty(&envelope)
         .map_err(|source| invalid(format!("cannot serialise .srsj document: {source}")))
@@ -472,7 +547,14 @@ mod tests {
         let store = open_srsj(&doc.to_string()).unwrap();
         let out: serde_json::Value =
             serde_json::from_str(&to_srsj_string(&store).unwrap()).unwrap();
-        assert_eq!(out["data"][".srs/README.md"], "custom orientation\n");
+        assert!(out["data"].get(".srs/README.md").is_none());
+        assert_eq!(
+            out["readme"],
+            serde_json::json!({"path": ".srs/README.md", "content": "custom orientation\n"})
+        );
+        // One way per goal: the field reopens as the same file, byte-stable.
+        let again = to_srsj_string(&open_srsj(&to_srsj_string(&store).unwrap()).unwrap()).unwrap();
+        assert_eq!(again, to_srsj_string(&store).unwrap());
     }
 
     #[test]
@@ -786,5 +868,64 @@ mod tests {
             assert_eq!(err.code(), "srsj-gzip-rejected");
             assert!(err.to_string().contains("gzip"));
         }
+    }
+
+    fn doc_with_readme(readme: serde_json::Value) -> String {
+        let mut doc: serde_json::Value = serde_json::from_str(&minimal_srsj("2")).unwrap();
+        doc["readme"] = readme;
+        doc.to_string()
+    }
+
+    #[test]
+    fn a_valid_envelope_readme_is_read_and_kept_on_rewrite() {
+        let text =
+            doc_with_readme(serde_json::json!({"path": "docs/README.md", "content": "hello\n"}));
+        let decoded = decode_srsj(&text).unwrap();
+        let kept = decoded.readme.readme.clone().expect("valid readme read");
+        assert_eq!(kept.path, "docs/README.md");
+        let (out, outcome) = rewrite_srsj(&text).unwrap();
+        assert!(outcome.invalid.is_none());
+        let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(
+            doc["readme"],
+            serde_json::json!({"path": "docs/README.md", "content": "hello\n"})
+        );
+        // Idempotent: a second rewrite changes nothing.
+        assert_eq!(rewrite_srsj(&out).unwrap().0, out);
+    }
+
+    #[test]
+    fn an_invalid_envelope_readme_is_dropped_and_the_load_proceeds() {
+        for bad in [
+            "records/x.md",
+            "manifest.json",
+            ".srs",
+            "../x",
+            "Records/x.md",
+        ] {
+            let text = doc_with_readme(serde_json::json!({"path": bad, "content": "x"}));
+            let decoded = decode_srsj(&text).unwrap();
+            assert!(decoded.readme.readme.is_none(), "{bad}");
+            assert!(
+                decoded
+                    .readme
+                    .invalid
+                    .unwrap()
+                    .starts_with("readme-invalid:"),
+                "{bad}"
+            );
+            let (out, _) = rewrite_srsj(&text).unwrap();
+            assert!(serde_json::from_str::<serde_json::Value>(&out)
+                .unwrap()
+                .get("readme")
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn an_envelope_without_readme_has_none_and_no_finding() {
+        let text = minimal_srsj("2");
+        let decoded = decode_srsj(&text).unwrap();
+        assert!(decoded.readme.readme.is_none() && decoded.readme.invalid.is_none());
     }
 }
