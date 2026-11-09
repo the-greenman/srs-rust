@@ -7,6 +7,7 @@ use quick_xml::events::{BytesStart, Event};
 use quick_xml::{Reader, XmlVersion};
 
 const SVG: &str = "image/svg+xml";
+const SVG_NS: &str = "http://www.w3.org/2000/svg";
 
 fn refuse(rule: &'static str, offending: impl Into<String>) -> RepositoryError {
     RepositoryError::SvgUnsafe {
@@ -16,16 +17,25 @@ fn refuse(rule: &'static str, offending: impl Into<String>) -> RepositoryError {
 }
 
 /// Check `content` when it is an SVG: declared `image/svg+xml`, or any XML
-/// document whose root element is `<svg>`. Anything else passes untouched.
+/// document whose root element is `<svg>` or in the SVG namespace. Anything
+/// else passes untouched.
 pub fn check_svg(content: &[u8], content_type: &str) -> Result<(), RepositoryError> {
-    let declared = content_type
-        .split(';')
-        .next()
-        .is_some_and(|t| t.trim().eq_ignore_ascii_case(SVG));
+    let media = content_type.split(';').next().unwrap_or("").trim();
+    let declared = media.eq_ignore_ascii_case(SVG);
+    // A browser renders generic XML too, so it must be readable to be sniffed.
+    let xml = declared
+        || ["application/xml", "text/xml"]
+            .iter()
+            .any(|t| media.eq_ignore_ascii_case(t));
     let bytes = content.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(content);
     let text = match std::str::from_utf8(bytes) {
         Ok(t) => t,
-        Err(_) if declared => return Err(refuse("not-well-formed", "not UTF-8")),
+        Err(_) if xml => {
+            return Err(refuse(
+                "not-well-formed",
+                "not UTF-8 (a UTF-16 or compressed SVG is not accepted)",
+            ))
+        }
         Err(_) => return Ok(()),
     };
     if !declared && !text.trim_start().starts_with('<') {
@@ -52,7 +62,11 @@ fn scan(text: &str, declared: bool) -> Result<(), RepositoryError> {
             Event::Start(e) | Event::Empty(e) => {
                 if !root_seen {
                     root_seen = true;
-                    is_svg = declared || e.local_name().as_ref().eq_ignore_ascii_case("svg");
+                    is_svg = declared
+                        || e.local_name().as_ref().eq_ignore_ascii_case("svg")
+                        || e.attributes().flatten().any(|a| {
+                            a.key.as_ref().starts_with("xmlns") && a.value.trim() == SVG_NS
+                        });
                     if !is_svg {
                         return Ok(());
                     }
@@ -166,6 +180,15 @@ fn check_element(e: &BytesStart) -> Result<(), RepositoryError> {
         if key_local.starts_with("on") {
             return Err(refuse("event-attribute", at()));
         }
+        if key.eq_ignore_ascii_case("xml:base") {
+            return Err(refuse("external-reference", at()));
+        }
+        if animates
+            && key_local == "attributename"
+            && value.trim().to_ascii_lowercase().starts_with("on")
+        {
+            return Err(refuse("event-attribute", at()));
+        }
         if animates
             && key_local == "attributename"
             && value
@@ -211,14 +234,14 @@ fn bad_scheme(s: &str) -> Option<&'static str> {
 
 /// CSS from a `style` attribute, a presentation attribute or a `<style>`
 /// element: every `url()` must name a same-document `#fragment`; `@import`,
-/// `image-set()` and CSS escapes (which could hide either) are refused.
+/// `image()`, `image-set()` and CSS escapes (which could hide either) are refused.
 fn check_css(css: &str) -> Result<(), RepositoryError> {
     let lower = css.to_ascii_lowercase();
     let short = || css.trim().chars().take(120).collect::<String>();
     if lower.contains('\\') {
         return Err(refuse("css-escape", short()));
     }
-    if lower.contains("@import") || lower.contains("image-set(") {
+    if lower.contains("@import") || lower.contains("image-set(") || lower.contains("image(") {
         return Err(refuse("external-reference", short()));
     }
     for (i, _) in lower.match_indices("url(") {
@@ -298,6 +321,19 @@ mod tests {
         )
         .unwrap();
         check_svg(b"just text", "text/plain").unwrap();
+        // UTF-16 text is left alone unless it claims to be XML.
+        check_svg(b"\xff\xfeh\0i\0", "text/plain").unwrap();
+        let e = check_svg(b"\xff\xfe<\0s\0v\0g\0", "text/xml").unwrap_err();
+        assert!(
+            matches!(
+                e,
+                RepositoryError::SvgUnsafe {
+                    rule: "not-well-formed",
+                    ..
+                }
+            ),
+            "{e}"
+        );
         check_svg(
             b"<?xml version=\"1.0\"?><!DOCTYPE a [<!ENTITY e \"x\">]><a>&e;</a>",
             "application/xml",
