@@ -7869,6 +7869,66 @@ fn term_get_found_after_creating_term() {
 }
 
 #[test]
+fn record_value_outside_closed_vocabulary_terms_is_rejected() {
+    // srs-rust#1602: a closed field bound by vocabularyRef to a closed
+    // vocabulary accepted any string in a record.
+    let temp = TempDir::new().unwrap();
+    let repo = create_repo_with_package(&temp, "vocab-closed-values");
+
+    let vocab_json = serde_json::json!({
+        "version": 1, "namespace": "com.test", "name": "kind-vocab",
+        "mode": "closed", "terms": [], "createdAt": "2026-01-01T00:00:00Z"
+    });
+    let created = run_srs_stdin_in_dir(&repo, &["vocabulary", "create"], &vocab_json.to_string());
+    assert_eq!(created["ok"], true, "{created:?}");
+    let vocab_id = created["payload"]["vocabulary"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let term = serde_json::json!({"version": 1, "namespace": "com.test", "key": "web"});
+    let t = run_srs_stdin_in_dir(
+        &repo,
+        &["vocabulary", "term-create", "--vocabulary-id", &vocab_id],
+        &term.to_string(),
+    );
+    assert_eq!(t["ok"], true, "{t:?}");
+
+    let field_json = serde_json::json!({
+        "namespace": "com.test", "name": "kind", "version": 1,
+        "aiGuidance": {"purpose": "captures the kind value"},
+        "valueType": "select", "vocabularyRef": vocab_id
+    });
+    let f = run_srs_stdin_in_dir(&repo, &["field", "create"], &field_json.to_string());
+    assert_eq!(f["ok"], true, "{f:?}");
+    let field_id = f["payload"]["field"]["id"].as_str().unwrap().to_string();
+    let type_json = serde_json::json!({
+        "namespace": "com.test", "name": "kind-item", "version": 1,
+        "description": "Test type",
+        "fields": [{"fieldId": field_id, "order": 0, "required": false}],
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
+    let ty = run_srs_stdin_in_dir(&repo, &["type", "create"], &type_json.to_string());
+    assert_eq!(ty["ok"], true, "{ty:?}");
+
+    let ok = run_srs_stdin_in_dir(
+        &repo,
+        &["record", "create", "--type", "com.test/kind-item"],
+        &serde_json::json!({"fieldValues": {"kind": "web"}}).to_string(),
+    );
+    assert_eq!(ok["ok"], true, "{ok:?}");
+    let (_, bad) = run_srs_stdin_any_status_in_dir(
+        &repo,
+        &["record", "create", "--type", "com.test/kind-item"],
+        &serde_json::json!({"fieldValues": {"kind": "context"}}).to_string(),
+    );
+    assert_eq!(bad["ok"], false, "{bad:?}");
+    assert!(
+        bad.to_string().contains("not in the closed domain"),
+        "{bad:?}"
+    );
+}
+
+#[test]
 fn vocabulary_promote_blocked_returns_structured_payload() {
     // Setup: a repo with a vocabulary that has one active term ("alpha"),
     // referenced by a select Field bound via vocabularyRef. One Tier-2
