@@ -580,14 +580,9 @@ pub fn migrate_substrate_properties_to_meta(
     let mut vocabularies_migrated = 0usize;
     let mut vocabularies_skipped_not_owned = 0usize;
     for vocabulary in &package.vocabularies {
-        match crate::vocabulary_service::find_vocabulary_file_path(store, &vocabulary.id) {
-            Ok(path) => {
-                store.save_vocabulary(&path, vocabulary)?;
-                vocabularies_migrated += 1;
-            }
-            Err(RepositoryError::NotFound { .. }) => {
-                vocabularies_skipped_not_owned += 1;
-            }
+        match store.update_vocabulary(vocabulary) {
+            Ok(()) => vocabularies_migrated += 1,
+            Err(RepositoryError::NotFound { .. }) => vocabularies_skipped_not_owned += 1,
             Err(e) => return Err(e),
         }
     }
@@ -595,14 +590,10 @@ pub fn migrate_substrate_properties_to_meta(
     let mut lifecycles_migrated = 0usize;
     let mut lifecycles_skipped_not_owned = 0usize;
     for lifecycle in &package.lifecycles {
-        match crate::lifecycle_service::find_lifecycle_path(store, &lifecycle.id)? {
-            Some((path, _owner)) => {
-                store.save_lifecycle(&path, lifecycle)?;
-                lifecycles_migrated += 1;
-            }
-            None => {
-                lifecycles_skipped_not_owned += 1;
-            }
+        match store.update_lifecycle(lifecycle) {
+            Ok(()) => lifecycles_migrated += 1,
+            Err(RepositoryError::LifecycleNotFound { .. }) => lifecycles_skipped_not_owned += 1,
+            Err(e) => return Err(e),
         }
     }
 

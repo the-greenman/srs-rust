@@ -9186,6 +9186,12 @@ fn render_markdown_stdin_needs_no_repo() {
         out["payload"]["html"],
         "<p><em>a</em> &lt;b&gt;x&lt;/b&gt;</p>\n"
     );
+    let out = run_srs_stdin_in_dir(
+        dir.path(),
+        &["render", "markdown", "--no-images"],
+        "a ![cat](c.png)",
+    );
+    assert_eq!(out["payload"]["html"], "<p>a cat</p>\n");
 }
 
 #[test]

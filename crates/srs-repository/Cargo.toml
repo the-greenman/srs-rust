@@ -22,6 +22,10 @@ hex = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 unicode-normalization = { workspace = true }
 zip = { workspace = true }
+# SVG safety check at attach (srs-rust#1607, decision 866167c1): no XML parser was in the
+# workspace. Streaming, pure Rust (wasm32-safe), never expands entities or fetches DTDs; its
+# only dependency, memchr, is already in the tree.
+quick-xml = "0.42"
 # ADR-011/ADR-037 amendment (srs-rust#1157): optional, enabled only by srs-mcp-core, which
 # already depends on schemars 1, so no new crate enters any build. It derives the MCP tool
 # schema from the one shared create-input type instead of a hand-written shadow copy. Not the
