@@ -158,6 +158,11 @@ pub struct RepositorySnapshot {
     /// rev-2 repository to the rev-0 compatibility path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data_model_revision: Option<serde_json::Value>,
+    /// `manifest.createdAt` — the repository's creation stamp is identity, carried
+    /// by a copy rather than restamped with the time of the copy (srs-rust#1456,
+    /// compass "preserve over recognize").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<serde_json::Value>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -411,6 +416,7 @@ pub fn export_repository_snapshot_with_options(
         upstream_package: manifest.upstream_package.clone(),
         meta: manifest.extra.get("meta").cloned(),
         data_model_revision: manifest.extra.get("dataModelRevision").cloned(),
+        created_at: manifest.extra.get("createdAt").cloned(),
     })
 }
 
@@ -570,6 +576,11 @@ fn do_import(
         manifest
             .extra
             .insert("dataModelRevision".to_string(), rev.clone());
+    }
+    if let Some(created_at) = &snapshot.created_at {
+        manifest
+            .extra
+            .insert("createdAt".to_string(), created_at.clone());
     }
 
     target.save_manifest(&manifest)?;
@@ -2416,6 +2427,41 @@ mod tests {
                 .iter()
                 .all(|p| p.ends_with("1.json") || p.ends_with("2.json")),
             "widened paths carry the full instance id: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn copy_carries_manifest_created_at() {
+        // srs-rust#1456: a copy carries the source's `manifest.createdAt` rather than
+        // restamping it with the time of the copy ("preserve over recognize").
+        let stamp = "2020-02-02T02:02:02+00:00";
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_input()).unwrap();
+        let mut manifest = source.load_manifest().unwrap();
+        manifest
+            .extra
+            .insert("createdAt".to_string(), serde_json::json!(stamp));
+        source.save_manifest(&manifest).unwrap();
+
+        let snapshot = export_repository_snapshot(&source).unwrap();
+        assert_eq!(snapshot.created_at, Some(serde_json::json!(stamp)));
+
+        // store -> store
+        let target = MemoryStore::uninitialized();
+        import_repository_snapshot(&target, &snapshot).unwrap();
+        assert_eq!(
+            target.load_manifest().unwrap().extra.get("createdAt"),
+            Some(&serde_json::json!(stamp))
+        );
+
+        // store -> snapshot JSON (the .srsj form) -> store
+        let json = serde_json::to_string(&snapshot).unwrap();
+        let reloaded: RepositorySnapshot = serde_json::from_str(&json).unwrap();
+        let target2 = MemoryStore::uninitialized();
+        import_repository_snapshot(&target2, &reloaded).unwrap();
+        assert_eq!(
+            target2.load_manifest().unwrap().extra.get("createdAt"),
+            Some(&serde_json::json!(stamp))
         );
     }
 
