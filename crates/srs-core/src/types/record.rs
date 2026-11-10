@@ -79,7 +79,7 @@ impl FieldValues {
 /// assertion, keyed identically to the sibling `fieldValues` map. One object
 /// per field — never per list item, never inside a composite interior.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FieldMeta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
@@ -169,6 +169,17 @@ impl Record {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    // srs-rust#1627: a `fieldMeta` value carrying a key FieldMeta does not declare is
+    // refused at parse, never silently dropped (rfc-decision-2e0cd70a, WRITE verb).
+    #[test]
+    fn field_meta_refuses_unknown_key() {
+        let err = serde_json::from_value::<FieldMeta>(json!({"source":"human","bogus":1}))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("bogus"), "{err}");
+        assert!(serde_json::from_value::<FieldMeta>(json!({"source":"human"})).is_ok());
+    }
 
     fn minimal_record() -> Record {
         Record {

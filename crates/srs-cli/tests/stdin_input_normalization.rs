@@ -121,3 +121,74 @@ fn note_create_wrong_section_shape_reports_json_path() {
         "error should say which field is missing, got: {diagnostics}"
     );
 }
+
+// srs-rust#1627, rfc-decision-2e0cd70a (WRITE verb): a write that would discard an
+// unknown key is refused, naming the key, and writes nothing.
+fn current_repo() -> TempDir {
+    let temp = TempDir::new().unwrap();
+    let (env, ok) = run_srs_stdin(
+        temp.path(),
+        &["repo", "create", "--namespace", "com.example.unknown"],
+        "",
+    );
+    assert!(ok && env["ok"] == true, "repo create: {env}");
+    temp
+}
+
+fn note_count(repo: &std::path::Path) -> usize {
+    let (env, _) = run_srs_stdin(repo, &["note", "list"], "");
+    env["payload"]["notes"].as_array().map_or(0, |n| n.len())
+}
+
+#[test]
+fn note_create_refuses_unknown_top_level_and_section_keys() {
+    let repo = current_repo();
+    let before = note_count(repo.path());
+    for (body, key) in [
+        (
+            serde_json::json!({"title":"n","sections":[{"name":"body","content":"x"}],"bogus":1}),
+            "bogus",
+        ),
+        (
+            serde_json::json!({"title":"n","sections":[{"name":"body","content":"x","bogus":2}]}),
+            "bogus",
+        ),
+    ] {
+        let (env, _) = run_srs_stdin(repo.path(), &["note", "create"], &body.to_string());
+        assert!(env["ok"] == false, "must be refused: {env}");
+        assert!(
+            env.to_string().contains(key),
+            "error should name the key: {env}"
+        );
+    }
+    assert_eq!(note_count(repo.path()), before, "nothing may be written");
+}
+
+#[test]
+fn note_create_still_carries_meta_and_container_id() {
+    let repo = current_repo();
+    let body =
+        serde_json::json!({"title":"n","sections":[{"name":"body","content":"x"}],"meta":{"k":1}});
+    let (env, success) = run_srs_stdin(repo.path(), &["note", "create"], &body.to_string());
+    assert!(success && env["ok"] == true, "meta is carried: {env}");
+    assert_eq!(env["payload"]["note"]["meta"]["k"], 1);
+}
+
+#[test]
+fn note_update_refuses_unknown_top_level_key() {
+    let repo = current_repo();
+    let body = serde_json::json!({"title":"n","sections":[{"name":"body","content":"x"}]});
+    let (env, _) = run_srs_stdin(repo.path(), &["note", "create"], &body.to_string());
+    let id = env["payload"]["note"]["instanceId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let upd = serde_json::json!({"instanceId":id,"title":"n2","sections":[{"name":"body","content":"y"}],"bogus":1});
+    let (env, _) = run_srs_stdin(repo.path(), &["note", "update", &id], &upd.to_string());
+    assert!(env["ok"] == false, "must be refused: {env}");
+    let (got, _) = run_srs_stdin(repo.path(), &["note", "get", &id], "");
+    assert_eq!(
+        got["payload"]["note"]["title"], "n",
+        "nothing written: {got}"
+    );
+}

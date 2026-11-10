@@ -86,6 +86,12 @@ fn cmd_note_create(ctx: CliContext) -> Result<String> {
     };
 
     let note: Note = crate::input::from_str("note", &raw.to_string())?;
+    // After the typed parse (its JSON-path errors win), before anything is written.
+    if let Some(obj) = raw.as_object() {
+        if let Err(e) = srs_repository::services::reject_unknown_note_keys(obj, &["containerId"]) {
+            return Ok(output::repo_err("note create", &e));
+        }
+    }
     let container_id = ctx.container_id.clone().or(payload_container_id);
 
     match with_store(&ctx, |store| {
@@ -146,7 +152,13 @@ fn cmd_note_tag_remove(ctx: CliContext, id: String, tag: String) -> Result<Strin
 }
 
 fn cmd_note_update(ctx: CliContext, id: String) -> Result<String> {
-    let note: Note = crate::input::from_stdin("note")?;
+    let raw = crate::input::value_from_stdin("note")?;
+    let note: Note = crate::input::from_str("note", &raw.to_string())?;
+    if let Some(obj) = raw.as_object() {
+        if let Err(e) = srs_repository::services::reject_unknown_note_keys(obj, &[]) {
+            return Ok(output::repo_err("note update", &e));
+        }
+    }
 
     match with_store(&ctx, |store| Ok(update_note_validated(store, &id, note)?)) {
         Ok(result) => output::serialize("note update", NotePayload { note: result.note }),
