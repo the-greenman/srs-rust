@@ -323,6 +323,9 @@ pub fn add_attachment(
         .map(|s| s.to_string())
         .unwrap_or_else(|| infer_content_type(&file_name).to_string());
 
+    // Not policy: an unsafe SVG is refused whatever enforce_policy says (decision 866167c1).
+    crate::svg_safety::check_svg(&input.content, &content_type)?;
+
     if input.enforce_policy {
         crate::attachment_policy_service::check_attachment(
             store,

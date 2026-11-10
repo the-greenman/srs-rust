@@ -82,6 +82,7 @@ pub mod source_document_service;
 pub mod srsj;
 pub mod srsj_migration_service;
 pub mod store;
+pub mod svg_safety;
 pub mod tag_service;
 pub mod text_projection;
 pub mod theme_service;
