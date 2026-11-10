@@ -30,6 +30,14 @@ pub struct EffectiveField {
 /// Implemented by srs-repository over the loaded package; tests use closures.
 pub trait RangeResolver {
     fn effective_fields(&self, type_id: &str, type_version: u32) -> Option<Vec<EffectiveField>>;
+
+    /// Keys a `vocabularyRef`-backed closed field accepts when reading: the
+    /// vocabulary's terms that still resolve (not retired). `None` when the
+    /// vocabulary does not resolve (definition-level validation reports that,
+    /// V2) or the resolver has no vocabularies (the default), so no value check.
+    fn vocabulary_term_keys(&self, _vocabulary_id: &str) -> Option<Vec<String>> {
+        None
+    }
 }
 
 impl<F> RangeResolver for F
@@ -106,6 +114,7 @@ fn validate_single(
                     key,
                     field_type,
                     &AllowedValue::String(s.to_string()),
+                    resolver,
                     diagnostics,
                 );
             }
@@ -120,7 +129,13 @@ fn validate_single(
                 diagnostics,
             );
             if let Some(i) = value.as_i64() {
-                check_closed_domain(key, field_type, &AllowedValue::Integer(i), diagnostics);
+                check_closed_domain(
+                    key,
+                    field_type,
+                    &AllowedValue::Integer(i),
+                    resolver,
+                    diagnostics,
+                );
             }
         }
         Datatype::Boolean => expect(key, value.is_boolean(), "boolean", value, diagnostics),
@@ -258,20 +273,35 @@ pub fn validate_field_values_map(
 /// RFC-030/RFC-032 [R3]: a `valueDomain: closed` field with an inline
 /// `allowedValues` vocabulary constrains every value to that set. Scoped to
 /// the inline vocabulary only — a closed field sourced from a `vocabularyRef`
-/// has no `allowedValues` here and is left to the caller's Vocabulary-aware
-/// checks.
+/// is checked against its Vocabulary's term keys through the resolver
+/// (srs-rust#1602); an unresolved vocabulary is skipped here (V2 reports it).
 fn check_closed_domain(
     key: &str,
     field_type: &FieldType,
     value: &AllowedValue,
+    resolver: &dyn RangeResolver,
     diagnostics: &mut Vec<CoreError>,
 ) {
-    let Some(allowed) = field_type.allowed_values() else {
-        return;
-    };
     if !field_type.is_closed() {
         return;
     }
+    if field_type.allowed_values().is_none() {
+        if let (Some(vocab_id), AllowedValue::String(s)) = (&field_type.vocabulary_ref, value) {
+            if let Some(keys) = resolver.vocabulary_term_keys(vocab_id) {
+                if !keys.iter().any(|k| k == s) {
+                    diagnostics.push(CoreError::ValueNotInClosedDomain {
+                        key: key.to_string(),
+                        value: s.clone(),
+                        allowed: keys.join(", "),
+                    });
+                }
+            }
+        }
+        return;
+    }
+    let Some(allowed) = field_type.allowed_values() else {
+        return;
+    };
     if !allowed.contains(value) {
         let rendered = match value {
             AllowedValue::String(s) => s.clone(),
@@ -405,6 +435,56 @@ mod tests {
         let mut d = Vec::new();
         validate_value("m", &map_list, &json!({"a": "x"}), &no_resolver(), &mut d);
         assert!(matches!(&d[0], CoreError::ValueShape { key, .. } if key == "m"));
+    }
+
+    struct VocabResolver;
+    impl RangeResolver for VocabResolver {
+        fn effective_fields(&self, _: &str, _: u32) -> Option<Vec<EffectiveField>> {
+            None
+        }
+        fn vocabulary_term_keys(&self, id: &str) -> Option<Vec<String>> {
+            (id == "v1").then(|| vec!["web".to_string(), "book".to_string()])
+        }
+    }
+
+    #[test]
+    fn closed_vocabulary_ref_rejects_value_outside_terms() {
+        // srs-rust#1602: a closed field sourced from a vocabularyRef accepted
+        // any string.
+        let ft = FieldType::closed_by_ref("v1");
+        let mut d = Vec::new();
+        validate_value("k", &ft, &json!("web"), &VocabResolver, &mut d);
+        assert!(d.is_empty(), "{d:?}");
+
+        let mut d = Vec::new();
+        validate_value("k", &ft, &json!("context"), &VocabResolver, &mut d);
+        assert_eq!(d.len(), 1, "{d:?}");
+        assert!(
+            matches!(&d[0], CoreError::ValueNotInClosedDomain { key, value, .. }
+                if key == "k" && value == "context"),
+            "{d:?}"
+        );
+
+        let mut d = Vec::new();
+        validate_value(
+            "ks",
+            &FieldType::closed_list_by_ref("v1"),
+            &json!(["book", "nope"]),
+            &VocabResolver,
+            &mut d,
+        );
+        assert_eq!(d.len(), 1, "{d:?}");
+
+        // An unresolved vocabulary is V2's diagnostic, not a value error.
+        let mut d = Vec::new();
+        validate_value(
+            "k",
+            &FieldType::closed_by_ref("missing"),
+            &json!("x"),
+            &VocabResolver,
+            &mut d,
+        );
+        assert!(d.is_empty(), "{d:?}");
     }
 
     #[test]

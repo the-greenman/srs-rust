@@ -494,6 +494,28 @@ impl srs_core::validation::value_shape::RangeResolver for Package {
         let rt = self.resolve_type(type_id, type_version)?;
         self.resolved_effective_fields(rt).ok()
     }
+
+    /// srs-rust#1602: keys of the vocabulary's terms that still resolve for
+    /// reads (retired terms excluded), for closed `vocabularyRef` fields. A
+    /// `mode: open` vocabulary admits unlisted values (and is what
+    /// `vocabulary promote` pre-flights), so it constrains nothing here.
+    fn vocabulary_term_keys(&self, vocabulary_id: &str) -> Option<Vec<String>> {
+        let vocab = self.vocabularies.iter().find(|v| v.id == vocabulary_id)?;
+        if !matches!(
+            vocab.mode,
+            srs_core::types::vocabulary::VocabularyMode::Closed
+        ) {
+            return None;
+        }
+        Some(
+            vocab
+                .terms
+                .iter()
+                .filter(|t| t.resolves_for_reads())
+                .map(|t| t.key.clone())
+                .collect(),
+        )
+    }
 }
 
 #[cfg(test)]
