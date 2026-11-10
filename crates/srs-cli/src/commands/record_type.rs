@@ -2,7 +2,7 @@ use crate::commands::{with_store, CliContext, TypeCommand};
 use crate::output::{self, OutputDTO};
 use crate::payload::{
     TypeDeletePayload, TypeJsonSchemaPayload, TypeListEntry, TypeListPayload, TypePayload,
-    TypeSchemaPayload,
+    TypeRefEntry, TypeSchemaPayload, TypeSubtypesPayload,
 };
 use anyhow::Result;
 use srs_core::types::record_type::RecordType;
@@ -14,6 +14,7 @@ use srs_repository::package_service::{
     GetTypeResult, TypeListFilter,
 };
 use srs_repository::type_schema_service::{type_schema, TypeSchemaInput};
+use srs_repository::type_subtypes_service::{type_subtypes, TypeSubtypesInput};
 
 pub fn dispatch(ctx: CliContext, cmd: TypeCommand) -> Result<String> {
     match cmd {
@@ -27,6 +28,7 @@ pub fn dispatch(ctx: CliContext, cmd: TypeCommand) -> Result<String> {
         TypeCommand::Update { id } => cmd_type_update(ctx, id),
         TypeCommand::Delete { id, version } => cmd_type_delete(ctx, id, version),
         TypeCommand::Schema { id, type_version } => cmd_type_schema(ctx, id, type_version),
+        TypeCommand::Subtypes { id, include_self } => cmd_type_subtypes(ctx, id, include_self),
         TypeCommand::JsonSchema { id, type_version } => cmd_type_json_schema(ctx, id, type_version),
     }
 }
@@ -134,6 +136,36 @@ fn cmd_type_delete(ctx: CliContext, id: String, version: Option<u32>) -> Result<
     match with_store(&ctx, |store| Ok(delete_type(store, &id, resolved_version)?)) {
         Ok(result) => output::serialize("type delete", TypeDeletePayload { id: result.id }),
         Err(e) => Ok(output::any_err("type delete", &e)),
+    }
+}
+
+fn cmd_type_subtypes(ctx: CliContext, id: String, include_self: bool) -> Result<String> {
+    match with_store(&ctx, |store| {
+        Ok(type_subtypes(
+            store,
+            TypeSubtypesInput {
+                type_id: id.clone(),
+                include_self,
+            },
+        )?)
+    }) {
+        Ok(result) => output::serialize(
+            "type subtypes",
+            TypeSubtypesPayload {
+                type_id: result.type_id,
+                subtypes: result
+                    .subtypes
+                    .into_iter()
+                    .map(|t| TypeRefEntry {
+                        id: t.id,
+                        namespace: t.namespace,
+                        name: t.name,
+                        version: t.version,
+                    })
+                    .collect(),
+            },
+        ),
+        Err(e) => Ok(output::any_err("type subtypes", &e)),
     }
 }
 

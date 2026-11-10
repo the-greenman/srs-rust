@@ -2193,86 +2193,6 @@ mod tests {
             fn save_package_json(&self, _: &serde_json::Value) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
-            fn save_type(
-                &self,
-                _: &str,
-                _: &srs_core::types::record_type::RecordType,
-            ) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn update_type_file(
-                &self,
-                _: &str,
-                _: &srs_core::types::record_type::RecordType,
-            ) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn delete_type_file(&self, _: &str) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn ensure_types_dir(&self, _: &str) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn save_relation_type_definition(
-                &self,
-                _: &str,
-                _: &srs_core::types::relation_type_definition::RelationTypeDefinition,
-            ) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn delete_relation_type_file(&self, _: &str) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn ensure_relation_types_dir(&self, _: &str) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn save_blueprint(
-                &self,
-                _: &str,
-                _: &srs_core::types::blueprint::Blueprint,
-            ) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn update_blueprint_file(
-                &self,
-                _: &str,
-                _: &srs_core::types::blueprint::Blueprint,
-            ) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn delete_blueprint_file(&self, _: &str) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn ensure_blueprints_dir(&self, _: &str) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn save_vocabulary(
-                &self,
-                _: &str,
-                _: &srs_core::types::vocabulary::Vocabulary,
-            ) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn ensure_vocabularies_dir(&self, _: &str) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn save_lifecycle(
-                &self,
-                _: &str,
-                _: &srs_core::types::lifecycle::Lifecycle,
-            ) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn update_lifecycle_file(
-                &self,
-                _: &str,
-                _: &srs_core::types::lifecycle::Lifecycle,
-            ) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn ensure_lifecycles_dir(&self, _: &str) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
             fn load_instance_json(&self, _: &str) -> Result<serde_json::Value, RepositoryError> {
                 unimplemented!()
             }
@@ -2449,26 +2369,6 @@ mod tests {
             ) -> Result<crate::package_types::PackageSelector, RepositoryError> {
                 unimplemented!()
             }
-            fn save_theme(
-                &self,
-                _: &str,
-                _: &srs_core::types::theme::Theme,
-            ) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn update_theme_file(
-                &self,
-                _: &str,
-                _: &srs_core::types::theme::Theme,
-            ) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn delete_theme_file(&self, _: &str) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
-            fn ensure_themes_dir(&self, _: &str) -> Result<(), RepositoryError> {
-                unimplemented!()
-            }
         }
 
         let result = load_relations(&BrokenManifestStore);
@@ -2581,7 +2481,7 @@ mod tests {
         }
         store
             .save_relation_type_definition(
-                "package/relation-types/precedes.json",
+                &None,
                 &RelationTypeDefinition {
                     schema: None,
                     id: "00000000-0000-0000-0000-000000000001".to_string(),

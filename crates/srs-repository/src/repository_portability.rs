@@ -1500,7 +1500,11 @@ fn import_container_file(
     container: &srs_core::types::container::Container,
 ) -> Result<(), RepositoryError> {
     if crate::store::writes_container_directories(target)? {
-        // RFC-051 [R1]: at revision 11 a container is written as its directory.
+        // RFC-051 [R1]: at revision 11 a container is written as its directory. A snapshot
+        // carries the logical outline, not entry `key`s (srs-rust#1464, finding 9), so the
+        // entries are re-keyed as successive appends: the outline survives exactly, and a
+        // source built by appends copies to identical entry files; one that was moved or
+        // inserted into keeps its order under different keys.
         let keying = crate::container_store::Keying::Op { moved: None };
         return crate::container_store::save(target, container, keying).map(|_| ());
     }

@@ -728,6 +728,14 @@ pub enum RepositoryError {
     /// Store. Detected by content (`0x1f 0x8b`), never by filename.
     #[error("{path:?} is gzip-compressed (leading bytes 0x1f 0x8b); a .srsj JSON Store is plain JSON and gzip is a retired format (I-108, RFC-017) — decompress it first")]
     GzipSrsj { path: PathBuf },
+
+    /// Decision 866167c1 (srs-rust#1607): an SVG attachment that could run a
+    /// script or reach outside itself. Refused, never rewritten.
+    #[error("unsafe SVG refused ({rule}): {offending}")]
+    SvgUnsafe {
+        rule: &'static str,
+        offending: String,
+    },
 }
 
 impl RepositoryError {
@@ -1490,6 +1498,7 @@ impl RepositoryError {
             Self::BoundaryRefused { code, .. } => code,
             Self::StorageGenerationUnsupported { .. } => "storage-generation-unsupported",
             Self::GzipSrsj { .. } => "srsj-gzip-rejected",
+            Self::SvgUnsafe { .. } => "svg-unsafe",
         }
     }
 
@@ -1930,6 +1939,10 @@ mod tests {
             },
             R::StorageGenerationUnsupported { declared: 1 },
             R::GzipSrsj { path: "x".into() },
+            R::SvgUnsafe {
+                rule: "x",
+                offending: "x".into(),
+            },
         ]
     }
 
@@ -1938,7 +1951,7 @@ mod tests {
         let all = all_variants();
         assert_eq!(
             all.len(),
-            110,
+            111,
             "all_variants() is out of step with the enum"
         );
         let mut seen = std::collections::HashSet::new();

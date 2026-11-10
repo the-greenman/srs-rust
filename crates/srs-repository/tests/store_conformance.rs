@@ -173,7 +173,9 @@ fn run_conformance_suite(store: &dyn RepositoryStore) {
     suite_instance_persistence(store);
     suite_batch_commit(store);
     suite_field_definitions(store);
+    suite_type_definitions(store);
     suite_view_definitions(store);
+    suite_smaller_definitions(store);
 }
 
 // --- Area 1: Manifest round-trip ---
@@ -491,6 +493,98 @@ fn suite_field_definitions(store: &dyn RepositoryStore) {
     ));
 }
 
+// --- Area 6: Type definitions (ADR-041 G3-G5, srs-rust#729) ---
+
+fn make_type(
+    id: &str,
+    name: &str,
+    version: u32,
+    description: &str,
+) -> srs_core::types::record_type::RecordType {
+    srs_core::types::record_type::RecordType {
+        schema: None,
+        id: id.to_string(),
+        namespace: "com.test.conf".to_string(),
+        name: name.to_string(),
+        version,
+        description: description.to_string(),
+        fields: vec![],
+        extends_type_id: None,
+        extends_type_version: None,
+        field_order: None,
+        field_assignment_overrides: None,
+        identity_field_id: None,
+        lifecycle: None,
+        lifecycle_ref: None,
+        validation_rules: None,
+        ai_guidance: None,
+        tags: None,
+        lineage: None,
+        provenance: None,
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+    }
+}
+
+/// Every store returns the same Type set after save, rewrite in place, a second
+/// version, and delete, keyed by logical id, never by path.
+fn suite_type_definitions(store: &dyn RepositoryStore) {
+    let id = "7e1e0000-0001-4000-8000-aabbccddee01";
+    assert!(store.load_type_by_id(id, None).unwrap().is_none());
+
+    store
+        .save_type(&None, &make_type(id, "conf-type", 1, "first"))
+        .expect("save_type must succeed");
+    let (loaded, owner) = store
+        .load_type_by_id(id, Some(1))
+        .unwrap()
+        .expect("saved type loads");
+    assert_eq!(loaded.description, "first");
+    assert_eq!(owner, None, "the primary package owns it");
+
+    store
+        .save_type(&None, &make_type(id, "conf-type", 1, "second"))
+        .unwrap();
+    assert_eq!(
+        store
+            .load_type_by_id(id, Some(1))
+            .unwrap()
+            .unwrap()
+            .0
+            .description,
+        "second"
+    );
+    let count = |s: &dyn RepositoryStore| s.load_package_boundary(&None).unwrap().type_paths.len();
+    let before = count(store);
+    store
+        .save_type(&None, &make_type(id, "conf-type", 2, "v2"))
+        .unwrap();
+    assert_eq!(
+        count(store),
+        before + 1,
+        "a new version sits beside the first"
+    );
+    assert_eq!(
+        store
+            .load_type_by_id(id, Some(2))
+            .unwrap()
+            .unwrap()
+            .0
+            .description,
+        "v2"
+    );
+
+    store.delete_type(id, 2).unwrap();
+    assert!(store.load_type_by_id(id, Some(2)).unwrap().is_none());
+    assert_eq!(count(store), before);
+    store.delete_type(id, 1).unwrap();
+    assert!(store.load_type_by_id(id, None).unwrap().is_none());
+    assert_eq!(count(store), before - 1);
+    assert!(matches!(
+        store.delete_type(id, 1),
+        Err(RepositoryError::TypeNotFound { .. })
+    ));
+}
+
 // --- Area 6: View and Composition definitions (ADR-041 G3-G5, srs-rust#730) ---
 
 fn make_view(id: &str, description: &str) -> srs_core::types::view::View {
@@ -602,6 +696,224 @@ fn suite_view_definitions(store: &dyn RepositoryStore) {
     assert!(matches!(
         store.delete_composition(cid),
         Err(RepositoryError::CompositionNotFoundById { .. })
+    ));
+}
+
+/// Build a definition from JSON: the conformance suite names only the fields a
+/// definition must carry, so it stays independent of each struct's optional fields.
+fn def_from<T: serde::de::DeserializeOwned>(value: serde_json::Value) -> T {
+    serde_json::from_value(value).expect("minimal definition deserializes")
+}
+
+fn boundary_count(store: &dyn RepositoryStore, key: &str) -> usize {
+    store.load_package_json().unwrap()[key]
+        .as_array()
+        .map_or(0, Vec::len)
+}
+
+// Themes, Blueprints, Vocabularies, Lifecycles and RelationTypeDefinitions
+// (ADR-041 G3-G5, srs-rust#731): typed logical-id save, update, load, delete; the
+// boundary index follows each write and the same id and version is rewritten in
+// place, never duplicated.
+fn suite_smaller_definitions(store: &dyn RepositoryStore) {
+    use srs_core::types::blueprint::Blueprint;
+    use srs_core::types::lifecycle::Lifecycle;
+    use srs_core::types::relation_type_definition::RelationTypeDefinition;
+    use srs_core::types::theme::Theme;
+    use srs_core::types::vocabulary::Vocabulary;
+
+    // --- Theme ---
+    let theme = |desc: &str| -> Theme {
+        def_from(serde_json::json!({
+            "id": "a1e1d000-0731-4000-8000-000000000001",
+            "namespace": "com.test", "name": "conf-theme", "version": 1,
+            "description": desc, "targets": ["html"], "createdAt": "2026-01-01T00:00:00Z"
+        }))
+    };
+    let id = "a1e1d000-0731-4000-8000-000000000001";
+    let n0 = boundary_count(store, "themes");
+    assert!(store.load_theme_by_id(id).unwrap().is_none());
+    store.save_theme(&None, &theme("first")).unwrap();
+    let (loaded, owner) = store.load_theme_by_id(id).unwrap().expect("theme loads");
+    assert_eq!((loaded.description.as_str(), owner), ("first", None));
+    assert_eq!(boundary_count(store, "themes"), n0 + 1);
+    store.save_theme(&None, &theme("second")).unwrap();
+    assert_eq!(boundary_count(store, "themes"), n0 + 1);
+    store.update_theme(&theme("third")).unwrap();
+    assert_eq!(
+        store.load_theme_by_id(id).unwrap().unwrap().0.description,
+        "third"
+    );
+    let missing: Theme = def_from(serde_json::json!({
+        "id": "a1e1d000-0731-4000-8000-0000000000ff", "namespace": "com.test",
+        "name": "x", "version": 1, "description": "", "targets": [],
+        "createdAt": "2026-01-01T00:00:00Z"
+    }));
+    assert!(matches!(
+        store.update_theme(&missing),
+        Err(RepositoryError::ThemeNotFound { .. })
+    ));
+    store.delete_theme(id).unwrap();
+    assert!(store.load_theme_by_id(id).unwrap().is_none());
+    assert_eq!(boundary_count(store, "themes"), n0);
+    assert!(matches!(
+        store.delete_theme(id),
+        Err(RepositoryError::ThemeNotFound { .. })
+    ));
+
+    // --- Blueprint ---
+    let bid = "a1e1d000-0731-4000-8000-000000000002";
+    let blueprint = |desc: &str| -> Blueprint {
+        def_from(serde_json::json!({
+            "id": bid, "namespace": "com.test", "name": "conf-blueprint", "version": 1,
+            "description": desc, "rootTypes": [],
+            "createdAt": "2026-01-01T00:00:00Z"
+        }))
+    };
+    let n0 = boundary_count(store, "blueprints");
+    store.save_blueprint(&None, &blueprint("first")).unwrap();
+    assert_eq!(
+        store
+            .load_blueprint_by_id(bid)
+            .unwrap()
+            .unwrap()
+            .0
+            .description,
+        "first"
+    );
+    assert_eq!(boundary_count(store, "blueprints"), n0 + 1);
+    store.save_blueprint(&None, &blueprint("second")).unwrap();
+    assert_eq!(boundary_count(store, "blueprints"), n0 + 1);
+    store.update_blueprint(&blueprint("third")).unwrap();
+    assert_eq!(
+        store
+            .load_blueprint_by_id(bid)
+            .unwrap()
+            .unwrap()
+            .0
+            .description,
+        "third"
+    );
+    store.delete_blueprint(bid).unwrap();
+    assert!(store.load_blueprint_by_id(bid).unwrap().is_none());
+    assert_eq!(boundary_count(store, "blueprints"), n0);
+    assert!(matches!(
+        store.delete_blueprint(bid),
+        Err(RepositoryError::BlueprintNotFound { .. })
+    ));
+
+    // --- Vocabulary (versions coexist, each in its own file) ---
+    let vid = "a1e1d000-0731-4000-8000-000000000003";
+    let vocabulary = |version: u32, desc: &str| -> Vocabulary {
+        def_from(serde_json::json!({
+            "id": vid, "namespace": "com.test", "name": "conf-vocab", "version": version,
+            "description": desc, "mode": "open", "terms": [],
+            "createdAt": "2026-01-01T00:00:00Z"
+        }))
+    };
+    let n0 = boundary_count(store, "vocabularies");
+    store.save_vocabulary(&None, &vocabulary(1, "v1")).unwrap();
+    assert_eq!(
+        store
+            .load_vocabulary_by_id(vid)
+            .unwrap()
+            .unwrap()
+            .0
+            .description
+            .as_deref(),
+        Some("v1")
+    );
+    store.save_vocabulary(&None, &vocabulary(1, "v1b")).unwrap();
+    assert_eq!(boundary_count(store, "vocabularies"), n0 + 1);
+    store.save_vocabulary(&None, &vocabulary(2, "v2")).unwrap();
+    assert_eq!(boundary_count(store, "vocabularies"), n0 + 2);
+    store.update_vocabulary(&vocabulary(2, "v2b")).unwrap();
+    assert_eq!(boundary_count(store, "vocabularies"), n0 + 2);
+    assert!(matches!(
+        store.update_vocabulary(&vocabulary(9, "none")),
+        Err(RepositoryError::NotFound { .. })
+    ));
+
+    // --- Lifecycle ---
+    let lid = "a1e1d000-0731-4000-8000-000000000004";
+    let lifecycle = |desc: &str| -> Lifecycle {
+        def_from(serde_json::json!({
+            "id": lid, "namespace": "com.test", "name": "conf-lifecycle", "version": 1,
+            "description": desc, "states": [], "transitions": [], "initialState": "draft",
+            "createdAt": "2026-01-01T00:00:00Z"
+        }))
+    };
+    let n0 = boundary_count(store, "lifecycles");
+    store.save_lifecycle(&None, &lifecycle("first")).unwrap();
+    assert_eq!(
+        store
+            .load_lifecycle_by_id(lid)
+            .unwrap()
+            .unwrap()
+            .0
+            .description,
+        Some("first".to_string())
+    );
+    store.save_lifecycle(&None, &lifecycle("second")).unwrap();
+    assert_eq!(boundary_count(store, "lifecycles"), n0 + 1);
+    store.update_lifecycle(&lifecycle("third")).unwrap();
+    assert_eq!(
+        store
+            .load_lifecycle_by_id(lid)
+            .unwrap()
+            .unwrap()
+            .0
+            .description,
+        Some("third".to_string())
+    );
+
+    // --- RelationTypeDefinition ---
+    let rid = "a1e1d000-0731-4000-8000-000000000005";
+    let relation_type = |label: &str| -> RelationTypeDefinition {
+        def_from(serde_json::json!({
+            "id": rid, "version": 1, "key": "conf-key", "namespace": "com.test",
+            "label": label, "description": "d", "category": "association",
+            "createdAt": "2026-01-01T00:00:00Z"
+        }))
+    };
+    let n0 = boundary_count(store, "relationTypes");
+    store
+        .save_relation_type_definition(&None, &relation_type("first"))
+        .unwrap();
+    assert_eq!(
+        store
+            .load_relation_type_definition_by_id(rid)
+            .unwrap()
+            .unwrap()
+            .0
+            .label,
+        "first"
+    );
+    store
+        .save_relation_type_definition(&None, &relation_type("second"))
+        .unwrap();
+    assert_eq!(boundary_count(store, "relationTypes"), n0 + 1);
+    store
+        .update_relation_type_definition(&relation_type("third"))
+        .unwrap();
+    assert_eq!(
+        store
+            .load_relation_type_definition_by_id(rid)
+            .unwrap()
+            .unwrap()
+            .0
+            .label,
+        "third"
+    );
+    store.delete_relation_type_definition(rid).unwrap();
+    assert!(store
+        .load_relation_type_definition_by_id(rid)
+        .unwrap()
+        .is_none());
+    assert_eq!(boundary_count(store, "relationTypes"), n0);
+    assert!(matches!(
+        store.delete_relation_type_definition(rid),
+        Err(RepositoryError::DefinitionNotFound { .. })
     ));
 }
 

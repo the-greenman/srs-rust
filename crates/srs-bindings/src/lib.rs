@@ -52,6 +52,7 @@ use srs_repository::services::{
 use srs_repository::store::RepositoryStore as _;
 use srs_repository::tag_service;
 use srs_repository::type_schema_service::{self, TypeSchemaInput};
+use srs_repository::type_subtypes_service::{self, TypeSubtypesInput};
 use srs_repository::validation;
 use srs_repository::view_service::{
     self, CompositionListFilter, GetCompositionResult, GetViewResult,
@@ -1447,6 +1448,27 @@ impl SrsRepository {
         to_js(&summaries)
     }
 
+    /// Every Type whose `extendsTypeId` chain transitively reaches `type_id` (RFC-032
+    /// ext:type-inheritance; same service as `srs type subtypes`). `include_self` also lists
+    /// the Type itself. Returns `{ "typeId", "subtypes": [{id, namespace, name, version}] }`
+    /// sorted by id, latest version per Type. An unknown Type is an error. An ancestor check
+    /// is membership in this list; clients never walk `extendsTypeId` themselves.
+    pub fn get_type_subtypes(
+        &self,
+        type_id: &str,
+        include_self: Option<bool>,
+    ) -> Result<JsValue, JsValue> {
+        let result = type_subtypes_service::type_subtypes(
+            &self.store,
+            TypeSubtypesInput {
+                type_id: type_id.to_string(),
+                include_self: include_self.unwrap_or(false),
+            },
+        )
+        .map_err(|e| js_err(&e))?;
+        to_js(&result)
+    }
+
     /// Project a Type into a draft-07 JSON Schema describing a single record's `fieldValues`,
     /// keyed by field `name`. `type_id` is the Type's UUID; `type_version` selects a version —
     /// pass `undefined` (omit the argument) to resolve the latest version.
@@ -2144,9 +2166,16 @@ impl SrsRepository {
 /// Render markdown to safe HTML (srs-rust#1191): raw HTML is escaped and link/image
 /// URLs are limited to http, https, mailto and relative, so the result is safe to
 /// inject with `innerHTML`. Repo-independent free function; JS name `renderMarkdown`.
+/// Optional trailing `images` (default `true`): `false` renders each image as its
+/// alt text, with no `<img>` (srs-rust#1606).
 #[wasm_bindgen(js_name = renderMarkdown)]
-pub fn render_markdown(md: &str) -> String {
-    srs_core::markdown::render_markdown(md)
+pub fn render_markdown(md: &str, images: Option<bool>) -> String {
+    srs_core::markdown::render_markdown_with(
+        md,
+        srs_core::markdown::RenderOptions {
+            images: images.unwrap_or(true),
+        },
+    )
 }
 
 /// Parse and load a registry JSON string (RFC-049 `ext:registry`).

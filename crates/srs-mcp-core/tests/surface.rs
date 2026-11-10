@@ -737,6 +737,24 @@ mod write_guard {
     }
 
     #[test]
+    fn attachment_add_refuses_unsafe_svg_with_code_and_writes_nothing() {
+        let (dir, mut d) = guarded();
+        let r = tool(
+            &mut d,
+            "attachment_add",
+            json!({
+                "fileName": "x.svg",
+                "content": "<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>"
+            }),
+        );
+        assert_eq!(r["result"]["isError"], true, "{r}");
+        let err = &r["result"]["structuredContent"];
+        assert_eq!(err["code"], "svg-unsafe", "{r}");
+        assert_eq!(err["details"]["rule"], "script-element", "{r}");
+        assert!(!dir.path().join("source-documents/x.svg").exists());
+    }
+
+    #[test]
     fn attachment_add_and_link_round_trip_and_guard() {
         let (dir, mut d) = guarded();
         let id = create(

@@ -1302,6 +1302,14 @@ pub enum TypeCommand {
         #[arg(long)]
         type_version: Option<u32>,
     },
+    /// List every Type that transitively extends this one (ext:type-inheritance)
+    Subtypes {
+        /// Type definition ID
+        id: String,
+        /// Also list the Type itself
+        #[arg(long)]
+        include_self: bool,
+    },
     /// Project this Type into a standard JSON Schema 2020-12 definition schema
     /// (RFC-035). Distinct from `type schema`, which emits the editor-facing
     /// draft-07 + `x-srs-*` projection.
@@ -1737,7 +1745,11 @@ pub enum RenderCommand {
         output: PathBuf,
     },
     /// Render markdown read from stdin to safe HTML (pure; needs no repository)
-    Markdown,
+    Markdown {
+        /// Render each image as its alt text instead of an <img> (srs-rust#1606)
+        #[arg(long)]
+        no_images: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2067,7 +2079,7 @@ pub fn dispatch(cli: Cli) -> Result<String> {
             store: StoreBackend::File,
         },
         // render markdown is a pure stdin → HTML transform; no repository involved.
-        Commands::Render(RenderCommand::Markdown) => RepositoryLocation {
+        Commands::Render(RenderCommand::Markdown { .. }) => RepositoryLocation {
             path: std::path::PathBuf::from("."),
             store: StoreBackend::File,
         },

@@ -3,8 +3,11 @@
 //! The output is safe to inject with `innerHTML` / `{@html}`: raw HTML in the
 //! source is emitted as escaped text, and link/image URLs are limited to
 //! `http`, `https`, `mailto` and scheme-less (relative) URLs.
+//!
+//! [`render_markdown_with`] can render without images (srs-rust#1606): each
+//! image becomes its alt text, as escaped plain text, and no `<img>` is emitted.
 
-use pulldown_cmark::{html, CowStr, Event, Options, Parser, Tag};
+use pulldown_cmark::{html, CowStr, Event, Options, Parser, Tag, TagEnd};
 
 /// True when `url` is http(s), mailto, or has no scheme (relative).
 fn url_allowed(url: &str) -> bool {
@@ -53,11 +56,53 @@ fn sanitize(event: Event<'_>) -> Event<'_> {
     }
 }
 
+/// Options for [`render_markdown_with`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RenderOptions {
+    /// Emit `<img>` for images. When false, an image renders as its alt text.
+    pub images: bool,
+}
+
+impl Default for RenderOptions {
+    fn default() -> Self {
+        Self { images: true }
+    }
+}
+
 /// Render CommonMark (plus tables and strikethrough) to safe HTML.
 pub fn render_markdown(md: &str) -> String {
+    render_markdown_with(md, RenderOptions::default())
+}
+
+/// [`render_markdown`] with options; the default options give the same output.
+pub fn render_markdown_with(md: &str, options: RenderOptions) -> String {
     let opts = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
+    let events = Parser::new_ext(md, opts).map(sanitize);
     let mut out = String::new();
-    html::push_html(&mut out, Parser::new_ext(md, opts).map(sanitize));
+    if options.images {
+        html::push_html(&mut out, events);
+    } else {
+        // Inside an image (depth > 0) keep only the alt text, flattened to
+        // plain text the way pulldown-cmark writes an `alt` attribute.
+        let mut depth = 0usize;
+        html::push_html(
+            &mut out,
+            events.filter_map(move |e| match e {
+                Event::Start(Tag::Image { .. }) => {
+                    depth += 1;
+                    None
+                }
+                Event::End(TagEnd::Image) => {
+                    depth -= 1;
+                    None
+                }
+                e if depth == 0 => Some(e),
+                Event::Text(s) | Event::Code(s) => Some(Event::Text(s)),
+                Event::SoftBreak | Event::HardBreak => Some(Event::Text(CowStr::Borrowed(" "))),
+                _ => None,
+            }),
+        );
+    }
     out
 }
 
@@ -138,5 +183,43 @@ mod tests {
             r("![x](data:text/html,a)"),
             "<p><img src=\"\" alt=\"x\" /></p>\n"
         );
+    }
+
+    fn no_img(md: &str) -> String {
+        super::render_markdown_with(md, super::RenderOptions { images: false })
+    }
+
+    #[test]
+    fn images_off_render_alt_text() {
+        assert_eq!(
+            no_img("a ![cat <x>](c.png) b"),
+            "<p>a cat &lt;x&gt; b</p>\n"
+        );
+        assert_eq!(
+            no_img("[![logo](l.png)](https://e.com)"),
+            "<p><a href=\"https://e.com\">logo</a></p>\n"
+        );
+        assert_eq!(no_img("![ref][r]\n\n[r]: r.png"), "<p>ref</p>\n");
+        assert_eq!(no_img("![*a* **b** `c`](x.png)"), "<p>a b c</p>\n");
+        assert_eq!(no_img("![x](data:text/html,a)"), "<p>x</p>\n");
+        for md in [
+            "![a](https://e.com/a.png)",
+            "![](a.png)",
+            "![a ![b](b.png)](a.png)",
+        ] {
+            assert!(!no_img(md).contains("<img"), "{md}");
+        }
+    }
+
+    #[test]
+    fn images_default_unchanged() {
+        for md in [
+            "a ![cat](c.png \"t\") b",
+            "![*a*](x.png)",
+            "<b>x</b> [l](u)",
+        ] {
+            assert_eq!(super::render_markdown_with(md, Default::default()), r(md));
+        }
+        assert_eq!(r("![c](c.png)"), "<p><img src=\"c.png\" alt=\"c\" /></p>\n");
     }
 }

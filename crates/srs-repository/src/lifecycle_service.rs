@@ -95,17 +95,7 @@ pub fn create_lifecycle(
         &lifecycle.id,
         boundary_path,
     )?;
-    let rel_filename = crate::package_service::definition_rel_path(
-        DefinitionKind::Lifecycle,
-        &lifecycle.name,
-        &lifecycle.id,
-        u64::from(lifecycle.version),
-    );
-    let full_path = format!("{boundary_path}/{rel_filename}");
-
-    store.ensure_lifecycles_dir(&format!("{boundary_path}/lifecycles"))?;
-    store.save_lifecycle(&full_path, &lifecycle)?;
-    store.add_definition_to_boundary(&selector, DefinitionKind::Lifecycle, &rel_filename)?;
+    store.save_lifecycle(&selector, &lifecycle)?;
 
     Ok(CreateLifecycleResult { lifecycle })
 }
@@ -225,50 +215,18 @@ pub fn update_lifecycle(
     }
 
     // R4
-    let (relative_path, _owner) = find_lifecycle_path(store, id)?
-        .ok_or_else(|| RepositoryError::LifecycleNotFound { id: id.to_string() })?;
+    match store.resolve_definition_owner(id, DefinitionKind::Lifecycle) {
+        Ok(_) => {}
+        Err(RepositoryError::DefinitionNotFound { .. }) => {
+            return Err(RepositoryError::LifecycleNotFound { id: id.to_string() });
+        }
+        Err(e) => return Err(e),
+    }
 
     refuse_invalid_lifecycle(&lifecycle)?;
 
-    store.update_lifecycle_file(&relative_path, &lifecycle)?;
+    store.update_lifecycle(&lifecycle)?;
     Ok(UpdateLifecycleResult { lifecycle })
-}
-
-/// Find the repo-root-relative path and owner for a standalone Lifecycle by
-/// its ID. `None` when the Lifecycle is not owned by this repository (e.g.
-/// embedded core package).
-///
-/// `PackageBoundary` only carries `field_paths`/`type_paths`/`blueprint_paths`/
-/// `protocol_paths` — Lifecycle (like View, Composition, RelationType,
-/// Vocabulary) is resolved by scanning the owner's `package.json` `lifecycles`
-/// array directly (mirrors `view_service::find_view_path`/`find_composition_path`),
-/// not `PackageBoundary.lifecycle_paths`, which `MemoryStore` never populates.
-pub(crate) fn find_lifecycle_path(
-    store: &dyn RepositoryStore,
-    id: &str,
-) -> Result<Option<(String, PackageSelector)>, RepositoryError> {
-    let owner = match store.resolve_definition_owner(id, DefinitionKind::Lifecycle) {
-        Ok(sel) => sel,
-        Err(RepositoryError::DefinitionNotFound { .. }) => return Ok(None),
-        Err(e) => return Err(e),
-    };
-    let prefix = owner.as_deref().unwrap_or("package");
-    let pkg_json = store.load_instance_json(&format!("{prefix}/package.json"))?;
-    let paths = pkg_json["lifecycles"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
-    for entry in &paths {
-        if let Some(rel) = entry.as_str() {
-            let full = format!("{prefix}/{rel}");
-            if let Ok(val) = store.load_instance_json(&full) {
-                if val["id"].as_str() == Some(id) {
-                    return Ok(Some((full, owner)));
-                }
-            }
-        }
-    }
-    Ok(None)
 }
 
 #[cfg(test)]
@@ -708,8 +666,8 @@ mod tests {
         }
     }
 
-    /// Cross-store coverage (storage-boundary rule): `find_lifecycle_path`
-    /// resolves via a package.json array scan, not `PackageBoundary
+    /// Cross-store coverage (storage-boundary rule): the typed Lifecycle store
+    /// methods resolve via a package.json array scan, not `PackageBoundary
     /// .lifecycle_paths` — prove it also works against `FileStore`, not just
     /// the in-memory fast path.
     #[test]
