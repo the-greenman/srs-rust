@@ -176,3 +176,20 @@ fn error_envelope_cli_local_checks_carry_codes_not_unclassified() {
     );
     assert_eq!(first_error(&bad_output)["code"], "io", "{bad_output}");
 }
+
+#[test]
+fn error_envelope_attachment_add_unsafe_svg() {
+    let repo = new_repo();
+    let p = repo.path();
+    let src = p.join("x.svg");
+    std::fs::write(
+        &src,
+        r#"<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>"#,
+    )
+    .unwrap();
+    let v = srs(p, &["attachment", "add", src.to_str().unwrap()], "");
+    let e = first_error(&v);
+    assert_eq!(e["code"], "svg-unsafe", "{v}");
+    assert_eq!(e["details"]["rule"], "event-attribute", "{v}");
+    assert!(!p.join("source-documents/x.svg").exists());
+}

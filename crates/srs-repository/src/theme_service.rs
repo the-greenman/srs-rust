@@ -12,7 +12,7 @@
 //! - Functions marked `pub(crate)` are internal helpers; do not promote them to `pub`.
 
 use crate::error::RepositoryError;
-use crate::package_types::{validate_package_selector, DefinitionKind, PackageSelector};
+use crate::package_types::{validate_package_selector, PackageSelector};
 use crate::store::{inject_definition_schema, RepositoryStore};
 use crate::validation::validate_definition_write_schema;
 use crate::writer::new_instance_id;
@@ -63,32 +63,6 @@ pub struct DeleteThemeResult {
 }
 
 // ── Private helpers ───────────────────────────────────────────────────────────
-
-/// Locate the package-relative path (e.g. `"themes/foo-abcd1234.json"`) for a Theme by ID.
-fn find_theme_path(
-    store: &dyn RepositoryStore,
-    id: &str,
-) -> Result<Option<(String, PackageSelector)>, RepositoryError> {
-    let owner = match store.resolve_definition_owner(id, DefinitionKind::Theme) {
-        Ok(sel) => sel,
-        Err(RepositoryError::DefinitionNotFound { .. }) => return Ok(None),
-        Err(e) => return Err(e),
-    };
-    let prefix = owner.as_deref().unwrap_or("package");
-    let pkg_json = store.load_instance_json(&format!("{prefix}/package.json"))?;
-    let paths = pkg_json["themes"].as_array().cloned().unwrap_or_default();
-    for entry in &paths {
-        if let Some(rel) = entry.as_str() {
-            let full = format!("{prefix}/{rel}");
-            if let Ok(val) = store.load_instance_json(&full) {
-                if val["id"].as_str() == Some(id) {
-                    return Ok(Some((full, owner)));
-                }
-            }
-        }
-    }
-    Ok(None)
-}
 
 // ── Read-only service functions ───────────────────────────────────────────────
 
@@ -205,16 +179,7 @@ pub fn create_theme(
         &theme.id,
         boundary_path,
     )?;
-    store.ensure_themes_dir(&format!("{boundary_path}/themes"))?;
-    let rel_filename = crate::package_service::definition_rel_path(
-        DefinitionKind::Theme,
-        &theme.name,
-        &theme.id,
-        u64::from(theme.version),
-    );
-    let full_path = format!("{boundary_path}/{rel_filename}");
-    store.save_theme(&full_path, &theme)?;
-    store.add_definition_to_boundary(&selector, DefinitionKind::Theme, &rel_filename)?;
+    store.save_theme(&selector, &theme)?;
     Ok(CreateThemeResult { theme })
 }
 
@@ -238,11 +203,12 @@ pub fn update_theme(
         path: std::path::PathBuf::from("package/themes"),
         source: e,
     })?;
-    let (path, _owner) =
-        find_theme_path(store, theme_id)?.ok_or_else(|| RepositoryError::ThemeNotFound {
+    if store.load_theme_by_id(theme_id)?.is_none() {
+        return Err(RepositoryError::ThemeNotFound {
             theme_id: theme_id.to_string(),
-        })?;
-    store.update_theme_file(&path, &theme)?;
+        });
+    }
+    store.update_theme(&theme)?;
     Ok(UpdateThemeResult { theme })
 }
 
@@ -291,17 +257,7 @@ pub fn delete_theme(
             used_by: refs,
         });
     }
-    let (full_path, owner) =
-        find_theme_path(store, theme_id)?.ok_or_else(|| RepositoryError::ThemeNotFound {
-            theme_id: theme_id.to_string(),
-        })?;
-    let boundary_prefix = owner.as_deref().unwrap_or("package");
-    let rel_path = full_path
-        .strip_prefix(&format!("{boundary_prefix}/"))
-        .unwrap_or(&full_path)
-        .to_string();
-    let _ = store.delete_theme_file(&full_path); // best-effort; ignore if already gone
-    store.remove_definition_from_boundary(&owner, DefinitionKind::Theme, &rel_path)?;
+    store.delete_theme(theme_id)?;
     Ok(DeleteThemeResult {
         id: theme_id.to_string(),
     })
