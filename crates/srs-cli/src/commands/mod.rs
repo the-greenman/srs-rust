@@ -1745,7 +1745,11 @@ pub enum RenderCommand {
         output: PathBuf,
     },
     /// Render markdown read from stdin to safe HTML (pure; needs no repository)
-    Markdown,
+    Markdown {
+        /// Render each image as its alt text instead of an <img> (srs-rust#1606)
+        #[arg(long)]
+        no_images: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2075,7 +2079,7 @@ pub fn dispatch(cli: Cli) -> Result<String> {
             store: StoreBackend::File,
         },
         // render markdown is a pure stdin → HTML transform; no repository involved.
-        Commands::Render(RenderCommand::Markdown) => RepositoryLocation {
+        Commands::Render(RenderCommand::Markdown { .. }) => RepositoryLocation {
             path: std::path::PathBuf::from("."),
             store: StoreBackend::File,
         },

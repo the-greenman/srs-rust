@@ -2166,9 +2166,16 @@ impl SrsRepository {
 /// Render markdown to safe HTML (srs-rust#1191): raw HTML is escaped and link/image
 /// URLs are limited to http, https, mailto and relative, so the result is safe to
 /// inject with `innerHTML`. Repo-independent free function; JS name `renderMarkdown`.
+/// Optional trailing `images` (default `true`): `false` renders each image as its
+/// alt text, with no `<img>` (srs-rust#1606).
 #[wasm_bindgen(js_name = renderMarkdown)]
-pub fn render_markdown(md: &str) -> String {
-    srs_core::markdown::render_markdown(md)
+pub fn render_markdown(md: &str, images: Option<bool>) -> String {
+    srs_core::markdown::render_markdown_with(
+        md,
+        srs_core::markdown::RenderOptions {
+            images: images.unwrap_or(true),
+        },
+    )
 }
 
 /// Parse and load a registry JSON string (RFC-049 `ext:registry`).
