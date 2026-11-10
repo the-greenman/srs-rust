@@ -3287,7 +3287,9 @@ fn save_type_impl<S: RepositoryStore + ?Sized>(
     if let Some(rel) = existing {
         return store.save_instance_json(&format!("{prefix}/{rel}"), &value);
     }
-    let rel = crate::package_service::definition_rel_path(
+    let rel = crate::package_service::new_definition_rel_path(
+        store,
+        prefix,
         DefinitionKind::Type,
         &record_type.name,
         &record_type.id,
@@ -3320,7 +3322,9 @@ fn save_field_impl<S: RepositoryStore + ?Sized>(
     if let Some(rel) = existing {
         return store.save_instance_json(&format!("{prefix}/{rel}"), &value);
     }
-    let rel = crate::package_service::definition_rel_path(
+    let rel = crate::package_service::new_definition_rel_path(
+        store,
+        prefix,
         DefinitionKind::Field,
         &field.name,
         &field.id,
@@ -3426,7 +3430,14 @@ fn save_definition_impl<S: RepositoryStore + ?Sized>(
     if let Some(found) = scan_definition_index(store, boundary.clone(), id, kind, Some(version))? {
         return store.save_instance_json(&found.full_path, value);
     }
-    let rel = crate::package_service::definition_rel_path(kind, name, id, u64::from(version));
+    let rel = crate::package_service::new_definition_rel_path(
+        store,
+        prefix,
+        kind,
+        name,
+        id,
+        u64::from(version),
+    );
     // The directory is the first segment of the ADR-050 relative path.
     let dir = rel.split('/').next().unwrap_or_default();
     store.ensure_instance_dir(&format!("{prefix}/{dir}"))?;

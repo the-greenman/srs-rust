@@ -347,7 +347,9 @@ pub fn create_protocol(
         &protocol.id,
         boundary_path,
     )?;
-    let rel_filename = crate::package_service::definition_rel_path(
+    let rel_filename = crate::package_service::new_definition_rel_path(
+        store,
+        boundary_path,
         DefinitionKind::Protocol,
         &protocol.name,
         &protocol.id,
