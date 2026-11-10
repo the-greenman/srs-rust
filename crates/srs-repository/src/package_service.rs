@@ -984,12 +984,16 @@ fn refuse_invalid_type_definition(
     reasons.extend(crate::validation::type_inline_lifecycle_messages(
         record_type,
     ));
+    reasons.extend(crate::validation::type_cross_field_rule_scope_messages(
+        &package,
+        record_type,
+    ));
     if reasons.is_empty() {
         return Ok(());
     }
     Err(RepositoryError::InvalidInput {
         message: format!(
-            "type '{}/{}@{}' would fail repo validate (I-131, I-4/I-5, I-39): {}",
+            "type '{}/{}@{}' would fail repo validate (I-131, I-4/I-5, I-10, I-39): {}",
             record_type.namespace,
             record_type.name,
             record_type.version,
@@ -2367,6 +2371,26 @@ mod tests {
         .collect();
         let result = create_type(&store, rt);
         assert_type_refused_and_unwritten(&store, result, "title", "dup-names");
+    }
+
+    /// Invariant 10 (RFC-019): a cross-field rule naming a Field outside the Type's effective
+    /// field list is refused at write; a package Field the Type does not assign is outside too.
+    #[test]
+    fn type_create_refuses_cross_field_rule_naming_unassigned_field() {
+        let store =
+            MemoryStore::with_field(make_field("aaaa0042-0000-0000-0000-000000000042", "status"));
+        let mut rt = make_type("00000000-0000-0000-0000-000000000035", "i10-unassigned");
+        rt.validation_rules = Some(
+            serde_json::from_value(serde_json::json!([{
+                "type": "conditional-required",
+                "predicateFieldId": "aaaa0042-0000-0000-0000-000000000042",
+                "predicateValue": "x",
+                "targetFieldId": "no-such-field",
+            }]))
+            .unwrap(),
+        );
+        let result = create_type(&store, rt);
+        assert_type_refused_and_unwritten(&store, result, "I-10", "i10-unassigned");
     }
 
     fn mixed_kind_rules() -> Vec<srs_core::types::record_type::CrossFieldRule> {
