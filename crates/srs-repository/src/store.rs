@@ -905,6 +905,15 @@ pub trait RepositoryStore {
     /// entity file — never `manifest.json` ([R22]).
     fn save_record(&self, record: &Record) -> Result<(), RepositoryError> {
         let val = record_to_value(record)?;
+        // srs-rust#1528 (decision 0063795a): a write refuses what load would
+        // refuse. Every record write shares this save path, so the assembled
+        // record is checked against record.json once, before anything is written.
+        srs_schema::SchemaRegistry::global()
+            .validate_by_id(RECORD_SCHEMA_ID, &val)
+            .map_err(|e| RepositoryError::SchemaValidation {
+                path: PathBuf::from(format!("records/tier-2/{}", record.instance_id)),
+                message: e.to_string(),
+            })?;
         let tier_dir = self.record_tier_dir(RecordTier::Tier2);
         catalog_save_instance(self, &record.instance_id, &val, tier_dir, &record.type_name)
     }
