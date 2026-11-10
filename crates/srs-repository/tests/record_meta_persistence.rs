@@ -246,7 +246,6 @@ fn file_store_field_update_breaking_records_is_refused_and_writes_nothing() {
 /// Ignored until the owner rules where the check lives (core [R-series] rule
 /// or the schema validator on the write path); remove `ignore` with the fix.
 #[test]
-#[ignore = "srs-rust#1528: reproduces the bug; create_record must refuse an out-of-enum fieldMeta.source"]
 fn create_record_refuses_out_of_enum_field_meta_source() {
     let tmp = TempDir::new().unwrap();
     let store = FileStore::new(tmp.path());
@@ -278,4 +277,29 @@ fn create_record_refuses_out_of_enum_field_meta_source() {
         record_store::list_all_records(&reopened).is_ok(),
         "repository must still load after the refused write"
     );
+}
+
+/// srs-rust#1528: an unknown top-level key (carried in `Record.extra`) is refused
+/// by the shared save path, and nothing is written.
+#[test]
+fn unknown_top_level_key_refused_and_nothing_written() {
+    use srs_repository::store::RepositoryStore;
+    let tmp = TempDir::new().unwrap();
+    let file = FileStore::new(tmp.path());
+    create_repository(&file, &init_input()).unwrap();
+    package_service::create_field(&file, name_field()).unwrap();
+    package_service::create_type(&file, test_type()).unwrap();
+    let mut fv = FieldValues::new();
+    fv.insert("test-name", serde_json::json!("Initial"));
+    let created =
+        record_store::create_record(&file, "1041type-test-0001", 1, fv, None, None).unwrap();
+    let mut rec = file.load_record_by_id(&created.instance_id).unwrap();
+    rec.extra.insert("bogus".into(), serde_json::json!(1));
+    let err = file.save_record(&rec).unwrap_err();
+    assert_eq!(err.code(), "schema-validation");
+    drop(file);
+    let reopened = FileStore::new(tmp.path());
+    assert!(record_store::list_all_records(&reopened).is_ok());
+    let on_disk = reopened.load_record_by_id(&created.instance_id).unwrap();
+    assert!(!on_disk.extra.contains_key("bogus"));
 }
