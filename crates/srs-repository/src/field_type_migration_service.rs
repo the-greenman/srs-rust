@@ -192,6 +192,7 @@ pub fn migrate_field_types(
 ) -> Result<FieldTypeMigrationResult, RepositoryError> {
     let from_revision = data_model_revision(store)?;
     let package = store.load_package()?;
+    let assignment_lists = assignment_level_list_field_ids(store);
 
     let mut fields_migrated = 0usize;
     let mut fields_skipped_not_owned = 0usize;
@@ -204,7 +205,13 @@ pub fn migrate_field_types(
             fields_skipped_not_owned += 1;
             continue;
         }
-        update_field_for_migration(store, field.clone())?;
+        let mut field = field.clone();
+        // RFC-032 Rev 6 errata (a): list-ness expressed only on a FieldAssignment becomes
+        // `cardinality: "list"` here, before `rfc039-carrier` strips the evidence.
+        if assignment_lists.contains(&field.id) {
+            field.field_type.cardinality = Some(srs_core::types::field_type::Cardinality::List);
+        }
+        update_field_for_migration(store, field)?;
         fields_migrated += 1;
     }
 
@@ -216,6 +223,75 @@ pub fn migrate_field_types(
         from_revision,
         to_revision: FIELD_TYPE_REVISION,
     })
+}
+
+/// Ids of Fields that some Type assigns with `repeatable: true` (or a deprecated
+/// `minItems`/`maxItems`), on a top-level assignment or inside a `fieldGroups` entry.
+///
+/// The Type loader drops the retired trio (RFC-039 [R7]), so this reads the raw Type files of
+/// every package root. Mirrors `opts.repeatable` in the spec's `rfc-032-fieldtype.mjs`.
+fn assignment_level_list_field_ids(
+    store: &dyn RepositoryStore,
+) -> std::collections::HashSet<String> {
+    use serde_json::Value;
+    let mut roots: Vec<String> = vec!["package".to_string()];
+    if let Ok(manifest) = store.load_manifest() {
+        for r in manifest
+            .extra
+            .get("packageRefs")
+            .and_then(|v| v.as_array())
+            .into_iter()
+            .flatten()
+        {
+            if r.get("mode").and_then(|m| m.as_str()) == Some("local") {
+                if let Some(path) = r.get("path").and_then(|p| p.as_str()) {
+                    roots.push(path.to_string());
+                }
+            }
+        }
+    }
+    let marks_list = |fa: &Value| {
+        fa.get("repeatable").and_then(|v| v.as_bool()) == Some(true)
+            || fa.get("minItems").is_some_and(|v| !v.is_null())
+            || fa.get("maxItems").is_some_and(|v| !v.is_null())
+    };
+    let mut ids = std::collections::HashSet::new();
+    for root in &roots {
+        let Ok(index) = store.load_instance_json(&format!("{root}/package.json")) else {
+            continue;
+        };
+        for rel in index
+            .get("types")
+            .and_then(|t| t.as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v.as_str())
+        {
+            let Ok(doc) = store.load_instance_json(&format!("{root}/{rel}")) else {
+                continue;
+            };
+            let groups = doc
+                .get("fieldGroups")
+                .and_then(|g| g.as_array())
+                .into_iter()
+                .flatten()
+                .filter_map(|g| g.get("fields").and_then(|f| f.as_array()))
+                .flatten();
+            let top = doc
+                .get("fields")
+                .and_then(|f| f.as_array())
+                .into_iter()
+                .flatten();
+            for fa in top.chain(groups) {
+                if marks_list(fa) {
+                    if let Some(id) = fa.get("fieldId").and_then(|v| v.as_str()) {
+                        ids.insert(id.to_string());
+                    }
+                }
+            }
+        }
+    }
+    ids
 }
 
 /// Write `dataModelRevision: <revision>` onto the manifest, preserving every
@@ -706,5 +782,85 @@ mod substrate_properties_to_meta_tests {
         let parsed: serde_json::Value = serde_json::from_str(&raw_twice).unwrap();
         assert_eq!(parsed["meta"]["color"], "blue");
         assert!(!raw_twice.contains("\"properties\""));
+    }
+}
+
+#[cfg(test)]
+mod assignment_repeatable_tests {
+    use super::*;
+    use crate::store::FileStore;
+
+    const F_TAGS: &str = "a1000001-0000-4000-b000-0000000000a1";
+    const F_TITLE: &str = "a1000001-0000-4000-b000-0000000000a2";
+    const T_DOC: &str = "a1000001-0000-4000-b000-0000000000b1";
+
+    fn write(temp: &tempfile::TempDir, rel: &str, v: serde_json::Value) {
+        let p = temp.path().join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, v.to_string()).unwrap();
+    }
+
+    fn legacy_field(id: &str, name: &str) -> serde_json::Value {
+        serde_json::json!({
+            "id": id, "namespace": "com.test", "name": name, "version": 1,
+            "valueType": "string", "description": "legacy", "createdAt": "2026-01-01T00:00:00Z"
+        })
+    }
+
+    /// srs-rust#1409: a revision-0 repository whose only evidence that a Field is a list is an
+    /// assignment-level `repeatable: true` must migrate that Field to `cardinality: "list"`,
+    /// through `field-type` and on through `rfc039-carrier`, and leave the other Field single.
+    #[test]
+    fn assignment_level_repeatable_becomes_list_cardinality() {
+        let temp = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(temp.path().join(".srs")).unwrap();
+        write(
+            &temp,
+            "manifest.json",
+            serde_json::json!({"repositoryId": "00000000-0000-4000-8000-000000000001"}),
+        );
+        write(
+            &temp,
+            "package/package.json",
+            serde_json::json!({
+                "id": "pkg", "namespace": "com.test", "name": "test", "version": "1.0.0",
+                "fields": ["fields/tags.json", "fields/title.json"],
+                "types": ["types/doc.json"]
+            }),
+        );
+        write(
+            &temp,
+            "package/fields/tags.json",
+            legacy_field(F_TAGS, "tags"),
+        );
+        write(
+            &temp,
+            "package/fields/title.json",
+            legacy_field(F_TITLE, "title"),
+        );
+        write(
+            &temp,
+            "package/types/doc.json",
+            serde_json::json!({
+                "id": T_DOC, "namespace": "com.test", "name": "doc", "version": 1,
+                "description": "d", "createdAt": "2026-01-01T00:00:00Z",
+                "fields": [
+                    {"fieldId": F_TITLE, "order": 0, "required": true},
+                    {"fieldId": F_TAGS, "order": 1, "required": false, "repeatable": true}
+                ]
+            }),
+        );
+
+        let store = FileStore::new(temp.path()).with_rfc038_exemption();
+        migrate_field_types(&store).unwrap();
+        crate::rfc039_carrier_migration_service::migrate_carrier(&store).unwrap();
+
+        let card = |rel: &str| -> Option<String> {
+            let raw = std::fs::read_to_string(temp.path().join(rel)).unwrap();
+            let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+            v["fieldType"]["cardinality"].as_str().map(str::to_string)
+        };
+        assert_eq!(card("package/fields/tags.json").as_deref(), Some("list"));
+        assert_eq!(card("package/fields/title.json"), None);
     }
 }
