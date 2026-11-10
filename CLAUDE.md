@@ -93,15 +93,16 @@ Tags are weak discovery labels. They are not semantic claims, not formal ontolog
 `srs/` is an external SRS repository consumed by the Rust workspace as test data — it is not internal source. Do not embed spec content directly in Rust source or tests. Use fixture copies or vendor the spec repo.
 
 ```bash
-srs repo validate --repo ../srs/srs        # 0 errors once ../srs is on dataModelRevision 2
+srs repo validate --repo ../srs/srs        # 0 errors: the spec repo is on the current dataModelRevision
 cargo test --test payload_contracts        # golden schema tests
 ```
 
-**RFC-039 carrier note:** a binary at data-model revision 2 (RFC-039, srs#242 Phase B)
-**rejects** a pre-cutover spec repo with an [R9] diagnostic naming `dataModelRevision` —
-expected until the `srs` cutover PR (unit 2 of the #242 train) migrates the spec data.
-Migrate a local copy with `srs repo apply-migration --id rfc039-carrier` (after
-`--id field-type` if it is still pre-RFC-032).
+**Data-model generation:** the spec repo and every first-party corpus are on the current
+`dataModelRevision` (`CURRENT_DATA_MODEL_REVISION`, `crates/srs-repository/src/field_type_migration_service.rs`;
+RFC-051 made it 11). A binary refuses a corpus on another revision with an [R9] diagnostic naming
+`dataModelRevision`. Migrate a local older copy through the migration registry with
+`srs repo apply-migration --id <id>` (the registry lists the ids and runs them in order); the
+revision-bump choreography is in `srs/CLAUDE.md` "Gates and choreography".
 
 ## Schema Sync
 
