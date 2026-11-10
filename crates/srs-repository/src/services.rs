@@ -79,6 +79,60 @@ pub fn extract_note_container_id(
     }
 }
 
+/// Refuse a raw note payload that carries a top-level or section key the Note schema does not
+/// declare (rfc-decision-2e0cd70a, WRITE verb: a writer never silently discards what it
+/// does not understand; srs-rust#1627). The typed `Note` parse drops unknown keys, so this
+/// runs on the raw input before it. `also_allowed` names envelope keys the caller strips
+/// itself (`containerId` on create). The key set is read from the bundled note schema.
+/// Every front end accepting a raw note payload shares this check.
+pub fn reject_unknown_note_keys(
+    raw: &serde_json::Map<String, serde_json::Value>,
+    also_allowed: &[&str],
+) -> Result<(), RepositoryError> {
+    let schema: serde_json::Value = srs_schema::schema_source(NOTE_SCHEMA_ID)
+        .and_then(|src| serde_json::from_str(src).ok())
+        .unwrap_or(serde_json::Value::Null);
+    let Some(props) = schema.get("properties").and_then(|p| p.as_object()) else {
+        return Ok(());
+    };
+    // Section keys: the same check against `$defs.NoteSection`.
+    if let (Some(sections), Some(sprops)) = (
+        raw.get("sections").and_then(|s| s.as_array()),
+        schema
+            .pointer("/$defs/NoteSection/properties")
+            .and_then(|p| p.as_object()),
+    ) {
+        for (i, sec) in sections.iter().enumerate() {
+            for key in sec.as_object().into_iter().flat_map(|o| o.keys()) {
+                if !sprops.contains_key(key) {
+                    let mut expected: Vec<&str> = sprops.keys().map(String::as_str).collect();
+                    expected.sort_unstable();
+                    return Err(RepositoryError::InvalidInput {
+                        message: format!(
+                            "Failed to parse note JSON at sections[{i}].{key}: unknown field '{key}', expected one of {}",
+                            expected.join(", ")
+                        ),
+                    });
+                }
+            }
+        }
+    }
+    for key in raw.keys() {
+        if !props.contains_key(key) && !also_allowed.contains(&key.as_str()) {
+            let mut expected: Vec<&str> = props.keys().map(String::as_str).collect();
+            expected.extend_from_slice(also_allowed);
+            expected.sort_unstable();
+            return Err(RepositoryError::InvalidInput {
+                message: format!(
+                    "Failed to parse note JSON at {key}: unknown field '{key}', expected one of {}",
+                    expected.join(", ")
+                ),
+            });
+        }
+    }
+    Ok(())
+}
+
 /// Explicit delete input with optional container scoping
 #[derive(Debug)]
 pub struct DeleteNoteInput {
