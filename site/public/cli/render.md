@@ -201,6 +201,9 @@ Render markdown read from stdin to safe HTML (pure; needs no repository)
 Usage: srs render markdown [OPTIONS]
 
 Options:
+      --no-images
+          Render each image as its alt text instead of an <img> (srs-rust#1606)
+
       --repo <REPO>
           Repository path (defaults to auto-detect from current directory)
 

@@ -39,13 +39,16 @@ pub fn dispatch(ctx: CliContext, cmd: RenderCommand) -> Result<String> {
             container_id,
             output,
         } => cmd_render_okf_bundle(ctx, container_id, output),
-        RenderCommand::Markdown => {
+        RenderCommand::Markdown { no_images } => {
             let mut md = String::new();
             std::io::Read::read_to_string(&mut std::io::stdin(), &mut md)?;
             output::serialize(
                 "render markdown",
                 RenderMarkdownPayload {
-                    html: srs_core::markdown::render_markdown(&md),
+                    html: srs_core::markdown::render_markdown_with(
+                        &md,
+                        srs_core::markdown::RenderOptions { images: !no_images },
+                    ),
                 },
             )
         }
