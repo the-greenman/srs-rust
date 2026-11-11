@@ -2212,6 +2212,15 @@ fn validate_cross_field_rule_configuration(
                 ),
             });
         }
+        for message in type_cross_field_rule_scope_messages(pkg, rt) {
+            diagnostics.push(ValidationDiagnostic {
+                code: None,
+                severity: DiagnosticSeverity::Error,
+                relative_path: "package/package.json".to_string(),
+                schema_id: None,
+                message,
+            });
+        }
     }
 }
 
@@ -2415,6 +2424,48 @@ pub(crate) fn type_duplicate_field_name_messages(
                     srs_core::error::CoreError::DuplicateEffectiveFieldName {
                         name: ef.name.clone(),
                     }
+                ));
+            }
+        }
+    }
+    messages
+}
+
+/// Invariant 10 (RFC-019) for one Type: every Field a cross-field rule names (`fieldIds`,
+/// `predicateFieldId`, `targetFieldId`) appears in the Type's effective field list. Shared by
+/// `repo validate` and the `type create` / `type update` pre-write refusal (ADR-048 rule 3).
+/// A Type whose field set cannot be resolved yields nothing here; `Package::effective_fields`
+/// reports that cause.
+pub(crate) fn type_cross_field_rule_scope_messages(
+    pkg: &crate::package::Package,
+    rt: &srs_core::types::record_type::RecordType,
+) -> Vec<String> {
+    let Some(rules) = rt.validation_rules.as_ref().filter(|r| !r.is_empty()) else {
+        return Vec::new();
+    };
+    let Ok(effective) = pkg.effective_fields(rt) else {
+        return Vec::new();
+    };
+    let allowed: std::collections::HashSet<&str> =
+        effective.iter().map(|fa| fa.field_id.as_str()).collect();
+    let mut messages = Vec::new();
+    for (index, rule) in rules.iter().enumerate() {
+        let named = rule
+            .field_ids
+            .iter()
+            .flatten()
+            .map(|id| ("fieldIds", id))
+            .chain(
+                rule.predicate_field_id
+                    .iter()
+                    .map(|id| ("predicateFieldId", id)),
+            )
+            .chain(rule.target_field_id.iter().map(|id| ("targetFieldId", id)));
+        for (property, id) in named {
+            if !allowed.contains(id.as_str()) {
+                messages.push(format!(
+                    "type '{}/{}@{}': cross-field rule at index {index} names field '{id}' in '{property}', which is not in the Type's effective field list (I-10)",
+                    rt.namespace, rt.name, rt.version
                 ));
             }
         }
