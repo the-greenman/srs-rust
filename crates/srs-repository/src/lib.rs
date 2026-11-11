@@ -28,6 +28,7 @@ pub mod discovery_index;
 pub mod discovery_query_cutover_migration_service;
 pub mod discovery_service;
 pub mod doctor_service;
+pub mod duplicate_service;
 pub mod error;
 pub mod export_service;
 pub(crate) mod field_json;
