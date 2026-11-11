@@ -739,3 +739,105 @@ fn package_upgrade_cli_prior_bundle_proves_and_adopt_consents() {
     let validate = run_srs(ws.path(), &["--repo", &b, "repo", "validate"]);
     assert_eq!(validate["payload"]["summary"]["errors"], 0, "{validate}");
 }
+
+/// `srs package move` (srs-rust#1639): a dry run reports and writes nothing, the real run
+/// re-homes the definition and the repository stays valid, and a second move is refused with
+/// its code.
+#[test]
+fn package_move_moves_a_relation_type_to_a_sub_package() {
+    let temp = TempDir::new().unwrap();
+    let repo = temp.path().join("r");
+    let repo_s = repo.to_str().unwrap();
+    run_srs(
+        temp.path(),
+        &[
+            "--repo",
+            repo_s,
+            "repo",
+            "create",
+            "--namespace",
+            "com.test.mv",
+        ],
+    );
+    run_srs(
+        temp.path(),
+        &[
+            "--repo",
+            repo_s,
+            "package",
+            "create",
+            "--id",
+            "9a1b0c2d-5555-4aaa-8bbb-0000000000d0",
+            "--namespace",
+            "com.test.site",
+            "--name",
+            "site",
+            "--version",
+            "0.1.0",
+            "--path",
+            "packages/site",
+        ],
+    );
+    let rt = "9a1b0c2d-5555-4aaa-8bbb-0000000000d1";
+    run_srs_stdin(
+        temp.path(),
+        &["--repo", repo_s, "relation-type", "create"],
+        &format!(
+            r#"{{"id":"{rt}","version":1,"key":"uses","namespace":"com.test.mv","label":"Uses","category":"association"}}"#
+        ),
+    );
+
+    let dry = run_srs(
+        temp.path(),
+        &[
+            "--repo",
+            repo_s,
+            "package",
+            "move",
+            rt,
+            "--to",
+            "packages/site",
+            "--dry-run",
+        ],
+    );
+    assert_eq!(dry["ok"], true, "{dry}");
+    assert_eq!(dry["payload"]["dryRun"], true);
+    assert_eq!(dry["payload"]["moved"][0]["from"], "package");
+    assert!(!repo.join("packages/site/relation-types").exists());
+
+    let done = run_srs(
+        temp.path(),
+        &[
+            "--repo",
+            repo_s,
+            "package",
+            "move",
+            rt,
+            "--to",
+            "packages/site",
+        ],
+    );
+    assert_eq!(done["ok"], true, "{done}");
+    let path = done["payload"]["moved"][0]["path"].as_str().unwrap();
+    assert!(repo.join("packages/site").join(path).is_file());
+    assert!(!repo.join("package").join(path).exists());
+    let valid = run_srs(temp.path(), &["--repo", repo_s, "repo", "validate"]);
+    assert_eq!(valid["payload"]["summary"]["errors"], 0, "{valid}");
+
+    let again = Command::new(env!("CARGO_BIN_EXE_srs"))
+        .env_remove("SRS_ACTOR")
+        .args([
+            "--repo",
+            repo_s,
+            "package",
+            "move",
+            rt,
+            "--to",
+            "packages/site",
+        ])
+        .output()
+        .unwrap();
+    let again: Value = serde_json::from_slice(&again.stdout).unwrap();
+    assert_eq!(again["ok"], false);
+    assert_eq!(again["errors"][0]["code"], "move-same-boundary");
+}

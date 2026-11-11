@@ -1780,6 +1780,21 @@ impl SrsRepository {
         to_js(&result)
     }
 
+    /// Move a definition, every version of its id, to another package boundary, keeping its id
+    /// (srs-rust#1639). `input_json`: `{id, to, dryRun?}`, where `to` is the boundary path, or
+    /// null for the primary package. Returns `{moved: [{kind, id, version, from, to, path}],
+    /// referencedBy, dryRun}`, the same as the CLI `package move` payload. Refused with
+    /// `move-same-boundary`, `move-split-lineage`, `move-definition-imported`,
+    /// `move-target-installed`, `definition-not-found` or `package-not-found`. A dry run writes
+    /// nothing.
+    pub fn move_definition(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: srs_repository::package_move_service::MoveDefinitionInput =
+            serde_json::from_str(input_json).map_err(|e| js_invalid_input(e.to_string()))?;
+        let result = srs_repository::package_move_service::move_definition(&self.store, &input)
+            .map_err(|e| js_err(&e))?;
+        to_js(&result)
+    }
+
     /// Aggregate import records across all boundaries and run live divergence detection.
     /// Returns an `ImportSummary` object (`{generatedAt, fields, types, views, blueprints,
     /// protocols, relationTypes, skippedDefinitions?}`).

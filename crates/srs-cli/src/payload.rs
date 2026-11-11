@@ -2474,6 +2474,56 @@ pub struct PackageUpdatePayload {
     pub version: String,
 }
 
+/// `package move` (srs-rust#1639): each version that moved (or would, with `dryRun`) and the
+/// source boundary's definition files that still mention the id. Mirrors `MoveDefinitionOutput`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageMovePayload {
+    pub moved: Vec<PackageMovedEntry>,
+    pub referenced_by: Vec<String>,
+    /// Definition files outside the target that the moved definition mentions: a `standalone`
+    /// export of the target leaves them out.
+    pub references: Vec<String>,
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageMovedEntry {
+    /// The `package.json` list it sits in (`fields`, `relationTypes`, ...).
+    pub kind: String,
+    pub id: String,
+    pub version: u64,
+    /// Source boundary path (`package` for the primary).
+    pub from: String,
+    /// Target boundary path.
+    pub to: String,
+    /// The file's path relative to the boundary.
+    pub path: String,
+}
+
+impl From<srs_repository::package_move_service::MoveDefinitionOutput> for PackageMovePayload {
+    fn from(o: srs_repository::package_move_service::MoveDefinitionOutput) -> Self {
+        Self {
+            moved: o
+                .moved
+                .into_iter()
+                .map(|m| PackageMovedEntry {
+                    kind: m.kind,
+                    id: m.id,
+                    version: m.version,
+                    from: m.from,
+                    to: m.to,
+                    path: m.path,
+                })
+                .collect(),
+            referenced_by: o.referenced_by,
+            references: o.references,
+            dry_run: o.dry_run,
+        }
+    }
+}
+
 /// `package dependency list|add|remove|check` (RFC-044, srs-rust#1168): the
 /// requiring boundary's `packageDependencies` after the operation (for
 /// `check`, the stdin requirement list), each with its consumer-check

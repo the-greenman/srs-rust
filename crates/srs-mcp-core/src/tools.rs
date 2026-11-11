@@ -92,6 +92,8 @@ pub const TOOL_PACKAGE_DEPENDENCY_SET: &str = "package_dependency_set";
 pub const TOOL_PACKAGE_DEPENDENCY_REMOVE: &str = "package_dependency_remove";
 // Package upgrade (srs-rust#1152) — one core service, `package_install_service`
 pub const TOOL_PACKAGE_UPGRADE: &str = "package_upgrade";
+// Package move (srs-rust#1639) — one core service, `package_move_service`
+pub const TOOL_PACKAGE_MOVE: &str = "package_move";
 pub const TOOL_NEIGHBOURS: &str = "neighbours";
 pub const TOOL_SIMILAR: &str = "similar";
 pub const TOOL_ATTENTION_LIST: &str = "attention_list";
@@ -227,6 +229,19 @@ other entries are kept verbatim. selector is the requiring package boundary path
 pub const DESC_PACKAGE_DEPENDENCY_REMOVE: &str = "Remove a package's requirement on a packageId \
 (every packageDependencies entry with that id). Refused when there is none. selector is the \
 requiring package boundary path (omit for the primary package).";
+
+pub const DESC_PACKAGE_MOVE: &str = "Move a definition (field, type, relation type, view, \
+composition, theme, protocol, blueprint, vocabulary or lifecycle), every version of its id, to another \
+package boundary of this repository, keeping its id, version and content: records and relations that \
+use it stay valid. to is the target boundary path (omit it, or give `package`, for the primary \
+package). ALWAYS call with dryRun true first: moved lists each version and its new path, \
+referencedBy the source boundary's definition files that still mention the id (a bundled export of \
+the source keeps carrying it), references the definitions outside the target that it mentions (a \
+standalone export of the target leaves them out). A move that failed partway is finished by \
+running it again. \
+Refused (nothing written): move-same-boundary, move-split-lineage (the id is already in two \
+boundaries), move-definition-imported (an installed package tracks it: refine it at its source \
+package), move-target-installed, definition-not-found, package-not-found.";
 
 pub const DESC_PACKAGE_UPGRADE: &str = "Upgrade an installed package boundary in place from a newer \
 .srspkg Package Bundle (RFC-014 R2/R3/R6). bundle is the file's JSON text. The package must already \
@@ -1055,6 +1070,19 @@ pub struct ContainerMemberMoveToolInput {
     pub shift: Option<String>,
 }
 
+/// `package_move`: mirrors the WASM `move_definition(input_json)` and the CLI `package move`.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PackageMoveToolInput {
+    /// The definition's id; every version of it moves.
+    pub id: String,
+    /// The target boundary path, e.g. packages/website; omit (or "package") for the primary package.
+    pub to: Option<String>,
+    /// Report what would move without writing anything. Default false.
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
 /// `package_upgrade`: mirrors the WASM `upgrade_package_bundle(bundle_json, options_json)`.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -1466,6 +1494,11 @@ fn all_tools() -> Vec<Value> {
             TOOL_PACKAGE_UPGRADE,
             DESC_PACKAGE_UPGRADE,
             input_schema::<PackageUpgradeToolInput>(),
+        ),
+        tool(
+            TOOL_PACKAGE_MOVE,
+            DESC_PACKAGE_MOVE,
+            input_schema::<PackageMoveToolInput>(),
         ),
         tool(
             TOOL_NEIGHBOURS,
@@ -1949,6 +1982,18 @@ pub fn call_tool(
                 input.bundle.as_bytes(),
                 options,
             ) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.report())),
+            }
+        }
+        TOOL_PACKAGE_MOVE => {
+            let input: PackageMoveToolInput = parse_args(arguments)?;
+            let input = srs_repository::package_move_service::MoveDefinitionInput {
+                id: input.id,
+                to: input.to,
+                dry_run: input.dry_run,
+            };
+            match srs_repository::package_move_service::move_definition(store, &input) {
                 Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.report())),
             }
@@ -2445,6 +2490,7 @@ mod tests {
                 TOOL_PACKAGE_DEPENDENCY_SET,
                 TOOL_PACKAGE_DEPENDENCY_REMOVE,
                 TOOL_PACKAGE_UPGRADE,
+                TOOL_PACKAGE_MOVE,
                 TOOL_NEIGHBOURS,
                 TOOL_SIMILAR,
                 TOOL_ATTENTION_LIST,

@@ -16,6 +16,7 @@ Commands:
   export      Export a package boundary as a deterministic `.srspkg` Package Bundle (ADR-050). The reported sha256 is `sha256:<64 lowercase hex>` of the file; pass a fixed `--published-at` for a reproducible hash
   update      Update package boundary metadata (namespace, name, or version)
   imports     List all imported definitions with live divergence state
+  move        Move a definition (every version of its id) to another package boundary, keeping its id; records and relations that use it stay valid. Refused for a definition an installed package tracks, or a target that is an installed package
   dependency  Package requirements (`packageDependencies`, RFC-044), keyed by packageId
   help        Print this message or the help of the given subcommand(s)
 
@@ -419,6 +420,55 @@ Usage: srs package imports [OPTIONS]
 Options:
       --repo <REPO>
           Repository path (defaults to auto-detect from current directory)
+
+      --format <FORMAT>
+          Output format
+
+          Possible values:
+          - json: JSON output (default)
+          - yaml: YAML output
+          - text: Human-readable text output (planned, currently returns diagnostic)
+          
+          [default: json]
+
+      --store <STORE>
+          Storage backend override. By default the backend is inferred from the repository location
+          
+          [possible values: file, json]
+
+      --pretty
+          Pretty-print JSON output (no effect on text format)
+
+      --container <CONTAINER_ID>
+          Container scope: constrains list/create/delete to this container's membership; on `context record` it adds the record's arrangement subtree in this container
+
+      --actor <ACTOR>
+          Session actor for everything this invocation creates (RFC-046 `createdBy`): JSON `{"kind":"human|ai","id":"<non-empty>","name":"<optional>"}`. Defaults to the `SRS_ACTOR` environment variable; with neither, creations are unattributed. Host configuration only — a request payload never carries it. An invalid value refuses every creating command (`actor-invalid`); a corpus below dataModelRevision 9 refuses an actor session (`revision-too-old`) until `repo apply-migration --id rfc046-actor-provenance`. A `.srsj` migrated in memory on open refuses every write first (`migration-required-before-write`) until its migrations are applied
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## `srs package move`
+
+```text
+Move a definition (every version of its id) to another package boundary, keeping its id; records and relations that use it stay valid. Refused for a definition an installed package tracks, or a target that is an installed package
+
+Usage: srs package move [OPTIONS] --to <TO> <ID>
+
+Arguments:
+  <ID>
+          Definition id (field, type, relation type, view, composition, ...)
+
+Options:
+      --repo <REPO>
+          Repository path (defaults to auto-detect from current directory)
+
+      --to <TO>
+          Target boundary path relative to the repo root (`package` for the primary package)
+
+      --dry-run
+          Report what would move and write nothing
 
       --format <FORMAT>
           Output format

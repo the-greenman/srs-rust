@@ -8,7 +8,7 @@ use srs_repository::blueprint_service::create_blueprint;
 use srs_repository::repository_lifecycle::{
     create_repository, InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
 };
-use srs_repository::store::FileStore;
+use srs_repository::store::{FileStore, RepositoryStore};
 
 const REPO_ID: &str = "00000000-0000-4000-8000-00000051ed0a";
 
@@ -63,11 +63,11 @@ fn application_reads_repository_id_from_manifest() {
 }
 
 #[test]
-fn tool_catalogue_has_all_thirty_nine_tools_and_core_owns_the_schemas() {
+fn tool_catalogue_has_all_forty_tools_and_core_owns_the_schemas() {
     let (_dir, mut d) = setup();
     let listed = rpc(&mut d, "tools/list", json!({}));
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 39);
+    assert_eq!(tools.len(), 40);
     assert!(tools
         .iter()
         .all(|t| t["description"].is_string() && t["inputSchema"]["type"] == "object"));
@@ -1607,4 +1607,80 @@ fn package_upgrade_tool_adopts_a_no_reference_copy_conflict() {
     let r = &adopted["result"]["structuredContent"];
     assert_eq!(r["adopted"][0]["id"], f1, "{adopted}");
     assert_eq!(r["conflicts"].as_array().unwrap().len(), 0);
+}
+
+/// `package_move` calls the core service: a dry run writes nothing, the real run moves the
+/// definition, and a refusal is a tool error with its code (srs-rust#1639).
+#[test]
+fn package_move_tool_uses_the_core_service() {
+    let (dir, mut d) = setup();
+    let store = FileStore::new(dir.path());
+    srs_repository::package_service::create_package(
+        &store,
+        srs_repository::package_service::CreatePackageInput {
+            id: "9a1b0c2d-3333-4aaa-8bbb-0000000000b0".into(),
+            namespace: "com.example.site".into(),
+            name: "site".into(),
+            version: "0.1.0".into(),
+            boundary_path: Some("packages/site".into()),
+        },
+    )
+    .unwrap();
+    let rt = "9a1b0c2d-3333-4aaa-8bbb-0000000000b1";
+    srs_repository::package_service::create_relation_type_normalized(
+        &store,
+        json!({"id": rt, "version": 1, "key": "uses", "namespace": "com.example",
+            "label": "Uses", "category": "association"}),
+        None,
+    )
+    .unwrap();
+
+    let dry = tool(
+        &mut d,
+        "package_move",
+        json!({ "id": rt, "to": "packages/site", "dryRun": true }),
+    );
+    let r = &dry["result"]["structuredContent"];
+    assert_eq!(r["dryRun"], true, "{dry}");
+    assert_eq!(r["moved"][0]["to"], "packages/site");
+    assert_eq!(
+        store
+            .resolve_definition_owner(
+                rt,
+                srs_repository::package_types::DefinitionKind::RelationType
+            )
+            .unwrap(),
+        None,
+        "a dry run leaves it in the primary package"
+    );
+
+    let done = tool(
+        &mut d,
+        "package_move",
+        json!({ "id": rt, "to": "packages/site" }),
+    );
+    assert_eq!(
+        done["result"]["structuredContent"]["dryRun"], false,
+        "{done}"
+    );
+    assert_eq!(
+        store
+            .resolve_definition_owner(
+                rt,
+                srs_repository::package_types::DefinitionKind::RelationType
+            )
+            .unwrap(),
+        Some("packages/site".to_string())
+    );
+
+    let again = tool(
+        &mut d,
+        "package_move",
+        json!({ "id": rt, "to": "packages/site" }),
+    );
+    assert_eq!(again["result"]["isError"], true, "{again}");
+    assert_eq!(
+        again["result"]["structuredContent"]["code"],
+        "move-same-boundary"
+    );
 }

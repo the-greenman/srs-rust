@@ -51,6 +51,7 @@ pub mod package;
 pub mod package_bundle;
 pub mod package_dependency_service;
 pub mod package_install_service;
+pub mod package_move_service;
 pub mod package_service;
 pub mod package_types;
 pub mod projection;
