@@ -1312,6 +1312,31 @@ impl SrsRepository {
         to_js(&result)
     }
 
+    /// Duplicate `instance_id` as an independent successor (srs-rust#1505; same service as
+    /// `srs record duplicate` and the MCP `record_duplicate` tool). Optional `options` JSON:
+    /// `{ relationIds?: string[], carryRelations?: "none"|"outgoing"|"all", relationTypes?:
+    /// string[], targetContainer?: string }`. Returns `{ originalId, duplicateId, relation,
+    /// carriedRelations?, containerId? }`.
+    pub fn duplicate_record(
+        &self,
+        instance_id: &str,
+        options: Option<String>,
+    ) -> Result<JsValue, JsValue> {
+        let input: srs_repository::duplicate_service::DuplicateRecordInput =
+            match options.as_deref() {
+                None | Some("") => Default::default(),
+                Some(j) => serde_json::from_str(j).map_err(|e| {
+                    js_err(&RepositoryError::InvalidInput {
+                        message: format!("invalid duplicate options: {e}"),
+                    })
+                })?,
+            };
+        let result =
+            srs_repository::duplicate_service::duplicate_record(&self.store, instance_id, &input)
+                .map_err(|e| js_err(&e))?;
+        to_js(&result)
+    }
+
     /// Add an instance to a container's ordered `memberInstanceIds` outline (RFC-043).
     /// `position` (0-based; omit to append) and `depth` (omit for 0). Idempotent when neither is
     /// given. Returns `{ members: [{instanceId, depth?}], promoted, removed }`.
