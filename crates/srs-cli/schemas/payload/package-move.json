@@ -6,7 +6,8 @@
   "required": [
     "dryRun",
     "moved",
-    "referencedBy"
+    "referencedBy",
+    "references"
   ],
   "properties": {
     "dryRun": {
@@ -19,6 +20,13 @@
       }
     },
     "referencedBy": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "references": {
+      "description": "Definition files outside the target that the moved definition mentions: a `standalone` export of the target leaves them out.",
       "type": "array",
       "items": {
         "type": "string"

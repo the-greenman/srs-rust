@@ -233,9 +233,12 @@ requiring package boundary path (omit for the primary package).";
 pub const DESC_PACKAGE_MOVE: &str = "Move a definition (field, type, relation type, view, \
 composition, theme, protocol, blueprint, vocabulary or lifecycle), every version of its id, to another \
 package boundary of this repository, keeping its id, version and content: records and relations that \
-use it stay valid. to is the target boundary path (omit for the primary package). ALWAYS call with \
-dryRun true first: moved lists each version and its new path, referencedBy the source boundary's \
-definition files that still mention the id (a bundled export of the source keeps carrying it). \
+use it stay valid. to is the target boundary path (omit it, or give `package`, for the primary \
+package). ALWAYS call with dryRun true first: moved lists each version and its new path, \
+referencedBy the source boundary's definition files that still mention the id (a bundled export of \
+the source keeps carrying it), references the definitions outside the target that it mentions (a \
+standalone export of the target leaves them out). A move that failed partway is finished by \
+running it again. \
 Refused (nothing written): move-same-boundary, move-split-lineage (the id is already in two \
 boundaries), move-definition-imported (an installed package tracks it: refine it at its source \
 package), move-target-installed, definition-not-found, package-not-found.";
@@ -1073,7 +1076,7 @@ pub struct ContainerMemberMoveToolInput {
 pub struct PackageMoveToolInput {
     /// The definition's id; every version of it moves.
     pub id: String,
-    /// The target boundary path, e.g. packages/website; omit for the primary package.
+    /// The target boundary path, e.g. packages/website; omit (or "package") for the primary package.
     pub to: Option<String>,
     /// Report what would move without writing anything. Default false.
     #[serde(default)]

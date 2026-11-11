@@ -2481,6 +2481,9 @@ pub struct PackageUpdatePayload {
 pub struct PackageMovePayload {
     pub moved: Vec<PackageMovedEntry>,
     pub referenced_by: Vec<String>,
+    /// Definition files outside the target that the moved definition mentions: a `standalone`
+    /// export of the target leaves them out.
+    pub references: Vec<String>,
     pub dry_run: bool,
 }
 
@@ -2515,6 +2518,7 @@ impl From<srs_repository::package_move_service::MoveDefinitionOutput> for Packag
                 })
                 .collect(),
             referenced_by: o.referenced_by,
+            references: o.references,
             dry_run: o.dry_run,
         }
     }

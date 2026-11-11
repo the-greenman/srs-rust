@@ -287,8 +287,8 @@ fn cmd_package_imports(ctx: CliContext) -> Result<String> {
 }
 
 fn cmd_package_move(ctx: CliContext, id: String, to: String, dry_run: bool) -> Result<String> {
-    // `package` names the primary boundary, as everywhere a boundary path is printed.
-    let to = (to != "package").then_some(to);
+    // the service reads `package` as the primary boundary, on every surface
+    let to = Some(to);
     let result = with_store(&ctx, |store| {
         Ok(srs_repository::package_move_service::move_definition(
             store,

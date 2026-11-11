@@ -248,3 +248,104 @@ fn refuses_to_move_into_or_out_of_an_installed_package() {
         "move-definition-imported"
     );
 }
+
+#[test]
+fn moves_a_type_that_records_use_and_reports_what_it_leaves_behind() {
+    let (_t, store) = repo();
+    let fv: srs_core::types::record::FieldValues =
+        serde_json::from_value(json!({"title": "Home"})).unwrap();
+    srs_repository::record_store::create_record(&store, T, 2, fv, None, None).unwrap();
+    let out = move_definition(&store, &input(T, Some(SITE), false)).unwrap();
+    // the type uses the field, which stays in the primary package
+    assert_eq!(out.references.len(), 1, "{:?}", out.references);
+    assert!(out.references[0].starts_with("package/fields/"));
+    let report = validate_repository(&store).unwrap();
+    assert!(report.is_ok(), "{:?}", report.diagnostics);
+}
+
+#[test]
+fn renames_the_file_when_the_target_holds_another_definition_under_its_name() {
+    let (_t, store) = repo();
+    let rel = list(&store, "package", "relationTypes")[0].clone();
+    // another definition already sits at that path in the target
+    store
+        .ensure_instance_dir(&format!("{SITE}/relation-types"))
+        .unwrap();
+    store
+        .save_instance_json(
+            &format!("{SITE}/{rel}"),
+            &json!({"id": "5a1b0c2d-0003-4aaa-8bbb-0000000000ff", "version": 1, "key": "other",
+                "namespace": NS, "label": "Other", "category": "association"}),
+        )
+        .unwrap();
+    let out = move_definition(&store, &input(RT, Some(SITE), false)).unwrap();
+    assert_ne!(out.moved[0].path, rel);
+    assert_eq!(
+        store
+            .load_instance_json(&format!("{SITE}/{}", out.moved[0].path))
+            .unwrap()["id"],
+        RT
+    );
+}
+
+#[test]
+fn running_a_move_again_finishes_one_that_failed_partway() {
+    let (_t, store) = repo();
+    // a half-done move: version 1 of the type already written into the target and listed,
+    // the source not yet emptied
+    let v1 = list(&store, "package", "types")
+        .into_iter()
+        .find(|r| store.load_instance_json(&format!("package/{r}")).unwrap()["version"] == 1)
+        .unwrap();
+    let value = store.load_instance_json(&format!("package/{v1}")).unwrap();
+    store.ensure_instance_dir(&format!("{SITE}/types")).unwrap();
+    store
+        .save_instance_json(&format!("{SITE}/{v1}"), &value)
+        .unwrap();
+    store
+        .add_definition_to_boundary(
+            &Some(SITE.to_string()),
+            srs_repository::package_types::DefinitionKind::Type,
+            &v1,
+        )
+        .unwrap();
+    let out = move_definition(&store, &input(T, Some(SITE), false)).unwrap();
+    assert_eq!(out.moved.len(), 2);
+    assert!(list(&store, "package", "types").is_empty());
+    assert_eq!(list(&store, SITE, "types").len(), 2);
+    assert!(validate_repository(&store).unwrap().is_ok());
+}
+
+#[test]
+fn refuses_a_split_it_did_not_make() {
+    let (_t, store) = repo();
+    // the target holds a different version-1 copy of the id: not a half-done move
+    let v1 = list(&store, "package", "relationTypes")[0].clone();
+    let mut changed = store.load_instance_json(&format!("package/{v1}")).unwrap();
+    changed["label"] = json!("Changed");
+    store
+        .ensure_instance_dir(&format!("{SITE}/relation-types"))
+        .unwrap();
+    store
+        .save_instance_json(&format!("{SITE}/{v1}"), &changed)
+        .unwrap();
+    store
+        .add_definition_to_boundary(
+            &Some(SITE.to_string()),
+            srs_repository::package_types::DefinitionKind::RelationType,
+            &v1,
+        )
+        .unwrap();
+    assert_eq!(
+        code(move_definition(&store, &input(RT, Some(SITE), false)).unwrap_err()),
+        "move-split-lineage"
+    );
+}
+
+#[test]
+fn package_names_the_primary_boundary() {
+    let (_t, store) = repo();
+    move_definition(&store, &input(RT, Some(SITE), false)).unwrap();
+    let out = move_definition(&store, &input(RT, Some("package"), false)).unwrap();
+    assert_eq!(out.moved[0].to, "package");
+}
