@@ -1133,6 +1133,7 @@ impl SrsRepository {
     /// `exclude_instance_ids` (JS `string[]`, optional) drops those instances from container-subset
     /// sections; an arranged section removes each by the RFC-043 promoting removal. Additive: the
     /// single-record `instance_id_filter` is unchanged.
+    /// `section` (JS `string`, optional) renders only that section: a 0-based position or a title.
     /// `containerId` is always present in the JSON but may be `null` when the view is
     /// not scoped to a container.
     /// `records[*].relations` is present when the document view defines a `relationsPresentation`;
@@ -1149,6 +1150,7 @@ impl SrsRepository {
         container_id: Option<String>,
         instance_id_filter: Option<String>,
         exclude_instance_ids: Option<Vec<String>>,
+        section: Option<String>,
     ) -> Result<JsValue, JsValue> {
         let exclude = exclude_instance_ids.unwrap_or_default();
         let result = render_service::render_composition(RenderCompositionOptions {
@@ -1159,6 +1161,7 @@ impl SrsRepository {
             container_id: container_id.as_deref(),
             instance_id_filter: instance_id_filter.as_deref(),
             exclude_instance_ids: &exclude,
+            section: section.as_deref(),
         })
         .map_err(|e| js_err(&e))?;
         to_js(&result)

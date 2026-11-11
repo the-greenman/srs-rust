@@ -387,6 +387,7 @@ pub mod srs_resources {
                     container_id: q.container_id.as_deref(),
                     instance_id_filter: None,
                     exclude_instance_ids: &q.exclude_instance_ids,
+                    section: None,
                 })
                 .map_err(service_err)?;
                 Ok(contents(raw_uri, MIME_MARKDOWN, result.rendered))

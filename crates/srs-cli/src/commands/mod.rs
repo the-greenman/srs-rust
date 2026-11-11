@@ -1719,6 +1719,9 @@ pub enum RenderCommand {
         /// section its descendants move up one level (RFC-043 promoting removal)
         #[arg(long = "exclude")]
         exclude: Vec<String>,
+        /// Render only one section: a 0-based position or a section title (decision 83b841f1)
+        #[arg(long)]
+        section: Option<String>,
         /// Optional output file path for rendered content
         #[arg(long)]
         output: Option<PathBuf>,
