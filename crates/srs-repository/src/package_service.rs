@@ -822,6 +822,25 @@ pub(crate) fn definition_rel_path(
     id: &str,
     version: u64,
 ) -> String {
+    definition_rel_path_inner(kind, slug_source, id, version, false)
+}
+
+fn definition_rel_path_full(
+    kind: DefinitionKind,
+    slug_source: &str,
+    id: &str,
+    version: u64,
+) -> String {
+    definition_rel_path_inner(kind, slug_source, id, version, true)
+}
+
+fn definition_rel_path_inner(
+    kind: DefinitionKind,
+    slug_source: &str,
+    id: &str,
+    version: u64,
+    full_id: bool,
+) -> String {
     let dir = match kind {
         DefinitionKind::Field => "fields",
         DefinitionKind::Type => "types",
@@ -834,12 +853,41 @@ pub(crate) fn definition_rel_path(
         DefinitionKind::Lifecycle => "lifecycles",
         DefinitionKind::Theme => "themes",
     };
-    let id8 = id.get(..8).unwrap_or(id);
-    let path = format!("{dir}/{}-{id8}.json", slugify(slug_source));
+    let id_part = if full_id {
+        id
+    } else {
+        id.get(..8).unwrap_or(id)
+    };
+    let path = format!("{dir}/{}-{id_part}.json", slugify(slug_source));
     if version > 1 {
         crate::package_bundle::version_suffixed(&path, version)
     } else {
         path
+    }
+}
+
+/// The filename for a NEW definition file in `boundary_path`, collision-safe (srs-rust#1621,
+/// I-137 / RFC-039 [R19]). Two definitions with the same slug and the same first eight hex
+/// digits of their ids compute the same [`definition_rel_path`]; when that file already holds
+/// a definition with a different id, the name carries the full id instead, so a create never
+/// overwrites another definition. Existing files are never renamed (srs-rust#1209).
+pub(crate) fn new_definition_rel_path<S: RepositoryStore + ?Sized>(
+    store: &S,
+    boundary_path: &str,
+    kind: DefinitionKind,
+    slug_source: &str,
+    id: &str,
+    version: u64,
+) -> String {
+    let short = definition_rel_path(kind, slug_source, id, version);
+    let held_by_other = store
+        .load_instance_json(&format!("{boundary_path}/{short}"))
+        .ok()
+        .is_some_and(|v| v["id"].as_str() != Some(id));
+    if held_by_other {
+        definition_rel_path_full(kind, slug_source, id, version)
+    } else {
+        short
     }
 }
 
@@ -1282,7 +1330,9 @@ pub fn create_relation_type(
     }
 
     let boundary_path = selector.as_deref().unwrap_or("package");
-    let rel_filename = definition_rel_path(
+    let rel_filename = new_definition_rel_path(
+        store,
+        boundary_path,
         DefinitionKind::RelationType,
         &def.key,
         &def.id,

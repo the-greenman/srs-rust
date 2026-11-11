@@ -176,6 +176,7 @@ fn run_conformance_suite(store: &dyn RepositoryStore) {
     suite_type_definitions(store);
     suite_view_definitions(store);
     suite_smaller_definitions(store);
+    suite_definition_name_collisions(store);
 }
 
 // --- Area 1: Manifest round-trip ---
@@ -1206,4 +1207,173 @@ fn store_matrix_produces_identical_catalogs() {
         catalog_identity(&reopened),
         "a .srsj round-trip must preserve the catalog identity"
     );
+}
+
+// --- Area 8: two definitions sharing a name and an 8-hex id prefix (srs-rust#1621, I-137) ---
+
+/// Two different definitions with the same slug and the same first eight hex digits of
+/// their ids must both survive: a create never overwrites another definition's file.
+fn suite_definition_name_collisions(store: &dyn RepositoryStore) {
+    use srs_core::types::lifecycle::Lifecycle;
+    use srs_core::types::relation_type_definition::RelationTypeDefinition;
+    use srs_core::types::vocabulary::Vocabulary;
+
+    let a = "cafef00d-0000-4000-8000-000000000001";
+    let b = "cafef00d-0000-4000-8000-000000000002";
+
+    // Field
+    store
+        .save_field(&None, &make_field(a, "clash", 1, "A"))
+        .unwrap();
+    store
+        .save_field(&None, &make_field(b, "clash", 1, "B"))
+        .unwrap();
+    assert_eq!(
+        store
+            .load_field_by_id(a, None)
+            .unwrap()
+            .unwrap()
+            .0
+            .description,
+        "A"
+    );
+    assert_eq!(
+        store
+            .load_field_by_id(b, None)
+            .unwrap()
+            .unwrap()
+            .0
+            .description,
+        "B"
+    );
+    // Rewriting the first in place still finds its own file.
+    store
+        .save_field(&None, &make_field(a, "clash", 1, "A2"))
+        .unwrap();
+    assert_eq!(
+        store
+            .load_field_by_id(a, None)
+            .unwrap()
+            .unwrap()
+            .0
+            .description,
+        "A2"
+    );
+    assert_eq!(
+        store
+            .load_field_by_id(b, None)
+            .unwrap()
+            .unwrap()
+            .0
+            .description,
+        "B"
+    );
+
+    // Type
+    store
+        .save_type(&None, &make_type(a, "clash", 1, "A"))
+        .unwrap();
+    store
+        .save_type(&None, &make_type(b, "clash", 1, "B"))
+        .unwrap();
+    assert_eq!(
+        store
+            .load_type_by_id(a, None)
+            .unwrap()
+            .unwrap()
+            .0
+            .description,
+        "A"
+    );
+    assert_eq!(
+        store
+            .load_type_by_id(b, None)
+            .unwrap()
+            .unwrap()
+            .0
+            .description,
+        "B"
+    );
+
+    // Vocabulary
+    let vocab = |id: &str, desc: &str| -> Vocabulary {
+        def_from(serde_json::json!({
+            "id": id, "namespace": "com.test", "name": "clash", "version": 1,
+            "description": desc, "mode": "open", "terms": [],
+            "createdAt": "2026-01-01T00:00:00Z"
+        }))
+    };
+    store.save_vocabulary(&None, &vocab(a, "A")).unwrap();
+    store.save_vocabulary(&None, &vocab(b, "B")).unwrap();
+    assert_eq!(
+        store
+            .load_vocabulary_by_id(a)
+            .unwrap()
+            .unwrap()
+            .0
+            .description,
+        Some("A".to_string())
+    );
+    assert_eq!(
+        store
+            .load_vocabulary_by_id(b)
+            .unwrap()
+            .unwrap()
+            .0
+            .description,
+        Some("B".to_string())
+    );
+
+    // Lifecycle
+    let lifecycle = |id: &str, desc: &str| -> Lifecycle {
+        def_from(serde_json::json!({
+            "id": id, "namespace": "com.test", "name": "clash", "version": 1,
+            "description": desc, "states": [], "transitions": [], "initialState": "draft",
+            "createdAt": "2026-01-01T00:00:00Z"
+        }))
+    };
+    store.save_lifecycle(&None, &lifecycle(a, "A")).unwrap();
+    store.save_lifecycle(&None, &lifecycle(b, "B")).unwrap();
+    assert_eq!(
+        store
+            .load_lifecycle_by_id(a)
+            .unwrap()
+            .unwrap()
+            .0
+            .description,
+        Some("A".to_string())
+    );
+    assert_eq!(
+        store
+            .load_lifecycle_by_id(b)
+            .unwrap()
+            .unwrap()
+            .0
+            .description,
+        Some("B".to_string())
+    );
+
+    // Relation type
+    let relation_type = |id: &str, label: &str| -> RelationTypeDefinition {
+        def_from(serde_json::json!({
+            "id": id, "version": 1, "key": "clash", "namespace": "com.test",
+            "label": label, "description": "d", "category": "association",
+            "createdAt": "2026-01-01T00:00:00Z"
+        }))
+    };
+    store
+        .save_relation_type_definition(&None, &relation_type(a, "A"))
+        .unwrap();
+    store
+        .save_relation_type_definition(&None, &relation_type(b, "B"))
+        .unwrap();
+    let label = |id: &str| {
+        store
+            .load_relation_type_definition_by_id(id)
+            .unwrap()
+            .unwrap()
+            .0
+            .label
+    };
+    assert_eq!((label(a).as_str(), label(b).as_str()), ("A", "B"));
 }
