@@ -465,3 +465,75 @@ jobs:
             --draft=false \
             --latest
           echo "Promoted ${{ needs.release.outputs.tag }} to published + latest."
+
+  # ---------------------------------------------------------------------------------------------
+  # npm publish (srs-rust#819, srs-programme decision 012d961f)
+  # ---------------------------------------------------------------------------------------------
+  # The engine's WASM bindings go to the public npm registry from each release that passed the
+  # corpus gate, and from no other build: this job `needs: promote-release`, so a draft (a build
+  # that failed the gate) never reaches it. It publishes the SAME bytes the release carries: the
+  # `srs-bindings-web.tar.gz` asset (wasm-pack `--target web` output: .wasm, .js, .d.ts), fetched
+  # back from the now-published release, so what npm serves is what the gate validated.
+  #
+  # Package `@semanticops/srs-bindings`; version `0.<build>.0` from the tag (pre-1.0,
+  # breaking-in-minor), see `scripts/prepare-npm-package.sh`.
+  #
+  # OWNER PREREQUISITE: the owner creates the npm scope and stores an automation token as the
+  # `NPM_TOKEN` secret. Until it is set this job announces the skip and succeeds, never silently.
+  # A configured-but-wrong token fails the publish and names itself.
+  publish-npm:
+    name: Publish bindings to npm (promoted releases only)
+    needs: [release, promote-release]
+    if: success()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Skip when no npm token is configured
+        if: ${{ env.NPM_TOKEN == '' }}
+        run: echo "::warning::NPM_TOKEN is not set, so the bindings were NOT published to npm. The owner creates the @semanticops scope and stores the token as the NPM_TOKEN secret (decision 012d961f)."
+
+      - uses: actions/setup-node@v4
+        if: ${{ env.NPM_TOKEN != '' }}
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Fetch the promoted release's bindings asset
+        if: ${{ env.NPM_TOKEN != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download "${{ needs.release.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --pattern 'srs-bindings-web.tar.gz' --pattern 'srs-bindings-web.tar.gz.sha256'
+          sha256sum -c srs-bindings-web.tar.gz.sha256
+          mkdir pkg
+          tar -xzf srs-bindings-web.tar.gz -C pkg
+
+      - name: Prepare the package
+        if: ${{ env.NPM_TOKEN != '' }}
+        id: prepare
+        run: |
+          set -euo pipefail
+          version=$(bash scripts/prepare-npm-package.sh "${{ needs.release.outputs.tag }}" pkg)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          cat pkg/package.json
+
+      - name: Publish
+        if: ${{ env.NPM_TOKEN != '' }}
+        working-directory: pkg
+        env:
+          NODE_AUTH_TOKEN: ${{ env.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if npm view "@semanticops/srs-bindings@${{ steps.prepare.outputs.version }}" version >/dev/null 2>&1; then
+            echo "Already published: @semanticops/srs-bindings@${{ steps.prepare.outputs.version }}"
+            exit 0
+          fi
+          npm publish --access public
