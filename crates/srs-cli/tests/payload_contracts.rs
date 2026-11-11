@@ -621,6 +621,11 @@ fn package_export() {
 }
 
 #[test]
+fn package_move() {
+    check::<PackageMovePayload>("package-move");
+}
+
+#[test]
 fn package_refs() {
     check::<PackageRefPayload>("package-refs");
 }
