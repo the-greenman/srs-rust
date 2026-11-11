@@ -362,17 +362,15 @@ pub(crate) fn create_record_at_dir(
     })?;
 
     // ext:cross-field-validation — enforce CrossFieldRules at write time.
-    // Consistent with required-field enforcement above: first violation is a hard error.
+    // Consistent with required-field enforcement above: every violation is reported (I-90 fail-all), and any is a hard error.
     if let Some(rules) = &record_type.validation_rules {
         if !rules.is_empty() {
             let field_type_map = cross_field_type_map(&package.fields, record_type);
-            if let Some(err) = validate_cross_field_rules(&record, rules, &field_type_map)
-                .into_iter()
-                .next()
-            {
+            let mut violations = validate_cross_field_rules(&record, rules, &field_type_map);
+            if !violations.is_empty() {
                 return Err(RepositoryError::RecordValidation {
                     path: std::path::PathBuf::from(relative_dir),
-                    source: err,
+                    source: cross_field_failure(&mut violations),
                 });
             }
         }
@@ -516,17 +514,16 @@ pub fn update_record(
     })?;
 
     // ext:cross-field-validation — enforce CrossFieldRules at write time.
-    // Consistent with required-field enforcement above: first violation is a hard error.
+    // Consistent with required-field enforcement above: every violation is reported (I-90 fail-all), and any is a hard error.
     if let Some(rules) = &record_type.validation_rules {
         if !rules.is_empty() {
             let field_type_map = cross_field_type_map(&package.fields, record_type);
-            if let Some(err) = validate_cross_field_rules(&updated_record, rules, &field_type_map)
-                .into_iter()
-                .next()
-            {
+            let mut violations =
+                validate_cross_field_rules(&updated_record, rules, &field_type_map);
+            if !violations.is_empty() {
                 return Err(RepositoryError::RecordValidation {
                     path: std::path::PathBuf::from("records"),
-                    source: err,
+                    source: cross_field_failure(&mut violations),
                 });
             }
         }
@@ -535,6 +532,19 @@ pub fn update_record(
     store.save_record(&updated_record)?;
 
     Ok(updated_record)
+}
+
+/// I-90 fail-all: one violation keeps its own error; several are carried together
+/// so the author sees them all in a single pass, matching the preflight.
+fn cross_field_failure(
+    violations: &mut Vec<srs_core::error::CoreError>,
+) -> srs_core::error::CoreError {
+    if violations.len() == 1 {
+        return violations.remove(0);
+    }
+    srs_core::error::CoreError::CrossFieldViolations {
+        violations: violations.iter().map(|e| e.to_string()).collect(),
+    }
 }
 
 /// Validate a prospective record input against its resolved `typeId@typeVersion`
@@ -6964,6 +6974,14 @@ pub(crate) mod tests {
     /// - cfr-test-type v1 with a ConditionalRequired rule:
     ///   when field-trigger-001 == "active", field-target-001 is required
     fn make_store_with_cfr_package() -> MemoryStore {
+        make_store_with_cfr_rules(false)
+    }
+
+    /// As `make_store_with_cfr_package`; with `two_rules` the type also has a
+    /// third field and a second ConditionalRequired rule on the same predicate
+    /// (trigger == "active" also requires field-third-001), so one write can
+    /// break two independent rules.
+    fn make_store_with_cfr_rules(two_rules: bool) -> MemoryStore {
         use crate::package::Package;
         use srs_core::types::field::{AiGuidance, Field, FieldType};
         use srs_core::types::record_type::{
@@ -7017,6 +7035,40 @@ pub(crate) mod tests {
             effect: None,
             field_ids: None,
         };
+        let mut third_field = target_field.clone();
+        third_field.id = "field-third-001".to_string();
+        third_field.name = "third".to_string();
+        let mut rules = vec![cfr_rule.clone()];
+        let mut assignments = vec![
+            FieldAssignment {
+                field_id: "field-trigger-001".to_string(),
+                order: 0,
+                required: false,
+                display_label: None,
+                description: None,
+            },
+            FieldAssignment {
+                field_id: "field-target-001".to_string(),
+                order: 1,
+                required: false,
+                display_label: None,
+                description: None,
+            },
+        ];
+        let mut fields = vec![trigger_field, target_field];
+        if two_rules {
+            let mut second = cfr_rule;
+            second.target_field_id = Some("field-third-001".to_string());
+            rules.push(second);
+            assignments.push(FieldAssignment {
+                field_id: "field-third-001".to_string(),
+                order: 2,
+                required: false,
+                display_label: None,
+                description: None,
+            });
+            fields.push(third_field);
+        }
         let cfr_type = RecordType {
             schema: None,
             ai_guidance: None,
@@ -7026,22 +7078,7 @@ pub(crate) mod tests {
             name: "cfr-test-type".to_string(),
             version: 1,
             description: "Type with a ConditionalRequired CFR".to_string(),
-            fields: vec![
-                FieldAssignment {
-                    field_id: "field-trigger-001".to_string(),
-                    order: 0,
-                    required: false,
-                    display_label: None,
-                    description: None,
-                },
-                FieldAssignment {
-                    field_id: "field-target-001".to_string(),
-                    order: 1,
-                    required: false,
-                    display_label: None,
-                    description: None,
-                },
-            ],
+            fields: assignments,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -7049,7 +7086,7 @@ pub(crate) mod tests {
             identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
-            validation_rules: Some(vec![cfr_rule]),
+            validation_rules: Some(rules),
             created_at: "2026-01-01T00:00:00Z".to_string(),
             lineage: None,
             provenance: None,
@@ -7066,7 +7103,7 @@ pub(crate) mod tests {
             namespace: "com.test".to_string(),
             name: "cfr-test-package".to_string(),
             version: "1.0.0".to_string(),
-            fields: vec![trigger_field, target_field],
+            fields,
             record_types: vec![cfr_type],
             relation_type_definitions: vec![],
             views: vec![],
@@ -7173,6 +7210,53 @@ pub(crate) mod tests {
             "update must be rejected when a CFR is violated, got: {:?}",
             result
         );
+    }
+
+    #[test]
+    fn cfr_create_and_update_report_every_violation() {
+        // I-90 fail-all: trigger="active" breaks both rules (target and third
+        // required). Both writes must name both violations and persist nothing.
+        let store = make_store_with_cfr_rules(true);
+        let err = create_record_at_dir(
+            &store,
+            "type-cfr-test-001",
+            1,
+            fvs(vec![("trigger", json!("active"))]),
+            None,
+            None,
+            "records",
+        )
+        .expect_err("create must be rejected");
+        let msg = err.to_string();
+        assert!(msg.contains("field-target-001"), "{msg}");
+        assert!(msg.contains("field-third-001"), "{msg}");
+
+        let created = create_record_at_dir(
+            &store,
+            "type-cfr-test-001",
+            1,
+            FieldValues::new(),
+            None,
+            None,
+            "records",
+        )
+        .expect("initial create should succeed");
+        let err = update_record(
+            &store,
+            &created.instance_id,
+            UpdateRecordInput {
+                field_meta: None,
+                type_version: None,
+                field_values: fvs(vec![("trigger", json!("active"))]),
+                tags: None,
+                extra: std::collections::BTreeMap::new(),
+            },
+        )
+        .expect_err("update must be rejected");
+        let msg = err.to_string();
+        assert!(msg.contains("field-target-001"), "{msg}");
+        assert!(msg.contains("field-third-001"), "{msg}");
+        assert_eq!(err.code(), "record-validation");
     }
 
     #[test]

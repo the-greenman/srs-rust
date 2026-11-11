@@ -173,6 +173,12 @@ pub enum CoreError {
     #[error("cross-field rule (mutual-exclusion): at most one of [{field_ids}] may have a non-empty value")]
     CrossFieldMutualExclusion { field_ids: String },
 
+    /// I-90 / RFC-019 [R2]: every CrossFieldRule is evaluated regardless of earlier
+    /// failures; a write that breaks several rules reports them all in one result.
+    /// Carries two or more violations (a single violation keeps its own variant).
+    #[error("{} cross-field rule violations: {}", .violations.len(), .violations.join("; "))]
+    CrossFieldViolations { violations: Vec<String> },
+
     #[error("cross-field rule misconfigured: {reason}")]
     CrossFieldRuleMisconfigured { reason: String },
 
