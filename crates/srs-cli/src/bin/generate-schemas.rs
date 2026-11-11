@@ -237,6 +237,7 @@ fn main() {
     write_schema!("package-dependencies", PackageDependenciesPayload);
     write_schema!("package-refs", PackageRefPayload);
     write_schema!("package-imports", PackageImportsPayload);
+    write_schema!("package-move", PackageMovePayload);
 
     // Vocabulary payloads (RFC-006)
     write_schema!("vocabulary-list", VocabularyListPayload);

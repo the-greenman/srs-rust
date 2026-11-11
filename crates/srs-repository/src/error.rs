@@ -707,6 +707,16 @@ pub enum RepositoryError {
         message: String,
     },
 
+    /// `package move` refused (srs-rust#1639). `code` is one of `move-same-boundary`,
+    /// `move-split-lineage`, `move-definition-imported`, `move-target-installed`.
+    #[error("{message}")]
+    PackageMoveRefused {
+        #[serde(skip)]
+        code: &'static str,
+        #[serde(skip)]
+        message: String,
+    },
+
     /// RFC-049 [R5], [R16], [R17]: a read or write refused at the boundary. `code` is
     /// one of `read-only`, `locator-unusable`, `id-mismatch`, `revision-unsupported`,
     /// `write-not-routed`, `write-refused`.
@@ -1495,6 +1505,7 @@ impl RepositoryError {
             Self::InvalidPackageBundle { code, .. } => code,
             Self::SliceRefused { code, .. } => code,
             Self::MergeRefused { code, .. } => code,
+            Self::PackageMoveRefused { code, .. } => code,
             Self::BoundaryRefused { code, .. } => code,
             Self::StorageGenerationUnsupported { .. } => "storage-generation-unsupported",
             Self::GzipSrsj { .. } => "srsj-gzip-rejected",
@@ -1927,6 +1938,10 @@ mod tests {
             },
             R::MergeRefused {
                 code: "merge-x",
+                message: "x".into(),
+            },
+            R::PackageMoveRefused {
+                code: "move-x",
                 message: "x".into(),
             },
             R::SliceRefused {

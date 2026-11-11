@@ -1865,6 +1865,19 @@ pub enum PackageCommand {
     },
     /// List all imported definitions with live divergence state
     Imports,
+    /// Move a definition (every version of its id) to another package boundary, keeping its
+    /// id; records and relations that use it stay valid. Refused for a definition an installed
+    /// package tracks, or a target that is an installed package
+    Move {
+        /// Definition id (field, type, relation type, view, composition, ...)
+        id: String,
+        /// Target boundary path relative to the repo root (`package` for the primary package)
+        #[arg(long)]
+        to: String,
+        /// Report what would move and write nothing
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Package requirements (`packageDependencies`, RFC-044), keyed by packageId
     #[command(subcommand)]
     Dependency(PackageDependencyCommand),

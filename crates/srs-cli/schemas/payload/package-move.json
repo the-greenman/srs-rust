@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PackageMovePayload",
+  "description": "`package move` (srs-rust#1639): each version that moved (or would, with `dryRun`) and the source boundary's definition files that still mention the id. Mirrors `MoveDefinitionOutput`.",
+  "type": "object",
+  "required": [
+    "dryRun",
+    "moved",
+    "referencedBy"
+  ],
+  "properties": {
+    "dryRun": {
+      "type": "boolean"
+    },
+    "moved": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PackageMovedEntry"
+      }
+    },
+    "referencedBy": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "definitions": {
+    "PackageMovedEntry": {
+      "type": "object",
+      "required": [
+        "from",
+        "id",
+        "kind",
+        "path",
+        "to",
+        "version"
+      ],
+      "properties": {
+        "from": {
+          "description": "Source boundary path (`package` for the primary).",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "description": "The `package.json` list it sits in (`fields`, `relationTypes`, ...).",
+          "type": "string"
+        },
+        "path": {
+          "description": "The file's path relative to the boundary.",
+          "type": "string"
+        },
+        "to": {
+          "description": "Target boundary path.",
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    }
+  }
+}
