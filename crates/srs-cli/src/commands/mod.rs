@@ -457,6 +457,22 @@ pub enum AttachmentCommand {
         /// Document ID of the source document to link (must exist in source-documents/)
         document_id: String,
     },
+    /// Remove the sourceRole:attaches link from one record; the file stays
+    Unlink {
+        /// Instance ID of the record (or note) to unlink the document from
+        instance_id: String,
+        /// Document ID of the linked source document
+        document_id: String,
+    },
+    /// Delete a source document (content file and sidecar). Refuses while any
+    /// record still references it, unless --force removes those references too.
+    Remove {
+        /// Document ID of the source document to delete
+        document_id: String,
+        /// Also remove every reference to the document from records and notes
+        #[arg(long)]
+        force: bool,
+    },
     /// Resolve linked attachments for a list of record instance IDs (reads JSON from stdin).
     ///
     /// Input: `{"instanceIds": ["<uuid>", ...]}` (from a rendered composition projection).

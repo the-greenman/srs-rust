@@ -21,7 +21,9 @@ use srs_core::arrangement::RelativeMove;
 use srs_core::types::note::{Note, NoteSection};
 use srs_core::types::record::{FieldMeta, FieldValues};
 use srs_core::types::relation::Relation;
-use srs_repository::attachment_service::{self, AddAttachmentInput, LinkAttachmentInput};
+use srs_repository::attachment_service::{
+    self, AddAttachmentInput, LinkAttachmentInput, RemoveAttachmentInput, UnlinkAttachmentInput,
+};
 use srs_repository::container_service::{self, ContainerCreateInput};
 use srs_repository::context_query_service::{
     list_neighbours, EdgeDirection, NeighboursPage, NeighboursQuery,
@@ -100,6 +102,8 @@ pub const TOOL_ATTENTION_LIST: &str = "attention_list";
 pub const TOOL_CHANGES: &str = "changes";
 pub const TOOL_ATTACHMENT_ADD: &str = "attachment_add";
 pub const TOOL_ATTACHMENT_LINK: &str = "attachment_link";
+pub const TOOL_ATTACHMENT_UNLINK: &str = "attachment_unlink";
+pub const TOOL_ATTACHMENT_REMOVE: &str = "attachment_remove";
 /// Agent-facing replies are size-capped: omitted `limit` on `neighbours`, and its ceiling.
 const NEIGHBOURS_DEFAULT_LIMIT: usize = 25;
 const NEIGHBOURS_MAX_LIMIT: usize = 100;
@@ -275,6 +279,12 @@ pub const DESC_ATTACHMENT_ADD: &str = "Store a file as a source-document attachm
 pub const DESC_ATTACHMENT_LINK: &str = "Attach a stored source document to a record (appends a \
     sourceRef with sourceRole 'attaches'). The document must already exist (attachment_add); \
     linking the same pair twice is an error.";
+pub const DESC_ATTACHMENT_UNLINK: &str = "Remove the 'attaches' sourceRef between a record and a \
+    source document (the inverse of attachment_link). The file stays in the repository; an \
+    unlinked pair is an error.";
+pub const DESC_ATTACHMENT_REMOVE: &str = "Delete a stored source document (content file and \
+    sidecar). Refused with code cannot-delete-in-use while any record or note still references \
+    it, unless `force` is true, which removes those references in the same call.";
 pub const DESC_NEIGHBOURS: &str = "Bounded read of one instance's relation neighbours (Record or \
 Note). Returns total (every matching edge, before paging) and a page of edges, each with direction \
 (out = the instance is the source, in = it is the target), relationId, relationType and the \
@@ -1530,6 +1540,16 @@ fn all_tools() -> Vec<Value> {
             DESC_ATTACHMENT_LINK,
             input_schema::<AttachmentLinkToolInput>(),
         ),
+        tool(
+            TOOL_ATTACHMENT_UNLINK,
+            DESC_ATTACHMENT_UNLINK,
+            input_schema::<AttachmentLinkToolInput>(),
+        ),
+        tool(
+            TOOL_ATTACHMENT_REMOVE,
+            DESC_ATTACHMENT_REMOVE,
+            input_schema::<AttachmentRemoveToolInput>(),
+        ),
     ]
 }
 
@@ -1592,6 +1612,25 @@ impl From<AttachmentLinkToolInput> for LinkAttachmentInput {
         LinkAttachmentInput {
             instance_id: input.instance_id,
             document_id: input.document_id,
+        }
+    }
+}
+
+/// Mirrors `attachment_service::RemoveAttachmentInput`.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AttachmentRemoveToolInput {
+    pub document_id: String,
+    /// Also remove every reference to the document from records and notes.
+    #[serde(default)]
+    pub force: bool,
+}
+
+impl From<AttachmentRemoveToolInput> for RemoveAttachmentInput {
+    fn from(input: AttachmentRemoveToolInput) -> Self {
+        RemoveAttachmentInput {
+            document_id: input.document_id,
+            force: input.force,
         }
     }
 }
@@ -1800,6 +1839,26 @@ pub fn call_tool(
         TOOL_ATTACHMENT_LINK => {
             let input: AttachmentLinkToolInput = parse_args(arguments)?;
             match attachment_service::link_attachment(store, input.into()) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.report())),
+            }
+        }
+        TOOL_ATTACHMENT_UNLINK => {
+            let input: AttachmentLinkToolInput = parse_args(arguments)?;
+            match attachment_service::unlink_attachment(
+                store,
+                UnlinkAttachmentInput {
+                    instance_id: input.instance_id,
+                    document_id: input.document_id,
+                },
+            ) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.report())),
+            }
+        }
+        TOOL_ATTACHMENT_REMOVE => {
+            let input: AttachmentRemoveToolInput = parse_args(arguments)?;
+            match attachment_service::remove_attachment(store, input.into()) {
                 Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.report())),
             }
@@ -2497,6 +2556,8 @@ mod tests {
                 TOOL_CHANGES,
                 TOOL_ATTACHMENT_ADD,
                 TOOL_ATTACHMENT_LINK,
+                TOOL_ATTACHMENT_UNLINK,
+                TOOL_ATTACHMENT_REMOVE,
             ]
         );
         for tool in &tools {

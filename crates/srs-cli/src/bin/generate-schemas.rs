@@ -220,6 +220,8 @@ fn main() {
     write_schema!("attachment-list", AttachmentListPayload);
     write_schema!("attachment-add", AttachmentAddPayload);
     write_schema!("attachment-link", AttachmentLinkPayload);
+    write_schema!("attachment-unlink", AttachmentUnlinkPayload);
+    write_schema!("attachment-remove", AttachmentRemovePayload);
     write_schema!(
         "attachment-resolve-view-attachments",
         ResolveViewAttachmentsPayload

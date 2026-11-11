@@ -2320,6 +2320,9 @@ mod tests {
             fn save_binary_file(&self, _: &str, _: &[u8]) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
+            fn delete_source_file(&self, _: &str) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
             fn validate_package_ref_path(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }

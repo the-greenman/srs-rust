@@ -755,6 +755,71 @@ mod write_guard {
     }
 
     #[test]
+    fn attachment_unlink_and_remove_round_trip() {
+        let (dir, mut d) = guarded();
+        let id = create(
+            &mut d,
+            "com.example.surface/para1",
+            json!({ "body": "t" }),
+            None,
+        );
+        let a = tool(
+            &mut d,
+            "attachment_add",
+            json!({ "fileName": "a.txt", "content": "hello" }),
+        );
+        let doc = a["result"]["structuredContent"]["documentId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let link = json!({ "instanceId": id, "documentId": doc });
+        let docs = dir.path().join("source-documents");
+        assert_ok(&mut d, "attachment_link", link.clone());
+        // In use: refused with the stable code, nothing deleted.
+        let r = tool(&mut d, "attachment_remove", json!({ "documentId": doc }));
+        assert_eq!(r["result"]["isError"], true, "{r}");
+        assert_eq!(
+            r["result"]["structuredContent"]["code"], "cannot-delete-in-use",
+            "{r}"
+        );
+        assert!(docs.join("a.txt").exists());
+        // Unlink keeps the file; a second unlink is a tool error.
+        assert_ok(&mut d, "attachment_unlink", link.clone());
+        assert!(docs.join("a.txt").exists());
+        let again = tool(&mut d, "attachment_unlink", link.clone());
+        assert_eq!(again["result"]["isError"], true, "{again}");
+        // Unreferenced: removed, content and sidecar.
+        assert_ok(&mut d, "attachment_remove", json!({ "documentId": doc }));
+        assert!(!docs.join("a.txt").exists());
+        assert!(!docs.join("a.txt.meta.json").exists());
+        let gone = tool(&mut d, "attachment_remove", json!({ "documentId": doc }));
+        assert_eq!(gone["result"]["isError"], true, "{gone}");
+        // Force removes the reference in the same call.
+        let b = tool(
+            &mut d,
+            "attachment_add",
+            json!({ "fileName": "b.txt", "content": "x" }),
+        );
+        let doc_b = b["result"]["structuredContent"]["documentId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_ok(
+            &mut d,
+            "attachment_link",
+            json!({ "instanceId": id, "documentId": doc_b }),
+        );
+        let f = tool(
+            &mut d,
+            "attachment_remove",
+            json!({ "documentId": doc_b, "force": true }),
+        );
+        assert_eq!(f["result"]["isError"], false, "{f}");
+        assert_eq!(f["result"]["structuredContent"]["refsRemoved"], 1, "{f}");
+        assert!(!docs.join("b.txt").exists());
+    }
+
+    #[test]
     fn attachment_add_and_link_round_trip_and_guard() {
         let (dir, mut d) = guarded();
         let id = create(

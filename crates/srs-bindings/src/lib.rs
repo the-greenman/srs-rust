@@ -3,8 +3,8 @@ use srs_core::arrangement::RelativeMove;
 use srs_core::types::record::{FieldMeta, FieldValues};
 use srs_repository::attachment_service::{
     self as attachment_service, AddAttachmentInput, GetAttachmentBytesInput,
-    GetRecordAttachmentsInput, LinkAttachmentInput, ListAttachmentsFilter,
-    ResolveCompositionAttachmentsInput,
+    GetRecordAttachmentsInput, LinkAttachmentInput, ListAttachmentsFilter, RemoveAttachmentInput,
+    ResolveCompositionAttachmentsInput, UnlinkAttachmentInput,
 };
 use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
 use srs_repository::blueprint_service;
@@ -2174,6 +2174,44 @@ impl SrsRepository {
         .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
+
+    /// Remove the `attaches` link between a record and a source document; the file stays.
+    ///
+    /// `input_json` is `{"instanceId":"<uuid>","documentId":"<uuid>"}`.
+    /// Returns `{"instanceId","documentId","refsRemoved"}` as a JS value.
+    pub fn unlink_attachment(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: LinkAttachmentBindingInput = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
+        let result = attachment_service::unlink_attachment(
+            &self.store,
+            UnlinkAttachmentInput {
+                instance_id: input.instance_id,
+                document_id: input.document_id,
+            },
+        )
+        .map_err(|e| js_err(&e))?;
+        to_js(&result)
+    }
+
+    /// Delete a source document (content file and sidecar).
+    ///
+    /// `input_json` is `{"documentId":"<uuid>","force":false}` (`force` defaults to false).
+    /// Without `force`, refuses with code `cannot-delete-in-use` while any record still
+    /// references the document; with `force`, those references are removed in the same
+    /// call. Returns `{"documentId","contentPath","refsRemoved"}` as a JS value.
+    pub fn remove_attachment(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: RemoveAttachmentBindingInput = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
+        let result = attachment_service::remove_attachment(
+            &self.store,
+            RemoveAttachmentInput {
+                document_id: input.document_id,
+                force: input.force,
+            },
+        )
+        .map_err(|e| js_err(&e))?;
+        to_js(&result)
+    }
 }
 
 // ── Repo-independent free functions (ADR-013 addendum) ───────────────────────
@@ -2400,6 +2438,14 @@ struct AddAttachmentBindingInput {
 struct LinkAttachmentBindingInput {
     instance_id: String,
     document_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoveAttachmentBindingInput {
+    document_id: String,
+    #[serde(default)]
+    force: bool,
 }
 
 #[cfg(test)]
