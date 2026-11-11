@@ -126,11 +126,6 @@ fn detect_used_extensions(store: &dyn RepositoryStore) -> Result<Vec<String>, Re
         Err(e) => return Err(e),
     }
 
-    // ext:addressability — any .revisions.json sidecar file exists
-    if store.has_revision_sidecars() {
-        used.push(EXT_ADDRESSABILITY.to_string());
-    }
-
     used.sort();
     Ok(used)
 }
@@ -1024,6 +1019,22 @@ mod tests {
         assert_eq!(report.supported.len(), SUPPORTED_EXTENSIONS.len());
         assert!(report.declared_but_unsupported.is_empty());
         assert!(report.used_but_undeclared.is_empty());
+    }
+
+    #[test]
+    fn stray_revisions_sidecar_is_not_reported_as_an_extension() {
+        // rfc-decision-2a1e1590 / srs-rust#866: `.revisions.json` is no longer a
+        // sidecar, so it must never surface `ext:addressability`.
+        let store = MemoryStore::default();
+        store
+            .save_text_file("records/tier-2/x.revisions.json", "{}")
+            .unwrap();
+        // The catalog refuses the stray file; it is never an extension signal.
+        match detect_used_extensions(&store) {
+            Err(RepositoryError::CatalogLoad { .. }) => {}
+            Ok(used) => assert!(!used.iter().any(|e| e == "ext:addressability")),
+            Err(e) => panic!("unexpected error: {e:?}"),
+        }
     }
 
     #[test]
