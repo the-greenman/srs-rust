@@ -175,6 +175,31 @@ fn relative_move_and_outline_match_the_service() {
     assert_eq!(RelativeMove::parse(None, None, None), Ok(None));
 }
 
+/// The WASM `duplicate_record` binding parses its options into `DuplicateRecordInput` and
+/// calls `duplicate_record` (srs-rust#1505): the same service as the CLI and MCP tool.
+#[test]
+fn duplicate_record_options_and_service() {
+    use srs_repository::duplicate_service::{duplicate_record, DuplicateRecordInput};
+    use srs_repository::fork_service::CarryRelations;
+    let parsed: DuplicateRecordInput = serde_json::from_str(
+        r#"{"relationIds":["r1"],"carryRelations":"all","relationTypes":["depends-on"],"targetContainer":"c"}"#,
+    )
+    .unwrap();
+    assert_eq!(parsed.carry_relations, CarryRelations::All);
+    assert!(serde_json::from_str::<DuplicateRecordInput>(r#"{"bogus":1}"#).is_err());
+    let store = gallery_store();
+    let id = srs_repository::record_store::list_all_records(&store)
+        .unwrap()
+        .into_iter()
+        .next()
+        .expect("gallery has a record")
+        .instance_id;
+    let r = duplicate_record(&store, &id, &DuplicateRecordInput::default()).unwrap();
+    assert_eq!(r.original_id, id);
+    assert_eq!(r.relation.relation_type, "derived-from");
+    assert_eq!(r.relation.source_instance_id, r.duplicate_id);
+}
+
 /// The WASM `fork_record` binding is `fork_subtree` with these options (srs-rust#1377): forking
 /// every member of a container in turn with `carryRelations: all` never duplicates an edge,
 /// whichever member goes first, and re-points edges between already-forked members.

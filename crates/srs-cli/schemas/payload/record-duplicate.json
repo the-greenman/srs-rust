@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RecordDuplicatePayload",
+  "description": "Payload for `record duplicate` (srs-rust#1505).",
+  "type": "object",
+  "required": [
+    "duplicateId",
+    "originalId",
+    "relation"
+  ],
+  "properties": {
+    "carriedRelations": {
+      "description": "Relations recreated on the copy (omitted when none)."
+    },
+    "containerId": {
+      "description": "The container the copy was added to (omitted when none was asked for).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "duplicateId": {
+      "type": "string"
+    },
+    "originalId": {
+      "type": "string"
+    },
+    "relation": {
+      "description": "The `derived-from` relation (copy -> source)."
+    }
+  }
+}
