@@ -84,6 +84,7 @@ fn main() {
     write_schema!("container-get", ContainerPayload);
     write_schema!("container-copy", ContainerCopyPayload);
     write_schema!("record-fork", RecordForkPayload);
+    write_schema!("record-duplicate", RecordDuplicatePayload);
     write_schema!("container-create", ContainerPayload);
     write_schema!("container-update", ContainerPayload);
     write_schema!("container-delete", ContainerDeletePayload);
@@ -220,6 +221,8 @@ fn main() {
     write_schema!("attachment-list", AttachmentListPayload);
     write_schema!("attachment-add", AttachmentAddPayload);
     write_schema!("attachment-link", AttachmentLinkPayload);
+    write_schema!("attachment-unlink", AttachmentUnlinkPayload);
+    write_schema!("attachment-remove", AttachmentRemovePayload);
     write_schema!(
         "attachment-resolve-view-attachments",
         ResolveViewAttachmentsPayload
@@ -237,6 +240,7 @@ fn main() {
     write_schema!("package-dependencies", PackageDependenciesPayload);
     write_schema!("package-refs", PackageRefPayload);
     write_schema!("package-imports", PackageImportsPayload);
+    write_schema!("package-move", PackageMovePayload);
 
     // Vocabulary payloads (RFC-006)
     write_schema!("vocabulary-list", VocabularyListPayload);

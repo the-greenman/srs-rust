@@ -8,7 +8,7 @@ use srs_repository::blueprint_service::create_blueprint;
 use srs_repository::repository_lifecycle::{
     create_repository, InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
 };
-use srs_repository::store::FileStore;
+use srs_repository::store::{FileStore, RepositoryStore};
 
 const REPO_ID: &str = "00000000-0000-4000-8000-00000051ed0a";
 
@@ -63,11 +63,11 @@ fn application_reads_repository_id_from_manifest() {
 }
 
 #[test]
-fn tool_catalogue_has_all_thirty_nine_tools_and_core_owns_the_schemas() {
+fn tool_catalogue_has_all_forty_three_tools_and_core_owns_the_schemas() {
     let (_dir, mut d) = setup();
     let listed = rpc(&mut d, "tools/list", json!({}));
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 39);
+    assert_eq!(tools.len(), 43);
     assert!(tools
         .iter()
         .all(|t| t["description"].is_string() && t["inputSchema"]["type"] == "object"));
@@ -755,6 +755,71 @@ mod write_guard {
     }
 
     #[test]
+    fn attachment_unlink_and_remove_round_trip() {
+        let (dir, mut d) = guarded();
+        let id = create(
+            &mut d,
+            "com.example.surface/para1",
+            json!({ "body": "t" }),
+            None,
+        );
+        let a = tool(
+            &mut d,
+            "attachment_add",
+            json!({ "fileName": "a.txt", "content": "hello" }),
+        );
+        let doc = a["result"]["structuredContent"]["documentId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let link = json!({ "instanceId": id, "documentId": doc });
+        let docs = dir.path().join("source-documents");
+        assert_ok(&mut d, "attachment_link", link.clone());
+        // In use: refused with the stable code, nothing deleted.
+        let r = tool(&mut d, "attachment_remove", json!({ "documentId": doc }));
+        assert_eq!(r["result"]["isError"], true, "{r}");
+        assert_eq!(
+            r["result"]["structuredContent"]["code"], "cannot-delete-in-use",
+            "{r}"
+        );
+        assert!(docs.join("a.txt").exists());
+        // Unlink keeps the file; a second unlink is a tool error.
+        assert_ok(&mut d, "attachment_unlink", link.clone());
+        assert!(docs.join("a.txt").exists());
+        let again = tool(&mut d, "attachment_unlink", link.clone());
+        assert_eq!(again["result"]["isError"], true, "{again}");
+        // Unreferenced: removed, content and sidecar.
+        assert_ok(&mut d, "attachment_remove", json!({ "documentId": doc }));
+        assert!(!docs.join("a.txt").exists());
+        assert!(!docs.join("a.txt.meta.json").exists());
+        let gone = tool(&mut d, "attachment_remove", json!({ "documentId": doc }));
+        assert_eq!(gone["result"]["isError"], true, "{gone}");
+        // Force removes the reference in the same call.
+        let b = tool(
+            &mut d,
+            "attachment_add",
+            json!({ "fileName": "b.txt", "content": "x" }),
+        );
+        let doc_b = b["result"]["structuredContent"]["documentId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_ok(
+            &mut d,
+            "attachment_link",
+            json!({ "instanceId": id, "documentId": doc_b }),
+        );
+        let f = tool(
+            &mut d,
+            "attachment_remove",
+            json!({ "documentId": doc_b, "force": true }),
+        );
+        assert_eq!(f["result"]["isError"], false, "{f}");
+        assert_eq!(f["result"]["structuredContent"]["refsRemoved"], 1, "{f}");
+        assert!(!docs.join("b.txt").exists());
+    }
+
+    #[test]
     fn attachment_add_and_link_round_trip_and_guard() {
         let (dir, mut d) = guarded();
         let id = create(
@@ -1048,6 +1113,44 @@ mod write_guard {
             "record_update",
             json!({ "instanceId": a, "fieldValues": { "body": "x" } }),
         );
+    }
+
+    #[test]
+    fn duplicate_respects_the_guard_and_leaves_the_source() {
+        let (_dir, mut d) = guarded();
+        let ty = "com.example.surface/para2";
+        let c = tool(&mut d, "container_create", json!({ "title": "Essay" }));
+        let cid = c["result"]["structuredContent"]["containerId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let p = create(&mut d, ty, json!({ "body": "a" }), Some(&cid));
+        let c2 = tool(&mut d, "container_create", json!({ "title": "Other" }));
+        let cid2 = c2["result"]["structuredContent"]["containerId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        guard(&mut d, json!({ "containerIds": [cid] }));
+        // Adding the copy to the guarded container is rejected; to the unguarded one it is not.
+        assert_rejected(
+            &mut d,
+            "record_duplicate",
+            json!({ "instanceId": p, "targetContainerId": cid }),
+        );
+        assert_ok(
+            &mut d,
+            "record_duplicate",
+            json!({ "instanceId": p, "targetContainerId": cid2 }),
+        );
+        let m2 = srs_repository::container_service::list_members(d.application().store(), &cid2)
+            .unwrap();
+        assert_eq!(m2.len(), 1);
+        assert_ne!(m2[0], p);
+        let m1 =
+            srs_repository::container_service::list_members(d.application().store(), &cid).unwrap();
+        assert_eq!(m1, vec![p.clone()], "the source keeps its place");
+        let s = d.application_mut().take_write_summary().unwrap();
+        assert_eq!(s.tool, "record_duplicate");
     }
 
     #[test]
@@ -1607,4 +1710,80 @@ fn package_upgrade_tool_adopts_a_no_reference_copy_conflict() {
     let r = &adopted["result"]["structuredContent"];
     assert_eq!(r["adopted"][0]["id"], f1, "{adopted}");
     assert_eq!(r["conflicts"].as_array().unwrap().len(), 0);
+}
+
+/// `package_move` calls the core service: a dry run writes nothing, the real run moves the
+/// definition, and a refusal is a tool error with its code (srs-rust#1639).
+#[test]
+fn package_move_tool_uses_the_core_service() {
+    let (dir, mut d) = setup();
+    let store = FileStore::new(dir.path());
+    srs_repository::package_service::create_package(
+        &store,
+        srs_repository::package_service::CreatePackageInput {
+            id: "9a1b0c2d-3333-4aaa-8bbb-0000000000b0".into(),
+            namespace: "com.example.site".into(),
+            name: "site".into(),
+            version: "0.1.0".into(),
+            boundary_path: Some("packages/site".into()),
+        },
+    )
+    .unwrap();
+    let rt = "9a1b0c2d-3333-4aaa-8bbb-0000000000b1";
+    srs_repository::package_service::create_relation_type_normalized(
+        &store,
+        json!({"id": rt, "version": 1, "key": "uses", "namespace": "com.example",
+            "label": "Uses", "category": "association"}),
+        None,
+    )
+    .unwrap();
+
+    let dry = tool(
+        &mut d,
+        "package_move",
+        json!({ "id": rt, "to": "packages/site", "dryRun": true }),
+    );
+    let r = &dry["result"]["structuredContent"];
+    assert_eq!(r["dryRun"], true, "{dry}");
+    assert_eq!(r["moved"][0]["to"], "packages/site");
+    assert_eq!(
+        store
+            .resolve_definition_owner(
+                rt,
+                srs_repository::package_types::DefinitionKind::RelationType
+            )
+            .unwrap(),
+        None,
+        "a dry run leaves it in the primary package"
+    );
+
+    let done = tool(
+        &mut d,
+        "package_move",
+        json!({ "id": rt, "to": "packages/site" }),
+    );
+    assert_eq!(
+        done["result"]["structuredContent"]["dryRun"], false,
+        "{done}"
+    );
+    assert_eq!(
+        store
+            .resolve_definition_owner(
+                rt,
+                srs_repository::package_types::DefinitionKind::RelationType
+            )
+            .unwrap(),
+        Some("packages/site".to_string())
+    );
+
+    let again = tool(
+        &mut d,
+        "package_move",
+        json!({ "id": rt, "to": "packages/site" }),
+    );
+    assert_eq!(again["result"]["isError"], true, "{again}");
+    assert_eq!(
+        again["result"]["structuredContent"]["code"],
+        "move-same-boundary"
+    );
 }

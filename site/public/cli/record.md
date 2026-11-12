@@ -17,6 +17,7 @@ Commands:
   transition           Transition a record's lifecycle state (ext:lifecycle)
   successor            Create a successor record that supersedes or refines this one (ext:lifecycle). `relationType` in the stdin JSON is optional: omitted, it is derived from the predecessor's lifecycle `requiresRelation` (RFC-022 R6), or an error names the candidates
   fork                 Fork a record and its nested children into ONE container (derived-from the originals). The forks are swapped into ONE container (`--into <ID>`, or the global `--container <ID>`; giving both is fine only when they are the same container); every other container keeps the originals. `--into` appends the record to that container first when it is not a member
+  duplicate            Duplicate a record as an independent successor (derived-from the source), recreating only the relations you select. The source keeps its place everywhere; `--into` (or the global `--container`) appends the copy to that container
   allowed-transitions  Query allowed lifecycle transitions for a record (ext:lifecycle)
   attachments          List attachments linked to a record
   tag                  Tag management commands for tier-2 records
@@ -447,6 +448,64 @@ Options:
 
       --pretty
           Pretty-print JSON output (no effect on text format)
+
+      --container <CONTAINER_ID>
+          Container scope: constrains list/create/delete to this container's membership; on `context record` it adds the record's arrangement subtree in this container
+
+      --actor <ACTOR>
+          Session actor for everything this invocation creates (RFC-046 `createdBy`): JSON `{"kind":"human|ai","id":"<non-empty>","name":"<optional>"}`. Defaults to the `SRS_ACTOR` environment variable; with neither, creations are unattributed. Host configuration only — a request payload never carries it. An invalid value refuses every creating command (`actor-invalid`); a corpus below dataModelRevision 9 refuses an actor session (`revision-too-old`) until `repo apply-migration --id rfc046-actor-provenance`. A `.srsj` migrated in memory on open refuses every write first (`migration-required-before-write`) until its migrations are applied
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## `srs record duplicate`
+
+```text
+Duplicate a record as an independent successor (derived-from the source), recreating only the relations you select. The source keeps its place everywhere; `--into` (or the global `--container`) appends the copy to that container
+
+Usage: srs record duplicate [OPTIONS] <ID>
+
+Arguments:
+  <ID>
+          Record instance ID to duplicate
+
+Options:
+      --into <INTO>
+          Container to add the copy to (appended; the source is not replaced)
+
+      --repo <REPO>
+          Repository path (defaults to auto-detect from current directory)
+
+      --carry-relations <CARRY_RELATIONS>
+          Recreate the source's relations on the copy by direction (never `derived-from`)
+          
+          [default: none]
+          [possible values: none, outgoing, all]
+
+      --format <FORMAT>
+          Output format
+
+          Possible values:
+          - json: JSON output (default)
+          - yaml: YAML output
+          - text: Human-readable text output (planned, currently returns diagnostic)
+          
+          [default: json]
+
+      --relation-id <RELATION_IDS>
+          Recreate this relation on the copy (repeatable; it must touch the source)
+
+      --store <STORE>
+          Storage backend override. By default the backend is inferred from the repository location
+          
+          [possible values: file, json]
+
+      --pretty
+          Pretty-print JSON output (no effect on text format)
+
+      --relation-type <RELATION_TYPES>
+          Limit `--carry-relations` to this relation type (repeatable)
 
       --container <CONTAINER_ID>
           Container scope: constrains list/create/delete to this container's membership; on `context record` it adds the record's arrangement subtree in this container

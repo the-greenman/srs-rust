@@ -145,3 +145,55 @@ fn upgrade_options_json_accepts_prior_bundles_and_adopt() {
         (1, vec!["id-1".to_string()])
     );
 }
+
+/// `move_definition` (srs-rust#1639) on a tree session, as srs-web runs it: the input JSON
+/// parses as the binding parses it, a dry run writes nothing (epoch unmoved), a real move
+/// advances the epoch and re-homes the definition.
+#[test]
+fn tree_session_move_definition_only_writes_when_not_dry_run() {
+    use srs_repository::package_move_service::{move_definition, MoveDefinitionInput};
+    use srs_repository::store::RepositoryStore;
+    let store = blank();
+    srs_repository::package_service::create_package(
+        &store,
+        srs_repository::package_service::CreatePackageInput {
+            id: "9a1b0c2d-4444-4aaa-8bbb-0000000000c0".into(),
+            namespace: "com.test.site".into(),
+            name: "site".into(),
+            version: "0.1.0".into(),
+            boundary_path: Some("packages/site".into()),
+        },
+    )
+    .unwrap();
+    let rt = "9a1b0c2d-4444-4aaa-8bbb-0000000000c1";
+    srs_repository::package_service::create_relation_type_normalized(
+        &store,
+        serde_json::json!({"id": rt, "version": 1, "key": "uses", "namespace": "com.test.blank",
+            "label": "Uses", "category": "association"}),
+        None,
+    )
+    .unwrap();
+    let parse = |dry: bool| -> MoveDefinitionInput {
+        serde_json::from_str(&format!(
+            r#"{{"id":"{rt}","to":"packages/site","dryRun":{dry}}}"#
+        ))
+        .unwrap()
+    };
+    let before = store.write_epoch();
+    assert!(move_definition(&store, &parse(true)).unwrap().dry_run);
+    assert_eq!(store.write_epoch(), before);
+    move_definition(&store, &parse(false)).unwrap();
+    assert!(store.write_epoch() > before);
+    assert_eq!(
+        store
+            .resolve_definition_owner(
+                rt,
+                srs_repository::package_types::DefinitionKind::RelationType
+            )
+            .unwrap(),
+        Some("packages/site".to_string())
+    );
+    assert!(srs_repository::validation::validate_repository(&store)
+        .unwrap()
+        .is_ok());
+}

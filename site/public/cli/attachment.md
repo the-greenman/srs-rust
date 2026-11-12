@@ -11,6 +11,8 @@ Commands:
   list                      List source documents in the repository (walks subdirectories)
   add                       Add a file as a source-document attachment
   link                      Link an existing source document to a record via sourceRole:attaches
+  unlink                    Remove the sourceRole:attaches link from one record; the file stays
+  remove                    Delete a source document (content file and sidecar). Refuses while any record still references it, unless --force removes those references too
   resolve-view-attachments  Resolve linked attachments for a list of record instance IDs (reads JSON from stdin)
   policy-get                Read the current attachment policy from the optional com.semanticops.base/repo_settings record. Returns built-in defaults when no policy record exists
   help                      Print this message or the help of the given subcommand(s)
@@ -153,6 +155,98 @@ Arguments:
           Document ID of the source document to link (must exist in source-documents/)
 
 Options:
+      --repo <REPO>
+          Repository path (defaults to auto-detect from current directory)
+
+      --format <FORMAT>
+          Output format
+
+          Possible values:
+          - json: JSON output (default)
+          - yaml: YAML output
+          - text: Human-readable text output (planned, currently returns diagnostic)
+          
+          [default: json]
+
+      --store <STORE>
+          Storage backend override. By default the backend is inferred from the repository location
+          
+          [possible values: file, json]
+
+      --pretty
+          Pretty-print JSON output (no effect on text format)
+
+      --container <CONTAINER_ID>
+          Container scope: constrains list/create/delete to this container's membership; on `context record` it adds the record's arrangement subtree in this container
+
+      --actor <ACTOR>
+          Session actor for everything this invocation creates (RFC-046 `createdBy`): JSON `{"kind":"human|ai","id":"<non-empty>","name":"<optional>"}`. Defaults to the `SRS_ACTOR` environment variable; with neither, creations are unattributed. Host configuration only — a request payload never carries it. An invalid value refuses every creating command (`actor-invalid`); a corpus below dataModelRevision 9 refuses an actor session (`revision-too-old`) until `repo apply-migration --id rfc046-actor-provenance`. A `.srsj` migrated in memory on open refuses every write first (`migration-required-before-write`) until its migrations are applied
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## `srs attachment unlink`
+
+```text
+Remove the sourceRole:attaches link from one record; the file stays
+
+Usage: srs attachment unlink [OPTIONS] <INSTANCE_ID> <DOCUMENT_ID>
+
+Arguments:
+  <INSTANCE_ID>
+          Instance ID of the record (or note) to unlink the document from
+
+  <DOCUMENT_ID>
+          Document ID of the linked source document
+
+Options:
+      --repo <REPO>
+          Repository path (defaults to auto-detect from current directory)
+
+      --format <FORMAT>
+          Output format
+
+          Possible values:
+          - json: JSON output (default)
+          - yaml: YAML output
+          - text: Human-readable text output (planned, currently returns diagnostic)
+          
+          [default: json]
+
+      --store <STORE>
+          Storage backend override. By default the backend is inferred from the repository location
+          
+          [possible values: file, json]
+
+      --pretty
+          Pretty-print JSON output (no effect on text format)
+
+      --container <CONTAINER_ID>
+          Container scope: constrains list/create/delete to this container's membership; on `context record` it adds the record's arrangement subtree in this container
+
+      --actor <ACTOR>
+          Session actor for everything this invocation creates (RFC-046 `createdBy`): JSON `{"kind":"human|ai","id":"<non-empty>","name":"<optional>"}`. Defaults to the `SRS_ACTOR` environment variable; with neither, creations are unattributed. Host configuration only — a request payload never carries it. An invalid value refuses every creating command (`actor-invalid`); a corpus below dataModelRevision 9 refuses an actor session (`revision-too-old`) until `repo apply-migration --id rfc046-actor-provenance`. A `.srsj` migrated in memory on open refuses every write first (`migration-required-before-write`) until its migrations are applied
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## `srs attachment remove`
+
+```text
+Delete a source document (content file and sidecar). Refuses while any record still references it, unless --force removes those references too
+
+Usage: srs attachment remove [OPTIONS] <DOCUMENT_ID>
+
+Arguments:
+  <DOCUMENT_ID>
+          Document ID of the source document to delete
+
+Options:
+      --force
+          Also remove every reference to the document from records and notes
+
       --repo <REPO>
           Repository path (defaults to auto-detect from current directory)
 

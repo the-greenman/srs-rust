@@ -3,8 +3,8 @@ use srs_core::arrangement::RelativeMove;
 use srs_core::types::record::{FieldMeta, FieldValues};
 use srs_repository::attachment_service::{
     self as attachment_service, AddAttachmentInput, GetAttachmentBytesInput,
-    GetRecordAttachmentsInput, LinkAttachmentInput, ListAttachmentsFilter,
-    ResolveCompositionAttachmentsInput,
+    GetRecordAttachmentsInput, LinkAttachmentInput, ListAttachmentsFilter, RemoveAttachmentInput,
+    ResolveCompositionAttachmentsInput, UnlinkAttachmentInput,
 };
 use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
 use srs_repository::blueprint_service;
@@ -1312,6 +1312,31 @@ impl SrsRepository {
         to_js(&result)
     }
 
+    /// Duplicate `instance_id` as an independent successor (srs-rust#1505; same service as
+    /// `srs record duplicate` and the MCP `record_duplicate` tool). Optional `options` JSON:
+    /// `{ relationIds?: string[], carryRelations?: "none"|"outgoing"|"all", relationTypes?:
+    /// string[], targetContainer?: string }`. Returns `{ originalId, duplicateId, relation,
+    /// carriedRelations?, containerId? }`.
+    pub fn duplicate_record(
+        &self,
+        instance_id: &str,
+        options: Option<String>,
+    ) -> Result<JsValue, JsValue> {
+        let input: srs_repository::duplicate_service::DuplicateRecordInput =
+            match options.as_deref() {
+                None | Some("") => Default::default(),
+                Some(j) => serde_json::from_str(j).map_err(|e| {
+                    js_err(&RepositoryError::InvalidInput {
+                        message: format!("invalid duplicate options: {e}"),
+                    })
+                })?,
+            };
+        let result =
+            srs_repository::duplicate_service::duplicate_record(&self.store, instance_id, &input)
+                .map_err(|e| js_err(&e))?;
+        to_js(&result)
+    }
+
     /// Add an instance to a container's ordered `memberInstanceIds` outline (RFC-043).
     /// `position` (0-based; omit to append) and `depth` (omit for 0). Idempotent when neither is
     /// given. Returns `{ members: [{instanceId, depth?}], promoted, removed }`.
@@ -1780,6 +1805,21 @@ impl SrsRepository {
         to_js(&result)
     }
 
+    /// Move a definition, every version of its id, to another package boundary, keeping its id
+    /// (srs-rust#1639). `input_json`: `{id, to, dryRun?}`, where `to` is the boundary path, or
+    /// null for the primary package. Returns `{moved: [{kind, id, version, from, to, path}],
+    /// referencedBy, dryRun}`, the same as the CLI `package move` payload. Refused with
+    /// `move-same-boundary`, `move-split-lineage`, `move-definition-imported`,
+    /// `move-target-installed`, `definition-not-found` or `package-not-found`. A dry run writes
+    /// nothing.
+    pub fn move_definition(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: srs_repository::package_move_service::MoveDefinitionInput =
+            serde_json::from_str(input_json).map_err(|e| js_invalid_input(e.to_string()))?;
+        let result = srs_repository::package_move_service::move_definition(&self.store, &input)
+            .map_err(|e| js_err(&e))?;
+        to_js(&result)
+    }
+
     /// Aggregate import records across all boundaries and run live divergence detection.
     /// Returns an `ImportSummary` object (`{generatedAt, fields, types, views, blueprints,
     /// protocols, relationTypes, skippedDefinitions?}`).
@@ -2159,6 +2199,44 @@ impl SrsRepository {
         .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
+
+    /// Remove the `attaches` link between a record and a source document; the file stays.
+    ///
+    /// `input_json` is `{"instanceId":"<uuid>","documentId":"<uuid>"}`.
+    /// Returns `{"instanceId","documentId","refsRemoved"}` as a JS value.
+    pub fn unlink_attachment(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: LinkAttachmentBindingInput = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
+        let result = attachment_service::unlink_attachment(
+            &self.store,
+            UnlinkAttachmentInput {
+                instance_id: input.instance_id,
+                document_id: input.document_id,
+            },
+        )
+        .map_err(|e| js_err(&e))?;
+        to_js(&result)
+    }
+
+    /// Delete a source document (content file and sidecar).
+    ///
+    /// `input_json` is `{"documentId":"<uuid>","force":false}` (`force` defaults to false).
+    /// Without `force`, refuses with code `cannot-delete-in-use` while any record still
+    /// references the document; with `force`, those references are removed in the same
+    /// call. Returns `{"documentId","contentPath","refsRemoved"}` as a JS value.
+    pub fn remove_attachment(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: RemoveAttachmentBindingInput = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
+        let result = attachment_service::remove_attachment(
+            &self.store,
+            RemoveAttachmentInput {
+                document_id: input.document_id,
+                force: input.force,
+            },
+        )
+        .map_err(|e| js_err(&e))?;
+        to_js(&result)
+    }
 }
 
 // ── Repo-independent free functions (ADR-013 addendum) ───────────────────────
@@ -2385,6 +2463,14 @@ struct AddAttachmentBindingInput {
 struct LinkAttachmentBindingInput {
     instance_id: String,
     document_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoveAttachmentBindingInput {
+    document_id: String,
+    #[serde(default)]
+    force: bool,
 }
 
 #[cfg(test)]

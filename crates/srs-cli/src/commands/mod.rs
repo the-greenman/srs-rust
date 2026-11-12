@@ -457,6 +457,22 @@ pub enum AttachmentCommand {
         /// Document ID of the source document to link (must exist in source-documents/)
         document_id: String,
     },
+    /// Remove the sourceRole:attaches link from one record; the file stays
+    Unlink {
+        /// Instance ID of the record (or note) to unlink the document from
+        instance_id: String,
+        /// Document ID of the linked source document
+        document_id: String,
+    },
+    /// Delete a source document (content file and sidecar). Refuses while any
+    /// record still references it, unless --force removes those references too.
+    Remove {
+        /// Document ID of the source document to delete
+        document_id: String,
+        /// Also remove every reference to the document from records and notes
+        #[arg(long)]
+        force: bool,
+    },
     /// Resolve linked attachments for a list of record instance IDs (reads JSON from stdin).
     ///
     /// Input: `{"instanceIds": ["<uuid>", ...]}` (from a rendered composition projection).
@@ -1432,6 +1448,25 @@ pub enum RecordCommand {
         #[arg(long, value_parser = ["none", "outgoing", "all"], default_value = "none")]
         carry_relations: String,
     },
+    /// Duplicate a record as an independent successor (derived-from the source), recreating
+    /// only the relations you select. The source keeps its place everywhere; `--into` (or the
+    /// global `--container`) appends the copy to that container.
+    Duplicate {
+        /// Record instance ID to duplicate
+        id: String,
+        /// Container to add the copy to (appended; the source is not replaced)
+        #[arg(long)]
+        into: Option<String>,
+        /// Recreate the source's relations on the copy by direction (never `derived-from`)
+        #[arg(long, value_parser = ["none", "outgoing", "all"], default_value = "none")]
+        carry_relations: String,
+        /// Recreate this relation on the copy (repeatable; it must touch the source)
+        #[arg(long = "relation-id")]
+        relation_ids: Vec<String>,
+        /// Limit `--carry-relations` to this relation type (repeatable)
+        #[arg(long = "relation-type")]
+        relation_types: Vec<String>,
+    },
     /// Query allowed lifecycle transitions for a record (ext:lifecycle)
     AllowedTransitions {
         /// Record instance ID
@@ -1865,6 +1900,19 @@ pub enum PackageCommand {
     },
     /// List all imported definitions with live divergence state
     Imports,
+    /// Move a definition (every version of its id) to another package boundary, keeping its
+    /// id; records and relations that use it stay valid. Refused for a definition an installed
+    /// package tracks, or a target that is an installed package
+    Move {
+        /// Definition id (field, type, relation type, view, composition, ...)
+        id: String,
+        /// Target boundary path relative to the repo root (`package` for the primary package)
+        #[arg(long)]
+        to: String,
+        /// Report what would move and write nothing
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Package requirements (`packageDependencies`, RFC-044), keyed by packageId
     #[command(subcommand)]
     Dependency(PackageDependencyCommand),

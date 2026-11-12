@@ -3479,6 +3479,27 @@ $SRS repo apply-migration --id core-relation-type-reference-cleanup --repo /tmp/
 
 **Verified 2026-10-08 (#1341)** on the branch build. All five steps passed exactly as described (an earlier version of the migration iterated every package root, including installed-dependency sub-packages, which would have violated RFC-048 [R14] — caught in code review before this dogfood run, not after).
 
+### S60 — Move a definition to the package that should own it, keeping its id (`srs package move`, #1639)
+
+**Intention.** A relation type my records use sits in my repository's unpublished primary package, but the package I publish needs it. I want to move it there, keeping its id, so every relation that uses it stays valid and the published package carries it. I want to see what will move before anything changes, and to be stopped where a move would break an installed package.
+
+**CLI surface.** `srs package move <definition-id> --to <boundary-path> [--dry-run]` (`--to package` is the primary package); WASM `move_definition(input_json)` (`{id, to, dryRun?}`; native coverage in `crates/srs-bindings/tests/package_bundle.rs`); MCP `package_move {id, to?, dryRun?}` (`crates/srs-mcp-core/tests/surface.rs`). Every version of the id moves together. Refusal codes: `move-same-boundary`, `move-split-lineage`, `move-definition-imported`, `move-target-installed`, `definition-not-found`, `package-not-found`. A move that failed partway is finished by running it again.
+
+**Steps.** The runnable shapes are in `crates/srs-repository/tests/package_move.rs`. The CLI run:
+
+```bash
+SRS=$PWD/target/debug/srs; R=/tmp/dogfood-s60-repo
+$SRS repo create --repo $R --namespace com.example.s60 > /dev/null
+$SRS package create --repo $R --id 9a1b0c2d-6060-4aaa-8bbb-000000000060 --namespace com.example.site --name site --version 0.1.0 --path packages/site > /dev/null
+echo '{"id":"9a1b0c2d-6060-4aaa-8bbb-000000000061","version":1,"key":"uses","namespace":"com.example.s60","label":"Uses","category":"association"}' | $SRS relation-type create --repo $R > /dev/null
+$SRS package move 9a1b0c2d-6060-4aaa-8bbb-000000000061 --to packages/site --dry-run --repo $R   # moved[], referencedBy, references; nothing written
+$SRS package move 9a1b0c2d-6060-4aaa-8bbb-000000000061 --to packages/site --repo $R             # the file and both package.json lists change
+$SRS package move 9a1b0c2d-6060-4aaa-8bbb-000000000061 --to packages/site --repo $R             # ok:false, errors[0].code move-same-boundary
+$SRS repo validate --repo $R                                                                     # 0 errors
+```
+
+**Observed (2026-11-11).** On a copy of muSrs, `uses` and `challenges` moved from `package/` into `packages/website`. `repo validate` reported 0 errors and 0 warnings before and after, the 35 `uses` relations still resolved, and a standalone export of `packages/website` carried both. A move into `packages/comments` (installed from a bundle) was refused with `move-target-installed`.
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -3544,7 +3565,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `federation` (ext:federation) | _removed — srs decision 4f1e12e5 + owner disposition srs-rust#878 (2026-09-01); return is committed, see the spec roadmap's federation entry; S26 retired with it_ |
 | `relation neighbours` (bounded neighbour page, #1229) | S50 |
 | `context` (ext:addressability — `context field`, `context record`) | S48 (`context record` both-direction relations + `--container` subtree, #1134); S27 (historical — `context revision`/revision-tracing removed srs-rust#917); WASM bindings (`context_field`, `context_record` on `SrsRepository`) verified via native integration tests in `crates/srs-bindings/tests/context_query.rs` (#251) |
-| `package` | CLI: covered implicitly by field/type creation in S2; **`srs package install`/`srs package import`/`srs package imports`** end-to-end in S29 (#246); WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330); **`srs package export` / `srs package install --bundle`** (`.srspkg`, ADR-050) in S49 (#632/#690); RFC-003 Rev 10 (#1212): `--mode bundled|standalone`, `--homepage`, `dependencyRefs`/`dependencyRefCount`, repository-stamped `dataModelRevision`, the [C6] reader step chain (`bundle-migration-step-missing`), the below-floor export note and the standalone-without-dependencies [R13] consequence, all in S49; WASM `export_package_bundle` / `install_package_bundle` via `crates/srs-bindings/tests/package_bundle.rs` (#663); **`srs package upgrade`** (+ WASM `upgrade_package_bundle`) in S54 (#1152) |
+| `package` | CLI: covered implicitly by field/type creation in S2; **`srs package install`/`srs package import`/`srs package imports`** end-to-end in S29 (#246); WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330); **`srs package export` / `srs package install --bundle`** (`.srspkg`, ADR-050) in S49 (#632/#690); RFC-003 Rev 10 (#1212): `--mode bundled|standalone`, `--homepage`, `dependencyRefs`/`dependencyRefCount`, repository-stamped `dataModelRevision`, the [C6] reader step chain (`bundle-migration-step-missing`), the below-floor export note and the standalone-without-dependencies [R13] consequence, all in S49; WASM `export_package_bundle` / `install_package_bundle` via `crates/srs-bindings/tests/package_bundle.rs` (#663); **`srs package upgrade`** (+ WASM `upgrade_package_bundle`) in S54 (#1152); **`srs package move`** (+ WASM `move_definition`, MCP `package_move`) in S60 (#1639) |
 | `attachment list` | S31 |
 | `attachment add` | S32 |
 | `attachment link` | S34 (#283); service-layer tests in `attachment_service.rs` (MemoryStore + FileStore). WASM binding is a follow-up. |

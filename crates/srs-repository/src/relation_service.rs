@@ -50,6 +50,11 @@ pub struct RelationSummary {
     /// Display label for `target_id` — see `source_label`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_label: Option<String>,
+    /// RFC-046 creator of the stored relation (who asserted it), carried
+    /// verbatim; omitted when the relation has none (srs-rust#1411, decision
+    /// f3f7308e). Testimony, never authority.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub created_by: Option<srs_core::types::actor::Actor>,
 }
 
 /// Resolve a relation endpoint's display label, reusing `record_label`'s
@@ -120,7 +125,7 @@ pub fn list_relations(
         None
     };
 
-    let relations = load_relations(store)?;
+    let relations = relations_snapshot(store)?;
 
     // One package load for both label indexes, and a per-id cache so a busy
     // endpoint (e.g. a hub record with many relations) is resolved once, not
@@ -141,7 +146,7 @@ pub fn list_relations(
     };
 
     let filtered: Vec<_> = relations
-        .into_iter()
+        .iter()
         .filter(|r| {
             // Container filter: both source AND target must be members
             if let Some(ref member_set) = member_ids {
@@ -175,6 +180,7 @@ pub fn list_relations(
             target_label: label_for(&r.target_instance_id),
             source_id: r.source_instance_id.clone(),
             target_id: r.target_instance_id.clone(),
+            created_by: r.created_by.clone(),
         })
         .collect();
 
@@ -447,10 +453,29 @@ pub(crate) fn load_relations_with_locators(
 pub(crate) fn load_relations(
     store: &dyn RepositoryStore,
 ) -> Result<Vec<Relation>, RepositoryError> {
-    Ok(load_relations_with_locators(store)?
-        .into_iter()
-        .map(|lr| lr.relation)
-        .collect())
+    // A store with no memo (one-shot paths) takes the parsed Vec without a second copy.
+    let snapshot = relations_snapshot(store)?;
+    Ok(std::rc::Rc::try_unwrap(snapshot).unwrap_or_else(|shared| (*shared).clone()))
+}
+
+/// [`load_relations`] as the store's shared snapshot (srs-rust#1649): parsed and
+/// duplicate-checked once per write epoch, so a filtered read clones only its matches.
+pub(crate) fn relations_snapshot(
+    store: &dyn RepositoryStore,
+) -> Result<std::rc::Rc<Vec<Relation>>, RepositoryError> {
+    if let Some(hit) = store.read_memo().and_then(|m| m.borrow().relations.clone()) {
+        return Ok(hit);
+    }
+    let all: std::rc::Rc<Vec<Relation>> = std::rc::Rc::new(
+        load_relations_with_locators(store)?
+            .into_iter()
+            .map(|lr| lr.relation)
+            .collect(),
+    );
+    if let Some(memo) = store.read_memo() {
+        memo.borrow_mut().relations = Some(all.clone());
+    }
+    Ok(all)
 }
 
 /// Remove every relation matching `pred`, across both storage forms.
@@ -522,6 +547,7 @@ impl From<Relation> for RelationSummary {
             target_id: r.target_instance_id,
             source_label: None,
             target_label: None,
+            created_by: r.created_by,
         }
     }
 }
@@ -890,6 +916,7 @@ pub fn rebuild_precedes_chain(
             }),
             source_id: r.source_instance_id.clone(),
             target_id: r.target_instance_id.clone(),
+            created_by: r.created_by.clone(),
         })
         .collect();
     Ok(RebuildPrecedesChainResult { created })
@@ -1153,6 +1180,7 @@ fn apply_precedes_splice(
             .and_then(|(fni, ifi)| resolve_endpoint_label(store, target, fni, ifi)),
         source_id: source.to_string(),
         target_id: target.to_string(),
+        created_by: None,
     };
 
     let removed = real_removed
@@ -1290,7 +1318,8 @@ mod tests {
                     "relationType": "contains",
                     "sourceInstanceId": "note-1",
                     "targetInstanceId": "note-4",
-                    "createdAt": "2026-01-01T00:00:00Z"
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "createdBy": {"kind": "ai", "id": "agent:test", "name": "Test agent"}
                 }
             ]
         });
@@ -1445,6 +1474,26 @@ mod tests {
         let result = list_relations(&store, ListRelationsFilter::default()).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].target_label, None);
+    }
+
+    /// srs-rust#1411 (decision f3f7308e): a list read carries each relation's
+    /// stored `createdBy`, and omits the key when the relation has none.
+    #[test]
+    fn list_relations_carries_created_by_when_stored() {
+        let store = make_store_with_relations();
+        let result = list_relations(&store, ListRelationsFilter::default()).unwrap();
+        let with: Vec<_> = result.iter().filter(|r| r.created_by.is_some()).collect();
+        assert_eq!(with.len(), 1);
+        assert_eq!(with[0].relation_id, "aaaaaaaa-0000-4000-8000-000000000003");
+        assert_eq!(with[0].created_by.as_ref().unwrap().id, "agent:test");
+        let json = serde_json::to_value(&result).unwrap();
+        let with_key = json
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|v| v.get("createdBy").is_some())
+            .count();
+        assert_eq!(with_key, 1, "createdBy omitted when absent");
     }
 
     #[test]
@@ -2318,6 +2367,9 @@ mod tests {
                 unimplemented!()
             }
             fn save_binary_file(&self, _: &str, _: &[u8]) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn delete_source_file(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
             fn validate_package_ref_path(&self, _: &str) -> Result<(), RepositoryError> {

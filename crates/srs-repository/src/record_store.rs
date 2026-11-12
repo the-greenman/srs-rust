@@ -957,9 +957,8 @@ pub fn list_record_summaries(
 /// Label resolution uses the same priority as [`list_record_summaries`]: the record's Type's
 /// effective `identityFieldId` > field named "title" > "name" > "label" > `type_name` fallback.
 ///
-/// Builds the label indexes on every call — suitable for UI single-record fetches. Callers
-/// fetching multiple records should use [`list_record_summaries`] to amortise the index-build
-/// cost.
+/// The label indexes are memoized per store and write epoch (srs-rust#1649), so a per-record
+/// call is cheap; [`list_record_summaries`] still suits a whole listing.
 pub fn get_record_summary_by_id(
     store: &dyn RepositoryStore,
     id: &str,
@@ -2248,6 +2247,82 @@ pub(crate) fn append_source_ref(
             note.source_refs = Some(refs);
             store.save_note(&note)?;
             Ok(count)
+        }
+        None => Err(RepositoryError::InstanceNotFound {
+            id: instance_id.to_string(),
+        }),
+    }
+}
+
+/// Which `repository-document` refs to a document an operation touches.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DocRefScope {
+    /// Only `sourceRole: attaches` refs (what `link_attachment` writes).
+    AttachesOnly,
+    /// Every `repository-document` ref to the document, whatever its role.
+    AnyRole,
+}
+
+fn matches_doc_ref(r: &SourceReference, document_id: &str, scope: DocRefScope) -> bool {
+    r.source_type == srs_core::types::source_reference::SourceType::RepositoryDocument
+        && r.source_id == document_id
+        && (scope == DocRefScope::AnyRole
+            || r.source_role == Some(srs_core::types::source_reference::SourceRole::Attaches))
+}
+
+/// Remove (or, with `dry_run`, only count) the `sourceRefs` of one instance that
+/// point at `document_id`. Returns the number matched. Writes only when something
+/// matched and `dry_run` is false. `InstanceNotFound` if the instance is absent.
+pub(crate) fn remove_document_refs(
+    store: &dyn RepositoryStore,
+    instance_id: &str,
+    document_id: &str,
+    scope: DocRefScope,
+    dry_run: bool,
+) -> Result<usize, RepositoryError> {
+    match get_instance_by_id(store, instance_id)? {
+        Some(LoadedInstance::Record(mut record)) => {
+            let Some(v) = record.extra.get("sourceRefs") else {
+                return Ok(0);
+            };
+            let mut refs: Vec<SourceReference> =
+                serde_json::from_value(v.clone()).map_err(|e| RepositoryError::Serialize {
+                    path: std::path::PathBuf::from(instance_id),
+                    source: e,
+                })?;
+            let before = refs.len();
+            refs.retain(|r| !matches_doc_ref(r, document_id, scope));
+            let removed = before - refs.len();
+            if removed > 0 && !dry_run {
+                if refs.is_empty() {
+                    record.extra.remove("sourceRefs");
+                } else {
+                    record.extra.insert(
+                        "sourceRefs".to_string(),
+                        serde_json::to_value(&refs).map_err(|e| RepositoryError::Serialize {
+                            path: std::path::PathBuf::from(instance_id),
+                            source: e,
+                        })?,
+                    );
+                }
+                store.save_record(&record)?;
+            }
+            Ok(removed)
+        }
+        Some(LoadedInstance::Note(mut note)) => {
+            let Some(refs) = note.source_refs.as_mut() else {
+                return Ok(0);
+            };
+            let before = refs.len();
+            refs.retain(|r| !matches_doc_ref(r, document_id, scope));
+            let removed = before - refs.len();
+            if removed > 0 && !dry_run {
+                if refs.is_empty() {
+                    note.source_refs = None;
+                }
+                store.save_note(&note)?;
+            }
+            Ok(removed)
         }
         None => Err(RepositoryError::InstanceNotFound {
             id: instance_id.to_string(),

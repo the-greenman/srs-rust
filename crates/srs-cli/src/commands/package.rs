@@ -3,7 +3,8 @@ use crate::output;
 use crate::payload::{
     PackageCreatePayload, PackageDependenciesPayload, PackageExportPayload, PackageImportPayload,
     PackageImportsPayload, PackageInstallPayload, PackageListEntry, PackageListPayload,
-    PackageRefEntry, PackageRefPayload, PackageUpdatePayload, PackageUpgradePayload,
+    PackageMovePayload, PackageRefEntry, PackageRefPayload, PackageUpdatePayload,
+    PackageUpgradePayload,
 };
 use anyhow::{Context, Result};
 use srs_core::extensions::import_tracking::ImportMode;
@@ -73,6 +74,7 @@ pub fn dispatch(ctx: CliContext, cmd: PackageCommand) -> Result<String> {
             version,
         } => cmd_package_update(ctx, selector, namespace, name, version),
         PackageCommand::Imports => cmd_package_imports(ctx),
+        PackageCommand::Move { id, to, dry_run } => cmd_package_move(ctx, id, to, dry_run),
         PackageCommand::Dependency(sub) => cmd_package_dependency(ctx, sub),
         PackageCommand::Enable { path } => cmd_package_enable(ctx, path),
         PackageCommand::Disable { path } => cmd_package_disable(ctx, path),
@@ -282,6 +284,18 @@ fn cmd_package_imports(ctx: CliContext) -> Result<String> {
         )?)
     })?;
     output::serialize("package imports", PackageImportsPayload::from(result))
+}
+
+fn cmd_package_move(ctx: CliContext, id: String, to: String, dry_run: bool) -> Result<String> {
+    // the service reads `package` as the primary boundary, on every surface
+    let to = Some(to);
+    let result = with_store(&ctx, |store| {
+        Ok(srs_repository::package_move_service::move_definition(
+            store,
+            &srs_repository::package_move_service::MoveDefinitionInput { id, to, dry_run },
+        )?)
+    })?;
+    output::serialize("package move", PackageMovePayload::from(result))
 }
 
 fn cmd_package_dependency(ctx: CliContext, cmd: PackageDependencyCommand) -> Result<String> {

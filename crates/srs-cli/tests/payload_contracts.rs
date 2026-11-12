@@ -244,6 +244,11 @@ fn container_copy() {
 }
 
 #[test]
+fn record_duplicate() {
+    check::<RecordDuplicatePayload>("record-duplicate");
+}
+
+#[test]
 fn record_fork() {
     check::<RecordForkPayload>("record-fork");
 }
@@ -621,6 +626,11 @@ fn package_export() {
 }
 
 #[test]
+fn package_move() {
+    check::<PackageMovePayload>("package-move");
+}
+
+#[test]
 fn package_refs() {
     check::<PackageRefPayload>("package-refs");
 }
@@ -732,6 +742,8 @@ fn attachment_add() {
 #[test]
 fn attachment_link() {
     check::<AttachmentLinkPayload>("attachment-link");
+    check::<AttachmentUnlinkPayload>("attachment-unlink");
+    check::<AttachmentRemovePayload>("attachment-remove");
 }
 
 #[test]

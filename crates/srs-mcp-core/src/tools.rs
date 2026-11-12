@@ -21,7 +21,9 @@ use srs_core::arrangement::RelativeMove;
 use srs_core::types::note::{Note, NoteSection};
 use srs_core::types::record::{FieldMeta, FieldValues};
 use srs_core::types::relation::Relation;
-use srs_repository::attachment_service::{self, AddAttachmentInput, LinkAttachmentInput};
+use srs_repository::attachment_service::{
+    self, AddAttachmentInput, LinkAttachmentInput, RemoveAttachmentInput, UnlinkAttachmentInput,
+};
 use srs_repository::container_service::{self, ContainerCreateInput};
 use srs_repository::context_query_service::{
     list_neighbours, EdgeDirection, NeighboursPage, NeighboursQuery,
@@ -78,6 +80,7 @@ pub const TOOL_CONTAINER_MEMBER_REPAIR: &str = "container_member_repair";
 pub const TOOL_CONTAINER_OUTLINE: &str = "container_outline";
 pub const TOOL_CONTAINER_COPY: &str = "container_copy";
 pub const TOOL_RECORD_FORK: &str = "record_fork";
+pub const TOOL_RECORD_DUPLICATE: &str = "record_duplicate";
 // Protocol run execution tools (#977 — follow-up to #955)
 pub const TOOL_PROTOCOL_RUN_CREATE: &str = "protocol_run_create";
 pub const TOOL_PROTOCOL_RUN_ADVANCE: &str = "protocol_run_advance";
@@ -92,12 +95,16 @@ pub const TOOL_PACKAGE_DEPENDENCY_SET: &str = "package_dependency_set";
 pub const TOOL_PACKAGE_DEPENDENCY_REMOVE: &str = "package_dependency_remove";
 // Package upgrade (srs-rust#1152) — one core service, `package_install_service`
 pub const TOOL_PACKAGE_UPGRADE: &str = "package_upgrade";
+// Package move (srs-rust#1639) — one core service, `package_move_service`
+pub const TOOL_PACKAGE_MOVE: &str = "package_move";
 pub const TOOL_NEIGHBOURS: &str = "neighbours";
 pub const TOOL_SIMILAR: &str = "similar";
 pub const TOOL_ATTENTION_LIST: &str = "attention_list";
 pub const TOOL_CHANGES: &str = "changes";
 pub const TOOL_ATTACHMENT_ADD: &str = "attachment_add";
 pub const TOOL_ATTACHMENT_LINK: &str = "attachment_link";
+pub const TOOL_ATTACHMENT_UNLINK: &str = "attachment_unlink";
+pub const TOOL_ATTACHMENT_REMOVE: &str = "attachment_remove";
 /// Agent-facing replies are size-capped: omitted `limit` on `neighbours`, and its ceiling.
 const NEIGHBOURS_DEFAULT_LIMIT: usize = 25;
 const NEIGHBOURS_MAX_LIMIT: usize = 100;
@@ -228,6 +235,19 @@ pub const DESC_PACKAGE_DEPENDENCY_REMOVE: &str = "Remove a package's requirement
 (every packageDependencies entry with that id). Refused when there is none. selector is the \
 requiring package boundary path (omit for the primary package).";
 
+pub const DESC_PACKAGE_MOVE: &str = "Move a definition (field, type, relation type, view, \
+composition, theme, protocol, blueprint, vocabulary or lifecycle), every version of its id, to another \
+package boundary of this repository, keeping its id, version and content: records and relations that \
+use it stay valid. to is the target boundary path (omit it, or give `package`, for the primary \
+package). ALWAYS call with dryRun true first: moved lists each version and its new path, \
+referencedBy the source boundary's definition files that still mention the id (a bundled export of \
+the source keeps carrying it), references the definitions outside the target that it mentions (a \
+standalone export of the target leaves them out). A move that failed partway is finished by \
+running it again. \
+Refused (nothing written): move-same-boundary, move-split-lineage (the id is already in two \
+boundaries), move-definition-imported (an installed package tracks it: refine it at its source \
+package), move-target-installed, definition-not-found, package-not-found.";
+
 pub const DESC_PACKAGE_UPGRADE: &str = "Upgrade an installed package boundary in place from a newer \
 .srspkg Package Bundle (RFC-014 R2/R3/R6). bundle is the file's JSON text. The package must already \
 be installed with the bundle's packageId (otherwise use install, which has no MCP tool); a lower \
@@ -260,6 +280,12 @@ pub const DESC_ATTACHMENT_ADD: &str = "Store a file as a source-document attachm
 pub const DESC_ATTACHMENT_LINK: &str = "Attach a stored source document to a record (appends a \
     sourceRef with sourceRole 'attaches'). The document must already exist (attachment_add); \
     linking the same pair twice is an error.";
+pub const DESC_ATTACHMENT_UNLINK: &str = "Remove the 'attaches' sourceRef between a record and a \
+    source document (the inverse of attachment_link). The file stays in the repository; an \
+    unlinked pair is an error.";
+pub const DESC_ATTACHMENT_REMOVE: &str = "Delete a stored source document (content file and \
+    sidecar). Refused with code cannot-delete-in-use while any record or note still references \
+    it, unless `force` is true, which removes those references in the same call.";
 pub const DESC_NEIGHBOURS: &str = "Bounded read of one instance's relation neighbours (Record or \
 Note). Returns total (every matching edge, before paging) and a page of edges, each with direction \
 (out = the instance is the source, in = it is the target), relationId, relationType and the \
@@ -424,6 +450,14 @@ is duplicated. Only the anchor (title) record is forked - a new record linked `d
 original - and the copy's anchor/identity/outline entry point at the fork. `title` defaults to \
 \"<title> (copy)\"; `containerId` is minted when omitted (an existing id is refused). The \
 repository root container cannot be copied. Returns `{container, forks, relations}`.";
+
+pub const DESC_RECORD_DUPLICATE: &str = "Duplicate the record `instanceId` as an independent \
+successor: a new record of the same type with deep-copied field values and extras, linked \
+`derived-from` the source, attributed to the session actor. The source keeps its place \
+everywhere. Only the relations you select are recreated on the copy: `relationIds` (each must \
+touch the source) and/or `carryRelations` (`outgoing` | `all`, narrowed by `relationTypes`); \
+`derived-from` is never carried. `targetContainerId` appends the copy to that container. \
+Returns `{originalId, duplicateId, relation, carriedRelations?, containerId?}`.";
 
 pub const DESC_RECORD_FORK: &str =
     "Make a local copy: fork the record `instanceId` and its nested \
@@ -1055,6 +1089,19 @@ pub struct ContainerMemberMoveToolInput {
     pub shift: Option<String>,
 }
 
+/// `package_move`: mirrors the WASM `move_definition(input_json)` and the CLI `package move`.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PackageMoveToolInput {
+    /// The definition's id; every version of it moves.
+    pub id: String,
+    /// The target boundary path, e.g. packages/website; omit (or "package") for the primary package.
+    pub to: Option<String>,
+    /// Report what would move without writing anything. Default false.
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
 /// `package_upgrade`: mirrors the WASM `upgrade_package_bundle(bundle_json, options_json)`.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -1195,6 +1242,24 @@ pub struct RecordForkToolInput {
     /// `none` (default) | `outgoing` | `all`: re-create the original's relations on the fork.
     #[serde(default)]
     pub carry_relations: srs_repository::fork_service::CarryRelations,
+}
+
+/// `record_duplicate`: duplicate `instance_id` as an independent successor.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecordDuplicateToolInput {
+    pub instance_id: String,
+    /// Relations of the source to recreate on the copy, by id.
+    #[serde(default)]
+    pub relation_ids: Vec<String>,
+    /// `none` (default) | `outgoing` | `all`: recreate the source's relations by direction.
+    #[serde(default)]
+    pub carry_relations: srs_repository::fork_service::CarryRelations,
+    /// Limit the direction selection to these relation types.
+    #[serde(default)]
+    pub relation_types: Vec<String>,
+    /// Append the copy to this container.
+    pub target_container_id: Option<String>,
 }
 
 // ── Protocol run shadow input structs (#977) ──────────────────────────────────
@@ -1415,6 +1480,11 @@ fn all_tools() -> Vec<Value> {
             DESC_RECORD_FORK,
             input_schema::<RecordForkToolInput>(),
         ),
+        tool(
+            TOOL_RECORD_DUPLICATE,
+            DESC_RECORD_DUPLICATE,
+            input_schema::<RecordDuplicateToolInput>(),
+        ),
         // Protocol run execution tools (#977)
         tool(
             TOOL_PROTOCOL_RUN_CREATE,
@@ -1468,6 +1538,11 @@ fn all_tools() -> Vec<Value> {
             input_schema::<PackageUpgradeToolInput>(),
         ),
         tool(
+            TOOL_PACKAGE_MOVE,
+            DESC_PACKAGE_MOVE,
+            input_schema::<PackageMoveToolInput>(),
+        ),
+        tool(
             TOOL_NEIGHBOURS,
             DESC_NEIGHBOURS,
             input_schema::<NeighboursToolInput>(),
@@ -1496,6 +1571,16 @@ fn all_tools() -> Vec<Value> {
             TOOL_ATTACHMENT_LINK,
             DESC_ATTACHMENT_LINK,
             input_schema::<AttachmentLinkToolInput>(),
+        ),
+        tool(
+            TOOL_ATTACHMENT_UNLINK,
+            DESC_ATTACHMENT_UNLINK,
+            input_schema::<AttachmentLinkToolInput>(),
+        ),
+        tool(
+            TOOL_ATTACHMENT_REMOVE,
+            DESC_ATTACHMENT_REMOVE,
+            input_schema::<AttachmentRemoveToolInput>(),
         ),
     ]
 }
@@ -1559,6 +1644,25 @@ impl From<AttachmentLinkToolInput> for LinkAttachmentInput {
         LinkAttachmentInput {
             instance_id: input.instance_id,
             document_id: input.document_id,
+        }
+    }
+}
+
+/// Mirrors `attachment_service::RemoveAttachmentInput`.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AttachmentRemoveToolInput {
+    pub document_id: String,
+    /// Also remove every reference to the document from records and notes.
+    #[serde(default)]
+    pub force: bool,
+}
+
+impl From<AttachmentRemoveToolInput> for RemoveAttachmentInput {
+    fn from(input: AttachmentRemoveToolInput) -> Self {
+        RemoveAttachmentInput {
+            document_id: input.document_id,
+            force: input.force,
         }
     }
 }
@@ -1771,6 +1875,26 @@ pub fn call_tool(
                 Err(e) => Ok(tool_err(e.report())),
             }
         }
+        TOOL_ATTACHMENT_UNLINK => {
+            let input: AttachmentLinkToolInput = parse_args(arguments)?;
+            match attachment_service::unlink_attachment(
+                store,
+                UnlinkAttachmentInput {
+                    instance_id: input.instance_id,
+                    document_id: input.document_id,
+                },
+            ) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.report())),
+            }
+        }
+        TOOL_ATTACHMENT_REMOVE => {
+            let input: AttachmentRemoveToolInput = parse_args(arguments)?;
+            match attachment_service::remove_attachment(store, input.into()) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.report())),
+            }
+        }
         TOOL_SIMILAR => {
             let (id, query, page) = parse_args::<SimilarToolInput>(arguments)?.into_parts();
             match discovery_service::similar(store, &id, query, page) {
@@ -1953,6 +2077,18 @@ pub fn call_tool(
                 Err(e) => Ok(tool_err(e.report())),
             }
         }
+        TOOL_PACKAGE_MOVE => {
+            let input: PackageMoveToolInput = parse_args(arguments)?;
+            let input = srs_repository::package_move_service::MoveDefinitionInput {
+                id: input.id,
+                to: input.to,
+                dry_run: input.dry_run,
+            };
+            match srs_repository::package_move_service::move_definition(store, &input) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.report())),
+            }
+        }
         TOOL_NEIGHBOURS => {
             let (query, page) = parse_args::<NeighboursToolInput>(arguments)?.into_parts();
             match list_neighbours(store, query, page) {
@@ -2016,6 +2152,23 @@ pub fn call_tool(
                 container_id: input.container_id,
             };
             match container_service::copy_container(store, &input.source_container_id, copy) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.report())),
+            }
+        }
+        TOOL_RECORD_DUPLICATE => {
+            let input: RecordDuplicateToolInput = parse_args(arguments)?;
+            let dup = srs_repository::duplicate_service::DuplicateRecordInput {
+                relation_ids: input.relation_ids,
+                carry_relations: input.carry_relations,
+                relation_types: input.relation_types,
+                target_container: input.target_container_id,
+            };
+            match srs_repository::duplicate_service::duplicate_record(
+                store,
+                &input.instance_id,
+                &dup,
+            ) {
                 Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.report())),
             }
@@ -2383,6 +2536,7 @@ mod tests {
             "repair",
             "copy",
             "fork",
+            "duplicate",
             "transition",
             "successor",
             "graduate",
@@ -2435,6 +2589,7 @@ mod tests {
                 TOOL_CONTAINER_OUTLINE,
                 TOOL_CONTAINER_COPY,
                 TOOL_RECORD_FORK,
+                TOOL_RECORD_DUPLICATE,
                 TOOL_PROTOCOL_RUN_CREATE,
                 TOOL_PROTOCOL_RUN_ADVANCE,
                 TOOL_PROTOCOL_RUN_GET,
@@ -2445,12 +2600,15 @@ mod tests {
                 TOOL_PACKAGE_DEPENDENCY_SET,
                 TOOL_PACKAGE_DEPENDENCY_REMOVE,
                 TOOL_PACKAGE_UPGRADE,
+                TOOL_PACKAGE_MOVE,
                 TOOL_NEIGHBOURS,
                 TOOL_SIMILAR,
                 TOOL_ATTENTION_LIST,
                 TOOL_CHANGES,
                 TOOL_ATTACHMENT_ADD,
                 TOOL_ATTACHMENT_LINK,
+                TOOL_ATTACHMENT_UNLINK,
+                TOOL_ATTACHMENT_REMOVE,
             ]
         );
         for tool in &tools {

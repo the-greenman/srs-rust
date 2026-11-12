@@ -726,6 +726,24 @@ pub struct ContainerCopyPayload {
     pub relations: Vec<Relation>,
 }
 
+/// Payload for `record duplicate` (srs-rust#1505).
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordDuplicatePayload {
+    pub original_id: String,
+    pub duplicate_id: String,
+    /// The `derived-from` relation (copy -> source).
+    #[schemars(with = "serde_json::Value")]
+    pub relation: Relation,
+    /// Relations recreated on the copy (omitted when none).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[schemars(with = "Option<serde_json::Value>")]
+    pub carried_relations: Vec<Relation>,
+    /// The container the copy was added to (omitted when none was asked for).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container_id: Option<String>,
+}
+
 /// Payload for `record fork` (srs-rust#1136).
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -2474,6 +2492,56 @@ pub struct PackageUpdatePayload {
     pub version: String,
 }
 
+/// `package move` (srs-rust#1639): each version that moved (or would, with `dryRun`) and the
+/// source boundary's definition files that still mention the id. Mirrors `MoveDefinitionOutput`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageMovePayload {
+    pub moved: Vec<PackageMovedEntry>,
+    pub referenced_by: Vec<String>,
+    /// Definition files outside the target that the moved definition mentions: a `standalone`
+    /// export of the target leaves them out.
+    pub references: Vec<String>,
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageMovedEntry {
+    /// The `package.json` list it sits in (`fields`, `relationTypes`, ...).
+    pub kind: String,
+    pub id: String,
+    pub version: u64,
+    /// Source boundary path (`package` for the primary).
+    pub from: String,
+    /// Target boundary path.
+    pub to: String,
+    /// The file's path relative to the boundary.
+    pub path: String,
+}
+
+impl From<srs_repository::package_move_service::MoveDefinitionOutput> for PackageMovePayload {
+    fn from(o: srs_repository::package_move_service::MoveDefinitionOutput) -> Self {
+        Self {
+            moved: o
+                .moved
+                .into_iter()
+                .map(|m| PackageMovedEntry {
+                    kind: m.kind,
+                    id: m.id,
+                    version: m.version,
+                    from: m.from,
+                    to: m.to,
+                    path: m.path,
+                })
+                .collect(),
+            referenced_by: o.referenced_by,
+            references: o.references,
+            dry_run: o.dry_run,
+        }
+    }
+}
+
 /// `package dependency list|add|remove|check` (RFC-044, srs-rust#1168): the
 /// requiring boundary's `packageDependencies` after the operation (for
 /// `check`, the stdin requirement list), each with its consumer-check
@@ -3377,6 +3445,42 @@ impl From<srs_repository::attachment_service::LinkAttachmentResult> for Attachme
             instance_id: r.instance_id,
             document_id: r.document_id,
             source_refs_count: r.source_refs_count,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentUnlinkPayload {
+    pub instance_id: String,
+    pub document_id: String,
+    pub refs_removed: usize,
+}
+
+impl From<srs_repository::attachment_service::UnlinkAttachmentResult> for AttachmentUnlinkPayload {
+    fn from(r: srs_repository::attachment_service::UnlinkAttachmentResult) -> Self {
+        Self {
+            instance_id: r.instance_id,
+            document_id: r.document_id,
+            refs_removed: r.refs_removed,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentRemovePayload {
+    pub document_id: String,
+    pub content_path: String,
+    pub refs_removed: usize,
+}
+
+impl From<srs_repository::attachment_service::RemoveAttachmentResult> for AttachmentRemovePayload {
+    fn from(r: srs_repository::attachment_service::RemoveAttachmentResult) -> Self {
+        Self {
+            document_id: r.document_id,
+            content_path: r.content_path,
+            refs_removed: r.refs_removed,
         }
     }
 }
