@@ -1388,6 +1388,8 @@ pub fn validate_repository(
         };
         let content_repo_rel = format!("{}/{}", src_docs_base, meta.content_path);
         // Tombstone (content absent) or unreadable: nothing to check.
+        // ponytail: reads every document's bytes on each validate (attach sniffs
+        // undeclared XML too); skip non-XML content types if large corpora make it slow.
         let Ok(bytes) = store.load_binary_file(&content_repo_rel) else {
             continue;
         };
