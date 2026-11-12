@@ -1369,6 +1369,41 @@ pub fn validate_repository(
         // was emitted during the main loop; skip the policy check silently.
     }
 
+    // --- svg-unsafe at rest (decision 866167c1, srs-rust#1617) ---
+    // Attach refuses an unsafe SVG; import and merge copy files as they are, so the
+    // same check reports one already stored (warning: imports stay lossless, and
+    // clients show images only through <img>).
+    let src_docs_base = manifest
+        .source_documents_path
+        .as_deref()
+        .unwrap_or("source-documents");
+    for entry in &cat.source_documents {
+        let Some(meta) = entry
+            .locator
+            .as_deref()
+            .and_then(|l| store.load_instance_json(l).ok())
+            .and_then(|v| serde_json::from_value::<SourceDocumentMeta>(v).ok())
+        else {
+            continue;
+        };
+        let content_repo_rel = format!("{}/{}", src_docs_base, meta.content_path);
+        // Tombstone (content absent) or unreadable: nothing to check.
+        // ponytail: reads every document's bytes on each validate (attach sniffs
+        // undeclared XML too); skip non-XML content types if large corpora make it slow.
+        let Ok(bytes) = store.load_binary_file(&content_repo_rel) else {
+            continue;
+        };
+        if let Err(e) = crate::svg_safety::check_svg(&bytes, &meta.content_type) {
+            diagnostics.push(ValidationDiagnostic {
+                code: Some(e.code().to_string()),
+                severity: DiagnosticSeverity::Warning,
+                relative_path: content_repo_rel,
+                schema_id: None,
+                message: e.to_string(),
+            });
+        }
+    }
+
     // --- Inv 43: cross-package base type references ---
     // RFC-044 [R7]/[R10] (srs-rust#1173): this check used to approximate coverage by
     // matching a `packageDependencies` entry's `namespace` against the specializing
