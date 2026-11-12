@@ -105,6 +105,9 @@ pub struct FindProtocolByTargetTypeResult {
     pub protocol_name: String,
     pub stages: Vec<ProtocolStage>,
     pub diagnostics: Vec<String>,
+    /// `diagnostics` as structured findings, entry for entry (ADR-057,
+    /// srs-rust#1339); the text list is unchanged until srs-rust#1496.
+    pub diagnostics_structured: Vec<crate::diagnostic::Diagnostic>,
 }
 
 // ---------------------------------------------------------------------------
@@ -312,6 +315,7 @@ pub fn find_protocol_by_target_type(
             protocol_name: lp.protocol.name,
             stages,
             diagnostics: vec![],
+            diagnostics_structured: vec![],
         }));
     }
     Ok(None)
@@ -474,8 +478,10 @@ mod tests {
             protocol_name: "Alpha".to_string(),
             stages: vec![],
             diagnostics: vec![],
+            diagnostics_structured: vec![],
         };
         let json = serde_json::to_value(&result).unwrap();
+        assert_eq!(json["diagnosticsStructured"], serde_json::json!([]));
         assert!(json.get("protocolId").is_some(), "protocolId key expected");
         assert!(
             json.get("protocolName").is_some(),

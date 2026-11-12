@@ -726,6 +726,24 @@ pub struct ContainerCopyPayload {
     pub relations: Vec<Relation>,
 }
 
+/// Payload for `record duplicate` (srs-rust#1505).
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordDuplicatePayload {
+    pub original_id: String,
+    pub duplicate_id: String,
+    /// The `derived-from` relation (copy -> source).
+    #[schemars(with = "serde_json::Value")]
+    pub relation: Relation,
+    /// Relations recreated on the copy (omitted when none).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[schemars(with = "Option<serde_json::Value>")]
+    pub carried_relations: Vec<Relation>,
+    /// The container the copy was added to (omitted when none was asked for).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container_id: Option<String>,
+}
+
 /// Payload for `record fork` (srs-rust#1136).
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]

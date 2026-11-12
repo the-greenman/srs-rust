@@ -63,11 +63,11 @@ fn application_reads_repository_id_from_manifest() {
 }
 
 #[test]
-fn tool_catalogue_has_all_forty_two_tools_and_core_owns_the_schemas() {
+fn tool_catalogue_has_all_forty_three_tools_and_core_owns_the_schemas() {
     let (_dir, mut d) = setup();
     let listed = rpc(&mut d, "tools/list", json!({}));
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 42);
+    assert_eq!(tools.len(), 43);
     assert!(tools
         .iter()
         .all(|t| t["description"].is_string() && t["inputSchema"]["type"] == "object"));
@@ -1113,6 +1113,44 @@ mod write_guard {
             "record_update",
             json!({ "instanceId": a, "fieldValues": { "body": "x" } }),
         );
+    }
+
+    #[test]
+    fn duplicate_respects_the_guard_and_leaves_the_source() {
+        let (_dir, mut d) = guarded();
+        let ty = "com.example.surface/para2";
+        let c = tool(&mut d, "container_create", json!({ "title": "Essay" }));
+        let cid = c["result"]["structuredContent"]["containerId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let p = create(&mut d, ty, json!({ "body": "a" }), Some(&cid));
+        let c2 = tool(&mut d, "container_create", json!({ "title": "Other" }));
+        let cid2 = c2["result"]["structuredContent"]["containerId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        guard(&mut d, json!({ "containerIds": [cid] }));
+        // Adding the copy to the guarded container is rejected; to the unguarded one it is not.
+        assert_rejected(
+            &mut d,
+            "record_duplicate",
+            json!({ "instanceId": p, "targetContainerId": cid }),
+        );
+        assert_ok(
+            &mut d,
+            "record_duplicate",
+            json!({ "instanceId": p, "targetContainerId": cid2 }),
+        );
+        let m2 = srs_repository::container_service::list_members(d.application().store(), &cid2)
+            .unwrap();
+        assert_eq!(m2.len(), 1);
+        assert_ne!(m2[0], p);
+        let m1 =
+            srs_repository::container_service::list_members(d.application().store(), &cid).unwrap();
+        assert_eq!(m1, vec![p.clone()], "the source keeps its place");
+        let s = d.application_mut().take_write_summary().unwrap();
+        assert_eq!(s.tool, "record_duplicate");
     }
 
     #[test]

@@ -1448,6 +1448,25 @@ pub enum RecordCommand {
         #[arg(long, value_parser = ["none", "outgoing", "all"], default_value = "none")]
         carry_relations: String,
     },
+    /// Duplicate a record as an independent successor (derived-from the source), recreating
+    /// only the relations you select. The source keeps its place everywhere; `--into` (or the
+    /// global `--container`) appends the copy to that container.
+    Duplicate {
+        /// Record instance ID to duplicate
+        id: String,
+        /// Container to add the copy to (appended; the source is not replaced)
+        #[arg(long)]
+        into: Option<String>,
+        /// Recreate the source's relations on the copy by direction (never `derived-from`)
+        #[arg(long, value_parser = ["none", "outgoing", "all"], default_value = "none")]
+        carry_relations: String,
+        /// Recreate this relation on the copy (repeatable; it must touch the source)
+        #[arg(long = "relation-id")]
+        relation_ids: Vec<String>,
+        /// Limit `--carry-relations` to this relation type (repeatable)
+        #[arg(long = "relation-type")]
+        relation_types: Vec<String>,
+    },
     /// Query allowed lifecycle transitions for a record (ext:lifecycle)
     AllowedTransitions {
         /// Record instance ID

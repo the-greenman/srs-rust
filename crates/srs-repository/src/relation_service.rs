@@ -50,6 +50,11 @@ pub struct RelationSummary {
     /// Display label for `target_id` — see `source_label`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_label: Option<String>,
+    /// RFC-046 creator of the stored relation (who asserted it), carried
+    /// verbatim; omitted when the relation has none (srs-rust#1411, decision
+    /// f3f7308e). Testimony, never authority.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub created_by: Option<srs_core::types::actor::Actor>,
 }
 
 /// Resolve a relation endpoint's display label, reusing `record_label`'s
@@ -175,6 +180,7 @@ pub fn list_relations(
             target_label: label_for(&r.target_instance_id),
             source_id: r.source_instance_id.clone(),
             target_id: r.target_instance_id.clone(),
+            created_by: r.created_by.clone(),
         })
         .collect();
 
@@ -522,6 +528,7 @@ impl From<Relation> for RelationSummary {
             target_id: r.target_instance_id,
             source_label: None,
             target_label: None,
+            created_by: r.created_by,
         }
     }
 }
@@ -890,6 +897,7 @@ pub fn rebuild_precedes_chain(
             }),
             source_id: r.source_instance_id.clone(),
             target_id: r.target_instance_id.clone(),
+            created_by: r.created_by.clone(),
         })
         .collect();
     Ok(RebuildPrecedesChainResult { created })
@@ -1153,6 +1161,7 @@ fn apply_precedes_splice(
             .and_then(|(fni, ifi)| resolve_endpoint_label(store, target, fni, ifi)),
         source_id: source.to_string(),
         target_id: target.to_string(),
+        created_by: None,
     };
 
     let removed = real_removed
@@ -1290,7 +1299,8 @@ mod tests {
                     "relationType": "contains",
                     "sourceInstanceId": "note-1",
                     "targetInstanceId": "note-4",
-                    "createdAt": "2026-01-01T00:00:00Z"
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "createdBy": {"kind": "ai", "id": "agent:test", "name": "Test agent"}
                 }
             ]
         });
@@ -1445,6 +1455,26 @@ mod tests {
         let result = list_relations(&store, ListRelationsFilter::default()).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].target_label, None);
+    }
+
+    /// srs-rust#1411 (decision f3f7308e): a list read carries each relation's
+    /// stored `createdBy`, and omits the key when the relation has none.
+    #[test]
+    fn list_relations_carries_created_by_when_stored() {
+        let store = make_store_with_relations();
+        let result = list_relations(&store, ListRelationsFilter::default()).unwrap();
+        let with: Vec<_> = result.iter().filter(|r| r.created_by.is_some()).collect();
+        assert_eq!(with.len(), 1);
+        assert_eq!(with[0].relation_id, "aaaaaaaa-0000-4000-8000-000000000003");
+        assert_eq!(with[0].created_by.as_ref().unwrap().id, "agent:test");
+        let json = serde_json::to_value(&result).unwrap();
+        let with_key = json
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|v| v.get("createdBy").is_some())
+            .count();
+        assert_eq!(with_key, 1, "createdBy omitted when absent");
     }
 
     #[test]

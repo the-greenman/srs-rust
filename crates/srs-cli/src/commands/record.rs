@@ -1,10 +1,10 @@
 use crate::commands::{parse_type_filter, with_store, CliContext, RecordCommand, RecordTagCommand};
 use crate::output;
 use crate::payload::{
-    RecordAllowedTransitionsPayload, RecordDeletePayload, RecordForkPayload,
-    RecordGetAttachmentsPayload, RecordGetPayload, RecordListPayload, RecordPayload,
-    RecordSuccessorPayload, RecordTagAddPayload, RecordTagListPayload, RecordTransitionPayload,
-    RecordValidatePayload,
+    RecordAllowedTransitionsPayload, RecordDeletePayload, RecordDuplicatePayload,
+    RecordForkPayload, RecordGetAttachmentsPayload, RecordGetPayload, RecordListPayload,
+    RecordPayload, RecordSuccessorPayload, RecordTagAddPayload, RecordTagListPayload,
+    RecordTransitionPayload, RecordValidatePayload,
 };
 use anyhow::Result;
 use srs_repository::attachment_service::{get_record_attachments, GetRecordAttachmentsInput};
@@ -46,6 +46,20 @@ pub fn dispatch(ctx: CliContext, cmd: RecordCommand) -> Result<String> {
             into,
             carry_relations,
         } => cmd_record_fork(ctx, id, into, &carry_relations),
+        RecordCommand::Duplicate {
+            id,
+            into,
+            carry_relations,
+            relation_ids,
+            relation_types,
+        } => cmd_record_duplicate(
+            ctx,
+            id,
+            into,
+            &carry_relations,
+            relation_ids,
+            relation_types,
+        ),
         RecordCommand::AllowedTransitions { id } => cmd_record_allowed_transitions(ctx, id),
         RecordCommand::Attachments { id } => cmd_record_attachments(ctx, id),
         RecordCommand::Tag(tag_cmd) => dispatch_tag(ctx, tag_cmd),
@@ -263,6 +277,52 @@ fn cmd_record_successor(ctx: CliContext, id: String) -> Result<String> {
             },
         ),
         Err(e) => Ok(output::any_err("record successor", &e)),
+    }
+}
+
+fn cmd_record_duplicate(
+    ctx: CliContext,
+    id: String,
+    into: Option<String>,
+    carry_relations: &str,
+    relation_ids: Vec<String>,
+    relation_types: Vec<String>,
+) -> Result<String> {
+    use srs_repository::duplicate_service::{duplicate_record, DuplicateRecordInput};
+    use srs_repository::fork_service::CarryRelations;
+    let target_container = match (into, ctx.container_id.clone()) {
+        (Some(i), Some(c)) if i != c => {
+            return Ok(output::repo_err(
+                "record duplicate",
+                &RepositoryError::InvalidInput {
+                    message: format!("--into {i} conflicts with --container {c}; give one"),
+                },
+            ));
+        }
+        (i, c) => i.or(c),
+    };
+    let input = DuplicateRecordInput {
+        relation_ids,
+        carry_relations: match carry_relations {
+            "outgoing" => CarryRelations::Outgoing,
+            "all" => CarryRelations::All,
+            _ => CarryRelations::None,
+        },
+        relation_types,
+        target_container,
+    };
+    match with_store(&ctx, |store| Ok(duplicate_record(store, &id, &input)?)) {
+        Ok(r) => output::serialize(
+            "record duplicate",
+            RecordDuplicatePayload {
+                original_id: r.original_id,
+                duplicate_id: r.duplicate_id,
+                relation: r.relation,
+                carried_relations: r.carried_relations,
+                container_id: r.container_id,
+            },
+        ),
+        Err(e) => Ok(output::any_err("record duplicate", &e)),
     }
 }
 

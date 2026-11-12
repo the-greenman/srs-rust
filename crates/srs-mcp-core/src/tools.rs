@@ -80,6 +80,7 @@ pub const TOOL_CONTAINER_MEMBER_REPAIR: &str = "container_member_repair";
 pub const TOOL_CONTAINER_OUTLINE: &str = "container_outline";
 pub const TOOL_CONTAINER_COPY: &str = "container_copy";
 pub const TOOL_RECORD_FORK: &str = "record_fork";
+pub const TOOL_RECORD_DUPLICATE: &str = "record_duplicate";
 // Protocol run execution tools (#977 — follow-up to #955)
 pub const TOOL_PROTOCOL_RUN_CREATE: &str = "protocol_run_create";
 pub const TOOL_PROTOCOL_RUN_ADVANCE: &str = "protocol_run_advance";
@@ -449,6 +450,14 @@ is duplicated. Only the anchor (title) record is forked - a new record linked `d
 original - and the copy's anchor/identity/outline entry point at the fork. `title` defaults to \
 \"<title> (copy)\"; `containerId` is minted when omitted (an existing id is refused). The \
 repository root container cannot be copied. Returns `{container, forks, relations}`.";
+
+pub const DESC_RECORD_DUPLICATE: &str = "Duplicate the record `instanceId` as an independent \
+successor: a new record of the same type with deep-copied field values and extras, linked \
+`derived-from` the source, attributed to the session actor. The source keeps its place \
+everywhere. Only the relations you select are recreated on the copy: `relationIds` (each must \
+touch the source) and/or `carryRelations` (`outgoing` | `all`, narrowed by `relationTypes`); \
+`derived-from` is never carried. `targetContainerId` appends the copy to that container. \
+Returns `{originalId, duplicateId, relation, carriedRelations?, containerId?}`.";
 
 pub const DESC_RECORD_FORK: &str =
     "Make a local copy: fork the record `instanceId` and its nested \
@@ -1235,6 +1244,24 @@ pub struct RecordForkToolInput {
     pub carry_relations: srs_repository::fork_service::CarryRelations,
 }
 
+/// `record_duplicate`: duplicate `instance_id` as an independent successor.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecordDuplicateToolInput {
+    pub instance_id: String,
+    /// Relations of the source to recreate on the copy, by id.
+    #[serde(default)]
+    pub relation_ids: Vec<String>,
+    /// `none` (default) | `outgoing` | `all`: recreate the source's relations by direction.
+    #[serde(default)]
+    pub carry_relations: srs_repository::fork_service::CarryRelations,
+    /// Limit the direction selection to these relation types.
+    #[serde(default)]
+    pub relation_types: Vec<String>,
+    /// Append the copy to this container.
+    pub target_container_id: Option<String>,
+}
+
 // ── Protocol run shadow input structs (#977) ──────────────────────────────────
 
 /// Mirrors `protocol_run_service::CreateRunInput` field-for-field.
@@ -1452,6 +1479,11 @@ fn all_tools() -> Vec<Value> {
             TOOL_RECORD_FORK,
             DESC_RECORD_FORK,
             input_schema::<RecordForkToolInput>(),
+        ),
+        tool(
+            TOOL_RECORD_DUPLICATE,
+            DESC_RECORD_DUPLICATE,
+            input_schema::<RecordDuplicateToolInput>(),
         ),
         // Protocol run execution tools (#977)
         tool(
@@ -2124,6 +2156,23 @@ pub fn call_tool(
                 Err(e) => Ok(tool_err(e.report())),
             }
         }
+        TOOL_RECORD_DUPLICATE => {
+            let input: RecordDuplicateToolInput = parse_args(arguments)?;
+            let dup = srs_repository::duplicate_service::DuplicateRecordInput {
+                relation_ids: input.relation_ids,
+                carry_relations: input.carry_relations,
+                relation_types: input.relation_types,
+                target_container: input.target_container_id,
+            };
+            match srs_repository::duplicate_service::duplicate_record(
+                store,
+                &input.instance_id,
+                &dup,
+            ) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.report())),
+            }
+        }
         TOOL_RECORD_FORK => {
             let input: RecordForkToolInput = parse_args(arguments)?;
             let opts = srs_repository::fork_service::ForkOptions {
@@ -2487,6 +2536,7 @@ mod tests {
             "repair",
             "copy",
             "fork",
+            "duplicate",
             "transition",
             "successor",
             "graduate",
@@ -2539,6 +2589,7 @@ mod tests {
                 TOOL_CONTAINER_OUTLINE,
                 TOOL_CONTAINER_COPY,
                 TOOL_RECORD_FORK,
+                TOOL_RECORD_DUPLICATE,
                 TOOL_PROTOCOL_RUN_CREATE,
                 TOOL_PROTOCOL_RUN_ADVANCE,
                 TOOL_PROTOCOL_RUN_GET,

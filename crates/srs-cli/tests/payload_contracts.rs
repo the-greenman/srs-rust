@@ -244,6 +244,11 @@ fn container_copy() {
 }
 
 #[test]
+fn record_duplicate() {
+    check::<RecordDuplicatePayload>("record-duplicate");
+}
+
+#[test]
 fn record_fork() {
     check::<RecordForkPayload>("record-fork");
 }
