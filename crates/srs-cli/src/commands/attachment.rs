@@ -2,13 +2,13 @@ use crate::commands::{with_store, AttachmentCommand, CliContext};
 use crate::output;
 use crate::payload::{
     AttachmentAddPayload, AttachmentLinkPayload, AttachmentListPayload, AttachmentPolicyPayload,
-    ResolveViewAttachmentsPayload,
+    AttachmentRemovePayload, AttachmentUnlinkPayload, ResolveViewAttachmentsPayload,
 };
 use anyhow::Result;
 use srs_repository::attachment_policy_service;
 use srs_repository::attachment_service::{
-    self, AddAttachmentInput, LinkAttachmentInput, ListAttachmentsFilter,
-    ResolveCompositionAttachmentsInput,
+    self, AddAttachmentInput, LinkAttachmentInput, ListAttachmentsFilter, RemoveAttachmentInput,
+    ResolveCompositionAttachmentsInput, UnlinkAttachmentInput,
 };
 
 pub fn dispatch(ctx: CliContext, cmd: AttachmentCommand) -> Result<String> {
@@ -24,6 +24,13 @@ pub fn dispatch(ctx: CliContext, cmd: AttachmentCommand) -> Result<String> {
             instance_id,
             document_id,
         } => cmd_attachment_link(ctx, instance_id, document_id),
+        AttachmentCommand::Unlink {
+            instance_id,
+            document_id,
+        } => cmd_attachment_unlink(ctx, instance_id, document_id),
+        AttachmentCommand::Remove { document_id, force } => {
+            cmd_attachment_remove(ctx, document_id, force)
+        }
         AttachmentCommand::ResolveViewAttachments => cmd_attachment_resolve_view_attachments(ctx),
         AttachmentCommand::PolicyGet => cmd_attachment_policy_get(ctx),
     }
@@ -64,6 +71,33 @@ fn cmd_attachment_link(
         )?)
     })?;
     output::serialize("attachment link", AttachmentLinkPayload::from(result))
+}
+
+fn cmd_attachment_unlink(
+    ctx: CliContext,
+    instance_id: String,
+    document_id: String,
+) -> Result<String> {
+    let result = with_store(&ctx, |store| {
+        Ok(attachment_service::unlink_attachment(
+            store,
+            UnlinkAttachmentInput {
+                instance_id,
+                document_id,
+            },
+        )?)
+    })?;
+    output::serialize("attachment unlink", AttachmentUnlinkPayload::from(result))
+}
+
+fn cmd_attachment_remove(ctx: CliContext, document_id: String, force: bool) -> Result<String> {
+    let result = with_store(&ctx, |store| {
+        Ok(attachment_service::remove_attachment(
+            store,
+            RemoveAttachmentInput { document_id, force },
+        )?)
+    })?;
+    output::serialize("attachment remove", AttachmentRemovePayload::from(result))
 }
 
 fn cmd_attachment_add(

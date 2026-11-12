@@ -1322,6 +1322,10 @@ pub trait RepositoryStore {
     /// Write raw bytes to `relative_path`, creating parent directories as needed.
     fn save_binary_file(&self, relative_path: &str, content: &[u8]) -> Result<(), RepositoryError>;
 
+    /// Delete the file at `relative_path` (content or text). `NotFound` when absent.
+    /// Used by `attachment_service::remove_attachment` for the content file and sidecar.
+    fn delete_source_file(&self, relative_path: &str) -> Result<(), RepositoryError>;
+
     /// A verbatim snapshot of the store's file tree, when the backend is an
     /// in-memory tree session (ADR-038/038). `None` for every other store.
     fn as_tree_snapshot(&self) -> Option<std::collections::BTreeMap<String, Vec<u8>>> {
@@ -3013,6 +3017,10 @@ impl RepositoryStore for FileStore {
             self.vfs_create_dir_all(parent)?;
         }
         self.vfs_write(relative_path, content)
+    }
+
+    fn delete_source_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
+        self.vfs_remove(relative_path)
     }
 
     // --- Sub-package path validation ---
@@ -4735,6 +4743,20 @@ pub mod memory {
                 .borrow_mut()
                 .insert(relative_path.to_string(), content.to_vec());
             Ok(())
+        }
+
+        fn delete_source_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
+            let a = self.data.borrow_mut().remove(relative_path).is_some();
+            let b = self
+                .binary_data
+                .borrow_mut()
+                .remove(relative_path)
+                .is_some();
+            if a || b {
+                Ok(())
+            } else {
+                Err(not_found(relative_path))
+            }
         }
 
         fn validate_package_ref_path(&self, _relative_path: &str) -> Result<(), RepositoryError> {

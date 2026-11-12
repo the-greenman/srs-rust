@@ -203,8 +203,27 @@ impl WriteGuard {
             tools::TOOL_RECORD_SUCCESSOR => {
                 parse::<RecordSuccessorToolInput>(args).map(|i| i.predecessor_id)
             }
-            tools::TOOL_ATTACHMENT_LINK => {
+            tools::TOOL_ATTACHMENT_LINK | tools::TOOL_ATTACHMENT_UNLINK => {
                 parse::<tools::AttachmentLinkToolInput>(args).map(|i| i.instance_id)
+            }
+            // A forced remove edits every record that references the file.
+            tools::TOOL_ATTACHMENT_REMOVE => {
+                if let Some(i) = parse::<tools::AttachmentRemoveToolInput>(args).filter(|i| i.force)
+                {
+                    let holders = srs_repository::attachment_service::referencing_instances(
+                        store,
+                        &i.document_id,
+                    )
+                    .map_err(|e| e.to_string())?;
+                    for h in holders {
+                        if self.record_guarded(store, &h)? {
+                            return Err(self.deny(&format!(
+                                "record '{h}' is protected; {name} with force would edit it"
+                            )));
+                        }
+                    }
+                }
+                None
             }
             _ => None,
         };

@@ -3449,6 +3449,42 @@ impl From<srs_repository::attachment_service::LinkAttachmentResult> for Attachme
     }
 }
 
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentUnlinkPayload {
+    pub instance_id: String,
+    pub document_id: String,
+    pub refs_removed: usize,
+}
+
+impl From<srs_repository::attachment_service::UnlinkAttachmentResult> for AttachmentUnlinkPayload {
+    fn from(r: srs_repository::attachment_service::UnlinkAttachmentResult) -> Self {
+        Self {
+            instance_id: r.instance_id,
+            document_id: r.document_id,
+            refs_removed: r.refs_removed,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentRemovePayload {
+    pub document_id: String,
+    pub content_path: String,
+    pub refs_removed: usize,
+}
+
+impl From<srs_repository::attachment_service::RemoveAttachmentResult> for AttachmentRemovePayload {
+    fn from(r: srs_repository::attachment_service::RemoveAttachmentResult) -> Self {
+        Self {
+            document_id: r.document_id,
+            content_path: r.content_path,
+            refs_removed: r.refs_removed,
+        }
+    }
+}
+
 // ── Resolve view attachments payloads ─────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]

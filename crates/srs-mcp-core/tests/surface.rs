@@ -63,11 +63,11 @@ fn application_reads_repository_id_from_manifest() {
 }
 
 #[test]
-fn tool_catalogue_has_all_forty_one_tools_and_core_owns_the_schemas() {
+fn tool_catalogue_has_all_forty_three_tools_and_core_owns_the_schemas() {
     let (_dir, mut d) = setup();
     let listed = rpc(&mut d, "tools/list", json!({}));
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 41);
+    assert_eq!(tools.len(), 43);
     assert!(tools
         .iter()
         .all(|t| t["description"].is_string() && t["inputSchema"]["type"] == "object"));
@@ -752,6 +752,71 @@ mod write_guard {
         assert_eq!(err["code"], "svg-unsafe", "{r}");
         assert_eq!(err["details"]["rule"], "script-element", "{r}");
         assert!(!dir.path().join("source-documents/x.svg").exists());
+    }
+
+    #[test]
+    fn attachment_unlink_and_remove_round_trip() {
+        let (dir, mut d) = guarded();
+        let id = create(
+            &mut d,
+            "com.example.surface/para1",
+            json!({ "body": "t" }),
+            None,
+        );
+        let a = tool(
+            &mut d,
+            "attachment_add",
+            json!({ "fileName": "a.txt", "content": "hello" }),
+        );
+        let doc = a["result"]["structuredContent"]["documentId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let link = json!({ "instanceId": id, "documentId": doc });
+        let docs = dir.path().join("source-documents");
+        assert_ok(&mut d, "attachment_link", link.clone());
+        // In use: refused with the stable code, nothing deleted.
+        let r = tool(&mut d, "attachment_remove", json!({ "documentId": doc }));
+        assert_eq!(r["result"]["isError"], true, "{r}");
+        assert_eq!(
+            r["result"]["structuredContent"]["code"], "cannot-delete-in-use",
+            "{r}"
+        );
+        assert!(docs.join("a.txt").exists());
+        // Unlink keeps the file; a second unlink is a tool error.
+        assert_ok(&mut d, "attachment_unlink", link.clone());
+        assert!(docs.join("a.txt").exists());
+        let again = tool(&mut d, "attachment_unlink", link.clone());
+        assert_eq!(again["result"]["isError"], true, "{again}");
+        // Unreferenced: removed, content and sidecar.
+        assert_ok(&mut d, "attachment_remove", json!({ "documentId": doc }));
+        assert!(!docs.join("a.txt").exists());
+        assert!(!docs.join("a.txt.meta.json").exists());
+        let gone = tool(&mut d, "attachment_remove", json!({ "documentId": doc }));
+        assert_eq!(gone["result"]["isError"], true, "{gone}");
+        // Force removes the reference in the same call.
+        let b = tool(
+            &mut d,
+            "attachment_add",
+            json!({ "fileName": "b.txt", "content": "x" }),
+        );
+        let doc_b = b["result"]["structuredContent"]["documentId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_ok(
+            &mut d,
+            "attachment_link",
+            json!({ "instanceId": id, "documentId": doc_b }),
+        );
+        let f = tool(
+            &mut d,
+            "attachment_remove",
+            json!({ "documentId": doc_b, "force": true }),
+        );
+        assert_eq!(f["result"]["isError"], false, "{f}");
+        assert_eq!(f["result"]["structuredContent"]["refsRemoved"], 1, "{f}");
+        assert!(!docs.join("b.txt").exists());
     }
 
     #[test]
