@@ -957,9 +957,8 @@ pub fn list_record_summaries(
 /// Label resolution uses the same priority as [`list_record_summaries`]: the record's Type's
 /// effective `identityFieldId` > field named "title" > "name" > "label" > `type_name` fallback.
 ///
-/// Builds the label indexes on every call — suitable for UI single-record fetches. Callers
-/// fetching multiple records should use [`list_record_summaries`] to amortise the index-build
-/// cost.
+/// The label indexes are memoized per store and write epoch (srs-rust#1649), so a per-record
+/// call is cheap; [`list_record_summaries`] still suits a whole listing.
 pub fn get_record_summary_by_id(
     store: &dyn RepositoryStore,
     id: &str,
