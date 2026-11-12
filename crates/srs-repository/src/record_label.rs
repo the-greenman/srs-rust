@@ -2,6 +2,7 @@ use crate::error::RepositoryError;
 use crate::store::RepositoryStore;
 use srs_core::types::record::Record;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 /// `field_id → field_name`.
 pub(crate) type FieldNameIndex = HashMap<String, String>;
@@ -32,20 +33,24 @@ pub(crate) fn identity_field_index_from_package(
 
 /// Build both the `field_id → field_name` and `(type_id, type_version) → identityFieldId`
 /// indexes from a single `Package` load. Every `record_display_label` call site needs both
-/// indexes together, so this loads the package exactly once rather than twice
-/// (`store.load_package()` has no caching and re-reads/re-parses every package file on
-/// `FileStore`). Load once per batch operation; pass both maps to `record_display_label`.
+/// indexes together. Memoized per store and write epoch (srs-rust#1649), so a per-record
+/// caller no longer pays a package reload; pass both maps to `record_display_label`.
 pub(crate) fn build_label_indexes(
     store: &dyn RepositoryStore,
 ) -> Result<(FieldNameIndex, IdentityFieldIndex), RepositoryError> {
-    let package = store.load_package()?;
-    Ok(build_label_indexes_from_package(&package))
+    // srs-rust#1649: memoized per store (the package reload was ~1.3 ms per labelled read).
+    if let Some(hit) = store.read_memo().and_then(|m| m.borrow().labels.clone()) {
+        return Ok((*hit).clone());
+    }
+    let built = build_label_indexes_from_package(&*crate::store::package_snapshot(store)?);
+    if let Some(memo) = store.read_memo() {
+        memo.borrow_mut().labels = Some(Rc::new(built.clone()));
+    }
+    Ok(built)
 }
 
 /// Same as [`build_label_indexes`], but from an already-loaded `Package` —
-/// for callers that need the package itself for other lookups too and must
-/// not load it twice (`FileStore` re-reads/re-parses every package file on
-/// every `load_package()` call, with no caching).
+/// for callers that already hold the package for other lookups too.
 pub(crate) fn build_label_indexes_from_package(
     package: &crate::package::Package,
 ) -> (FieldNameIndex, IdentityFieldIndex) {
