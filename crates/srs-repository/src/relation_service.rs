@@ -125,7 +125,7 @@ pub fn list_relations(
         None
     };
 
-    let relations = load_relations(store)?;
+    let relations = relations_snapshot(store)?;
 
     // One package load for both label indexes, and a per-id cache so a busy
     // endpoint (e.g. a hub record with many relations) is resolved once, not
@@ -146,7 +146,7 @@ pub fn list_relations(
     };
 
     let filtered: Vec<_> = relations
-        .into_iter()
+        .iter()
         .filter(|r| {
             // Container filter: both source AND target must be members
             if let Some(ref member_set) = member_ids {
@@ -453,10 +453,29 @@ pub(crate) fn load_relations_with_locators(
 pub(crate) fn load_relations(
     store: &dyn RepositoryStore,
 ) -> Result<Vec<Relation>, RepositoryError> {
-    Ok(load_relations_with_locators(store)?
-        .into_iter()
-        .map(|lr| lr.relation)
-        .collect())
+    // A store with no memo (one-shot paths) takes the parsed Vec without a second copy.
+    let snapshot = relations_snapshot(store)?;
+    Ok(std::rc::Rc::try_unwrap(snapshot).unwrap_or_else(|shared| (*shared).clone()))
+}
+
+/// [`load_relations`] as the store's shared snapshot (srs-rust#1649): parsed and
+/// duplicate-checked once per write epoch, so a filtered read clones only its matches.
+pub(crate) fn relations_snapshot(
+    store: &dyn RepositoryStore,
+) -> Result<std::rc::Rc<Vec<Relation>>, RepositoryError> {
+    if let Some(hit) = store.read_memo().and_then(|m| m.borrow().relations.clone()) {
+        return Ok(hit);
+    }
+    let all: std::rc::Rc<Vec<Relation>> = std::rc::Rc::new(
+        load_relations_with_locators(store)?
+            .into_iter()
+            .map(|lr| lr.relation)
+            .collect(),
+    );
+    if let Some(memo) = store.read_memo() {
+        memo.borrow_mut().relations = Some(all.clone());
+    }
+    Ok(all)
 }
 
 /// Remove every relation matching `pred`, across both storage forms.

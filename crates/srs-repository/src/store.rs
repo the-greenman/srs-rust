@@ -1121,8 +1121,18 @@ pub trait RepositoryStore {
         &self,
         container_id: &str,
     ) -> Result<srs_core::types::container::Container, RepositoryError> {
+        let memo = self.read_memo();
+        if let Some(hit) = memo.and_then(|m| m.borrow().containers.get(container_id).cloned()) {
+            return Ok(hit);
+        }
         let locator = catalog_file_container_locator(self, container_id)?;
-        load_container_at(self, container_id, locator)
+        let container = load_container_at(self, container_id, locator)?;
+        if let Some(memo) = memo {
+            memo.borrow_mut()
+                .containers
+                .insert(container_id.to_string(), container.clone());
+        }
+        Ok(container)
     }
 
     /// [`load_container`] with the locator resolved from the **unchecked**
@@ -1408,10 +1418,57 @@ pub trait RepositoryStore {
     fn discovery_index_cache(&self) -> Option<&DiscoveryIndexCache> {
         None
     }
+
+    /// Store-scoped memo of parsed relations, containers, the package and its label index
+    /// (srs-rust#1649), emptied whenever the store's write epoch moves. `None` (the
+    /// default) means the store cannot memoize and every read parses again.
+    fn read_memo(&self) -> Option<&ReadMemoCell> {
+        None
+    }
 }
 
 /// See [`RepositoryStore::discovery_index_cache`].
 pub type DiscoveryIndexCache = RefCell<Option<Rc<dyn crate::discovery_index::DiscoveryIndex>>>;
+
+/// Parsed-object memos for the per-call readers (srs-rust#1649): each filtered read
+/// (`list_relations`, `containers_for_instance`, `context_record`, a record's label)
+/// re-parsed every relation file, every container or the whole package on every call,
+/// ~9-17 ms each on a 4,500-relation corpus. `package` serves [`package_snapshot`];
+/// `labels` is the package-derived label index (`record_label::build_label_indexes`).
+/// Emptied with the catalog memo whenever the store's write epoch moves, so a hit is
+/// always current.
+#[derive(Debug, Default)]
+pub struct ReadMemo {
+    package: Option<Rc<Package>>,
+    pub(crate) labels: Option<
+        Rc<(
+            crate::record_label::FieldNameIndex,
+            crate::record_label::IdentityFieldIndex,
+        )>,
+    >,
+    /// Every relation, dual-read and duplicate-checked (`relation_service::load_relations`).
+    pub(crate) relations: Option<Rc<Vec<srs_core::types::relation::Relation>>>,
+    containers: HashMap<String, srs_core::types::container::Container>,
+}
+
+/// See [`RepositoryStore::read_memo`].
+pub type ReadMemoCell = RefCell<ReadMemo>;
+
+/// [`RepositoryStore::load_package`] through the store's read memo (srs-rust#1649): a
+/// per-call reader shares one parsed package per write epoch instead of re-reading every
+/// package file (~1.3 ms on muSrs).
+pub(crate) fn package_snapshot(
+    store: &dyn RepositoryStore,
+) -> Result<Rc<Package>, RepositoryError> {
+    if let Some(hit) = store.read_memo().and_then(|m| m.borrow().package.clone()) {
+        return Ok(hit);
+    }
+    let package = Rc::new(store.load_package()?);
+    if let Some(memo) = store.read_memo() {
+        memo.borrow_mut().package = Some(package.clone());
+    }
+    Ok(package)
+}
 
 // ---------------------------------------------------------------------------
 // FileStore — file-backed implementation
@@ -1467,6 +1524,8 @@ pub struct FileStore {
     catalog_state: RefCell<Option<crate::catalog::CatalogState>>,
     /// Discovery index memo (srs-rust#1228); dropped with the catalogs on a write.
     discovery_index_cache: DiscoveryIndexCache,
+    /// Parsed relations, containers, package and label index (srs-rust#1649); dropped with the catalogs on a write.
+    read_memo: ReadMemoCell,
     /// Write generation shared by every clone of this store (they share one
     /// `Rc<dyn Vfs>`): a write through any clone bumps it, and each handle drops
     /// its memoized catalogs when its own `cache_epoch` is behind (srs-rust#1057:
@@ -1507,6 +1566,7 @@ impl Clone for FileStore {
             catalog_unchecked_cache: RefCell::new(None),
             catalog_state: RefCell::new(None),
             discovery_index_cache: RefCell::new(None),
+            read_memo: RefCell::default(),
             epoch: self.epoch.clone(),
             cache_epoch: Cell::new(self.epoch.get()),
             session_actor: RefCell::new(self.session_actor.borrow().clone()),
@@ -1531,6 +1591,7 @@ impl FileStore {
             catalog_unchecked_cache: RefCell::new(None),
             catalog_state: RefCell::new(None),
             discovery_index_cache: RefCell::new(None),
+            read_memo: RefCell::default(),
             epoch: Rc::new(Cell::new(0)),
             cache_epoch: Cell::new(0),
             session_actor: RefCell::new(None),
@@ -1553,6 +1614,7 @@ impl FileStore {
             catalog_unchecked_cache: RefCell::new(None),
             catalog_state: RefCell::new(None),
             discovery_index_cache: RefCell::new(None),
+            read_memo: RefCell::default(),
             epoch: Rc::new(Cell::new(0)),
             cache_epoch: Cell::new(0),
             session_actor: RefCell::new(None),
@@ -1719,6 +1781,7 @@ impl FileStore {
             self.catalog_unchecked_cache.borrow_mut().take();
             self.catalog_state.borrow_mut().take();
             self.discovery_index_cache.borrow_mut().take();
+            self.read_memo.take();
         }
     }
 
@@ -2700,6 +2763,11 @@ impl RepositoryStore for FileStore {
     fn discovery_index_cache(&self) -> Option<&DiscoveryIndexCache> {
         self.sync_cache_epoch();
         Some(&self.discovery_index_cache)
+    }
+
+    fn read_memo(&self) -> Option<&ReadMemoCell> {
+        self.sync_cache_epoch();
+        Some(&self.read_memo)
     }
 
     fn catalog_unchecked(&self) -> Result<Rc<crate::catalog::RepositoryCatalog>, RepositoryError> {
@@ -7129,6 +7197,48 @@ mod tests {
              on how many paths (or times) the walk reaches a shared node — \
              a plain chain visits 4 times, the sharing DAG visits 5 times \
              (the shared node twice), but both must cost the same reads"
+        );
+    }
+
+    /// srs-rust#1649: the package memo (and the label index built from it) is never served
+    /// after a package write through another clone of the store.
+    #[test]
+    fn package_memo_follows_a_write_through_another_clone() {
+        use crate::repository_lifecycle::{
+            create_repository, InitializeRepositoryInput, PrimaryPackageMetadata,
+            RepositoryMetadata,
+        };
+        let ui = FileStore::from_vfs(Rc::new(MemVfs::new()));
+        create_repository(
+            &ui,
+            &InitializeRepositoryInput {
+                repository: RepositoryMetadata {
+                    repository_id: "16490000-0000-4000-8000-000000000101".to_string(),
+                    namespace: "com.test.memo".to_string(),
+                    srs_version: "2.0-draft".to_string(),
+                    title: None,
+                    description: None,
+                },
+                primary_package: PrimaryPackageMetadata {
+                    id: "16490000-0000-4000-8000-000000000102".to_string(),
+                    namespace: "com.test.memo".to_string(),
+                    name: "primary".to_string(),
+                    version: "1.0.0".to_string(),
+                },
+            },
+        )
+        .unwrap();
+        let agent = ui.clone();
+        assert_eq!(package_snapshot(&ui).unwrap().version, "1.0.0"); // warms the memo
+        let mut json: serde_json::Value =
+            serde_json::from_str(&agent.vfs.read_to_string("package/package.json").unwrap())
+                .unwrap();
+        json["version"] = "1.1.0".into();
+        agent.save_package_json(&json).unwrap();
+        assert_eq!(
+            package_snapshot(&ui).unwrap().version,
+            "1.1.0",
+            "the memo served a package from before another clone's write"
         );
     }
 }

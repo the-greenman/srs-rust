@@ -212,18 +212,18 @@ pub fn get_record_context(
     // Category filtering needs it; a compact projection only improves with it (labels and
     // summaries), so — like `list_neighbours` — it tolerates a package that will not load.
     let package = if !query.exclude_relation_categories.is_empty() {
-        Some(store.load_package()?)
+        Some(crate::store::package_snapshot(store)?)
     } else if compact {
-        store.load_package().ok()
+        crate::store::package_snapshot(store).ok()
     } else {
         None
     };
     let card_ctx = if compact {
         let manifest = store.load_manifest()?;
         Some(CardContext {
-            package: package.as_ref(),
+            package: package.as_deref(),
             labels: package
-                .as_ref()
+                .as_deref()
                 .map(crate::record_label::build_label_indexes_from_package),
             repo_id: crate::resource_uri::repository_id(&manifest)
                 .unwrap_or_default()
@@ -233,8 +233,9 @@ pub fn get_record_context(
     } else {
         None
     };
-    // ponytail: two full relation scans and a neighbour load per edge; add a per-id cache /
-    // single pass if hub records measure slow. A self-relation appears once as out, once as in.
+    // ponytail: two in-memory scans of the memoized relation set (srs-rust#1649) and a
+    // neighbour load per edge; add a by-endpoint index if hub records measure slow. A
+    // self-relation appears once as out, once as in.
     let mut relations = Vec::new();
     for (direction, filter) in [
         (
