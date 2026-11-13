@@ -107,19 +107,30 @@ impl Package {
         &self.relation_type_definitions
     }
 
-    /// Resolve a view by its UUID id.
+    /// Resolve a view by its UUID id. An id-only (LINEAGE) reference names the
+    /// definition, not a version, so when several versions are installed the
+    /// highest one wins (srs-rust#1648).
     pub fn resolve_view(&self, id: &str) -> Option<&View> {
-        self.views.iter().find(|v| v.id == id)
+        self.views
+            .iter()
+            .filter(|v| v.id == id)
+            .max_by_key(|v| v.version)
     }
 
     /// Resolve a document view by its UUID id.
     pub fn resolve_composition(&self, id: &str) -> Option<&Composition> {
-        self.compositions.iter().find(|v| v.id == id)
+        self.compositions
+            .iter()
+            .filter(|v| v.id == id)
+            .max_by_key(|v| v.version)
     }
 
     /// Resolve a theme by its UUID id.
     pub fn resolve_theme(&self, theme_id: &str) -> Option<&Theme> {
-        self.themes.iter().find(|theme| theme.id == theme_id)
+        self.themes
+            .iter()
+            .filter(|theme| theme.id == theme_id)
+            .max_by_key(|theme| theme.version)
     }
 
     /// Get all themes as a slice.
@@ -1206,6 +1217,30 @@ mod tests {
                 "deprecated/tombstone types should still resolve"
             );
         }
+    }
+
+    #[test]
+    fn id_only_reference_resolves_to_highest_installed_version() {
+        let mut package = make_package_with_types(vec![]);
+        let comp = |v: u32| -> Composition {
+            serde_json::from_value(serde_json::json!({
+                "id": "c-1", "namespace": "com.test", "name": "c", "version": v,
+                "description": "d", "sections": [], "createdAt": "2026-01-01T00:00:00Z"
+            }))
+            .unwrap()
+        };
+        let theme = |v: u32| -> Theme {
+            serde_json::from_value(serde_json::json!({
+                "id": "t-1", "namespace": "com.test", "name": "t", "version": v,
+                "description": "d", "targets": [], "createdAt": "2026-01-01T00:00:00Z"
+            }))
+            .unwrap()
+        };
+        // Older version first, as an upgrade leaves them.
+        package.compositions = vec![comp(1), comp(2)];
+        package.themes = vec![theme(1), theme(2)];
+        assert_eq!(package.resolve_composition("c-1").unwrap().version, 2);
+        assert_eq!(package.resolve_theme("t-1").unwrap().version, 2);
     }
 
     // ── effective_fields tests ────────────────────────────────────────────────
