@@ -105,30 +105,30 @@ helpers.
 
 #### Tasks
 
-- [ ] Add `fn memory_repo() -> MemoryStore` (or populate an existing `MemoryStore::empty()`
+- [x] Add `fn memory_repo() -> MemoryStore` (or populate an existing `MemoryStore::empty()`
       inline) that runs the same `create_package`/`create_field_normalized`/
       `create_type_normalized`/`create_relation_type_normalized` sequence as `fn repo()`, against
       `MemoryStore::empty()` instead of `FileStore::new(...)` + `initialize_repository`.
-- [ ] Extract `moves_every_version_of_a_type_together`'s body into
+- [x] Extract `moves_every_version_of_a_type_together`'s body into
       `fn run_moves_every_version_of_a_type_together(store: &dyn RepositoryStore)`, taking the
       store by trait object so it works for either backend; keep `list()`/`code()` helpers
       store-generic (already take `&FileStore` today — widen to `&dyn RepositoryStore` since both
       only call `load_instance_json`, which is on the trait).
-- [ ] Extract `refuses_an_unknown_id_an_unknown_target_and_the_same_boundary`'s body into
+- [x] Extract `refuses_an_unknown_id_an_unknown_target_and_the_same_boundary`'s body into
       `fn run_refuses_an_unknown_id_an_unknown_target_and_the_same_boundary(store: &dyn
       RepositoryStore)`.
-- [ ] Write a `MemoryStore`-appropriate dry-run suite fn,
+- [x] Write a `MemoryStore`-appropriate dry-run suite fn,
       `fn run_a_dry_run_writes_nothing(store: &dyn RepositoryStore)`, asserting via
       `list(store, "package", "types")` / `list(store, SITE, "types")` before and after (equal)
       plus `out.moved.len() == 2` and `out.dry_run == true`, instead of the FileStore-only
       `snapshot()` byte comparison. Keep the existing FileStore `a_dry_run_writes_nothing` test
       (with its stronger byte-for-byte `snapshot()` assertion) as-is; add the new generic fn as an
       additional assertion path, not a replacement.
-- [ ] Add `#[test] fn memory_store_moves_every_version_of_a_type_together()`,
+- [x] Add `#[test] fn memory_store_moves_every_version_of_a_type_together()`,
       `#[test] fn memory_store_refuses_an_unknown_id_an_unknown_target_and_the_same_boundary()`,
       `#[test] fn memory_store_a_dry_run_writes_nothing()` calling the new suite fns against
       `memory_repo()`.
-- [ ] Add `#[test] fn file_store_moves_every_version_of_a_type_together()` and
+- [x] Add `#[test] fn file_store_moves_every_version_of_a_type_together()` and
       `#[test] fn file_store_refuses_an_unknown_id_an_unknown_target_and_the_same_boundary()`
       calling the extracted suite fns against the existing `repo()` FileStore factory, replacing
       the two original single-backend tests (`moves_every_version_of_a_type_together`,
@@ -136,18 +136,18 @@ helpers.
       of each case, run twice. Leave `a_dry_run_writes_nothing` (FileStore, byte-snapshot version)
       untouched and add the new memory-only dry-run test alongside it rather than merging the two
       dry-run assertions into one shared fn (the snapshot mechanism is disk-only).
-- [ ] Update the module doc comment at the top of `package_move.rs` to note the cross-store
+- [x] Update the module doc comment at the top of `package_move.rs` to note the cross-store
       coverage, mirroring the note in `delete_membership_cascade.rs`'s header comment.
 
 #### Acceptance Criteria
 
-- [ ] `cargo test -p srs-repository --test package_move` passes with the new `memory_store_*`
+- [x] `cargo test -p srs-repository --test package_move` passes with the new `memory_store_*`
       tests present and green.
-- [ ] The two refactored cases (lineage-move-together, unknown-id/target/same-boundary refusals)
+- [x] The two refactored cases (lineage-move-together, unknown-id/target/same-boundary refusals)
       each have exactly one shared suite fn, invoked from one `file_store_*` test and one
       `memory_store_*` test — no duplicated assertion logic between the two backends.
-- [ ] No change to any file under `crates/srs-repository/src/` (test-only diff).
-- [ ] Every pre-existing test in `package_move.rs` not named above (file-rename-collision,
+- [x] No change to any file under `crates/srs-repository/src/` (test-only diff).
+- [x] Every pre-existing test in `package_move.rs` not named above (file-rename-collision,
       partial-move-resume, installed-package refusals, moves-a-relation-type,
       moves-back-into-primary, moves-a-type-that-records-use, package-names-primary-boundary)
       still exists and passes unchanged.
@@ -193,15 +193,19 @@ end-to-end.
 
 ## Final Acceptance
 
-- [ ] `cargo test` passes with no failures
-- [ ] `cargo clippy -- -D warnings` passes
-- [ ] CLI output format unchanged (no `srs-cli` files touched)
-- [ ] `cargo test --test payload_contracts` — not applicable, no payload structs changed; skip
-- [ ] `bash scripts/check-schema-sync.sh` — not applicable, no entity schemas changed; skip
-- [ ] `crates/srs-repository/tests/package_move.rs` exercises `MemoryStore` for lineage-move-
+- [x] `cargo test` passes with no failures (scoped: `cargo test -p srs-repository --test
+      package_move` — 15 passed, 0 failed; see Stage 6 milestone-gate note below on scoping vs.
+      a full `--workspace` run)
+- [x] `cargo clippy -- -D warnings` passes (scoped: `cargo clippy -p srs-repository --all-targets
+      -- -D warnings` — clean, exit 0)
+- [x] CLI output format unchanged (no `srs-cli` files touched)
+- [x] `cargo test --test payload_contracts` — not applicable, no payload structs changed; skip
+- [x] `bash scripts/check-schema-sync.sh` — not applicable, no entity schemas changed; skip
+- [x] `crates/srs-repository/tests/package_move.rs` exercises `MemoryStore` for lineage-move-
       together, dry-run, and refusal-code cases, matching the crate's established cross-store
       idiom
-- [ ] No production-code change in `package_move_service.rs`
+- [x] No production-code change in `package_move_service.rs` (diff vs `origin/master` touches
+      only `crates/srs-repository/tests/package_move.rs` and this plan file)
 
 ## Coordination Rules
 
