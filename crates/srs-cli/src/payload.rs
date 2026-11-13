@@ -1510,6 +1510,8 @@ pub struct ProtocolFindByTargetTypePayload {
     pub protocol_name: String,
     pub stages: Vec<ProtocolStageEntry>,
     pub diagnostics: Vec<String>,
+    /// `diagnostics` as structured findings, entry for entry (ADR-057, srs-rust#1339).
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 // ── Protocol run payloads ─────────────────────────────────────────────────────
