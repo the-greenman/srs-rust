@@ -280,6 +280,20 @@ fn cmd_record_successor(ctx: CliContext, id: String) -> Result<String> {
     }
 }
 
+/// `--into` and the global `--container` name the same thing; both given must agree.
+/// Returns the merged target container, or an `InvalidInput` error if they disagree.
+fn resolve_into_container(
+    into: Option<String>,
+    container_id: Option<String>,
+) -> std::result::Result<Option<String>, RepositoryError> {
+    match (into, container_id) {
+        (Some(i), Some(c)) if i != c => Err(RepositoryError::InvalidInput {
+            message: format!("--into {i} conflicts with --container {c}; give one"),
+        }),
+        (i, c) => Ok(i.or(c)),
+    }
+}
+
 fn cmd_record_duplicate(
     ctx: CliContext,
     id: String,
@@ -290,16 +304,9 @@ fn cmd_record_duplicate(
 ) -> Result<String> {
     use srs_repository::duplicate_service::{duplicate_record, DuplicateRecordInput};
     use srs_repository::fork_service::CarryRelations;
-    let target_container = match (into, ctx.container_id.clone()) {
-        (Some(i), Some(c)) if i != c => {
-            return Ok(output::repo_err(
-                "record duplicate",
-                &RepositoryError::InvalidInput {
-                    message: format!("--into {i} conflicts with --container {c}; give one"),
-                },
-            ));
-        }
-        (i, c) => i.or(c),
+    let target_container = match resolve_into_container(into, ctx.container_id.clone()) {
+        Ok(target) => target,
+        Err(e) => return Ok(output::repo_err("record duplicate", &e)),
     };
     let input = DuplicateRecordInput {
         relation_ids,
@@ -333,17 +340,9 @@ fn cmd_record_fork(
     carry_relations: &str,
 ) -> Result<String> {
     use srs_repository::fork_service::{CarryRelations, ForkOptions};
-    // `--into` and the global `--container` name the same thing; both given must agree.
-    let container = match (into.clone(), ctx.container_id.clone()) {
-        (Some(i), Some(c)) if i != c => {
-            return Ok(output::repo_err(
-                "record fork",
-                &RepositoryError::InvalidInput {
-                    message: format!("--into {i} conflicts with --container {c}; give one"),
-                },
-            ));
-        }
-        (i, c) => i.or(c),
+    let container = match resolve_into_container(into.clone(), ctx.container_id.clone()) {
+        Ok(container) => container,
+        Err(e) => return Ok(output::repo_err("record fork", &e)),
     };
     let opts = ForkOptions {
         target_container: into,
