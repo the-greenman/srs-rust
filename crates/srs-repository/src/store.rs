@@ -2396,9 +2396,12 @@ impl RepositoryStore for FileStore {
         if !pkg_refs.is_empty() {
             let mut field_sources: HashMap<String, PathBuf> = HashMap::new();
             let mut type_sources: HashMap<(String, u32), PathBuf> = HashMap::new();
-            let mut view_sources: HashMap<String, PathBuf> = HashMap::new();
-            let mut doc_view_sources: HashMap<String, PathBuf> = HashMap::new();
-            let mut theme_sources: HashMap<String, PathBuf> = HashMap::new();
+            // Views, Compositions and Themes are keyed by (id, version), as types and vocabularies
+            // are: a package upgrade installs a new version beside the old one, and both must load so
+            // an id-only reference resolves to the newest (srs-rust#1648).
+            let mut view_sources: HashMap<(String, u32), PathBuf> = HashMap::new();
+            let mut doc_view_sources: HashMap<(String, u32), PathBuf> = HashMap::new();
+            let mut theme_sources: HashMap<(String, u32), PathBuf> = HashMap::new();
             let mut blueprint_sources: HashMap<String, PathBuf> = HashMap::new();
             let mut protocol_sources: HashMap<String, PathBuf> = HashMap::new();
             let mut vocab_sources: HashMap<(String, u32), PathBuf> = HashMap::new();
@@ -2409,13 +2412,13 @@ impl RepositoryStore for FileStore {
                 type_sources.insert((rt.id.clone(), rt.version), package_dir.clone());
             }
             for v in &views {
-                view_sources.insert(v.id.clone(), package_dir.clone());
+                view_sources.insert((v.id.clone(), v.version), package_dir.clone());
             }
             for dv in &compositions {
-                doc_view_sources.insert(dv.id.clone(), package_dir.clone());
+                doc_view_sources.insert((dv.id.clone(), dv.version), package_dir.clone());
             }
             for theme in &themes {
-                theme_sources.insert(theme.id.clone(), package_dir.clone());
+                theme_sources.insert((theme.id.clone(), theme.version), package_dir.clone());
             }
             for lb in &blueprints {
                 blueprint_sources.insert(lb.blueprint.id.clone(), package_dir.clone());
@@ -2506,8 +2509,12 @@ impl RepositoryStore for FileStore {
                     }
                 }
                 for view in sub_views {
-                    if let Some(first_path) = view_sources.get(&view.id) {
-                        let existing = views.iter().find(|v| v.id == view.id).unwrap();
+                    let key = (view.id.clone(), view.version);
+                    if let Some(first_path) = view_sources.get(&key) {
+                        let existing = views
+                            .iter()
+                            .find(|v| v.id == view.id && v.version == view.version)
+                            .unwrap();
                         if existing.name != view.name {
                             return Err(RepositoryError::PackageRefConflict {
                                 path: rel_path.to_string(),
@@ -2518,13 +2525,17 @@ impl RepositoryStore for FileStore {
                             });
                         }
                     } else {
-                        view_sources.insert(view.id.clone(), sub_dir.clone());
+                        view_sources.insert(key, sub_dir.clone());
                         views.push(view);
                     }
                 }
                 for dv in sub_doc_views {
-                    if let Some(first_path) = doc_view_sources.get(&dv.id) {
-                        let existing = compositions.iter().find(|d| d.id == dv.id).unwrap();
+                    let key = (dv.id.clone(), dv.version);
+                    if let Some(first_path) = doc_view_sources.get(&key) {
+                        let existing = compositions
+                            .iter()
+                            .find(|d| d.id == dv.id && d.version == dv.version)
+                            .unwrap();
                         if existing.name != dv.name {
                             return Err(RepositoryError::PackageRefConflict {
                                 path: rel_path.to_string(),
@@ -2535,17 +2546,18 @@ impl RepositoryStore for FileStore {
                             });
                         }
                     } else {
-                        doc_view_sources.insert(dv.id.clone(), sub_dir.clone());
+                        doc_view_sources.insert(key, sub_dir.clone());
                         compositions.push(dv);
                     }
                 }
                 for theme in sub_themes {
-                    if let Some(first_path) = theme_sources.get(&theme.id) {
-                        let existing = themes.iter().find(|t| t.id == theme.id).unwrap();
-                        if existing.namespace != theme.namespace
-                            || existing.name != theme.name
-                            || existing.version != theme.version
-                        {
+                    let key = (theme.id.clone(), theme.version);
+                    if let Some(first_path) = theme_sources.get(&key) {
+                        let existing = themes
+                            .iter()
+                            .find(|t| t.id == theme.id && t.version == theme.version)
+                            .unwrap();
+                        if existing.namespace != theme.namespace || existing.name != theme.name {
                             return Err(RepositoryError::PackageRefConflict {
                                 path: rel_path.to_string(),
                                 kind: "theme".to_string(),
@@ -2555,7 +2567,7 @@ impl RepositoryStore for FileStore {
                             });
                         }
                     } else {
-                        theme_sources.insert(theme.id.clone(), sub_dir.clone());
+                        theme_sources.insert(key, sub_dir.clone());
                         themes.push(theme);
                     }
                 }
