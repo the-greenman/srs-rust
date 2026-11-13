@@ -1,6 +1,13 @@
 //! srs-rust#1639: `move_definition` moves every version of a definition to another package
 //! boundary, keeping its id, so the repository stays valid; it refuses what would break an
 //! installed package, and a dry run writes nothing.
+//!
+//! srs-rust#1654: the lineage-move-together case, the dry-run case and the refusal-code cases
+//! also run against `MemoryStore` (`memory_store_*` tests, sharing `run_..._suite` fns with the
+//! `file_store_*` tests, the idiom established in `delete_membership_cascade.rs`) — CLAUDE.md's
+//! Storage Boundary Rules require a cross-store test for a service feature, and a `FileStore`-only
+//! suite tests the adapter, not the service. The remaining tests below (file-rename collision,
+//! partial-move resume, installed-package refusals) stay `FileStore`-only for now (srs-rust#1655).
 
 use serde_json::{json, Value};
 use srs_repository::error::RepositoryError;
@@ -13,6 +20,7 @@ use srs_repository::package_service::{
 use srs_repository::repository_lifecycle::{
     InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
 };
+use srs_repository::store::memory::MemoryStore;
 use srs_repository::store::{FileStore, RepositoryStore};
 use srs_repository::validation::validate_repository;
 use std::collections::BTreeMap;
@@ -81,6 +89,50 @@ fn repo() -> (tempfile::TempDir, FileStore) {
     (temp, store)
 }
 
+/// The `MemoryStore` counterpart to [`repo`]: `MemoryStore::empty()` already carries a valid
+/// manifest/primary package in memory (`create_repository`/`initialize_repository` is not
+/// required — see `store_conformance.rs`), so this populates it with the same site package,
+/// field, type and relation type as the `FileStore` fixture, through the same store-generic
+/// `&dyn RepositoryStore` service calls.
+fn memory_repo() -> MemoryStore {
+    let store = MemoryStore::empty();
+    create_package(
+        &store,
+        CreatePackageInput {
+            id: "5a1b0c2d-0000-4000-8000-0000000000aa".to_string(),
+            namespace: "com.test.site".to_string(),
+            name: "site".to_string(),
+            version: "0.1.0".to_string(),
+            boundary_path: Some(SITE.to_string()),
+        },
+    )
+    .unwrap();
+    create_field_normalized(
+        &store,
+        json!({"id": F, "namespace": NS, "name": "title", "version": 1,
+            "fieldType": {"datatype": "string"}, "aiGuidance": {"purpose": "A title."}}),
+        None,
+    )
+    .unwrap();
+    for version in [1, 2] {
+        create_type_normalized(
+            &store,
+            json!({"id": T, "namespace": NS, "name": "page", "version": version,
+                "fields": [{"fieldId": F, "order": 0, "required": false}]}),
+            None,
+        )
+        .unwrap();
+    }
+    create_relation_type_normalized(
+        &store,
+        json!({"id": RT, "version": 1, "key": "uses", "namespace": NS, "label": "Uses",
+            "category": "association"}),
+        None,
+    )
+    .unwrap();
+    store
+}
+
 fn input(id: &str, to: Option<&str>, dry_run: bool) -> MoveDefinitionInput {
     MoveDefinitionInput {
         id: id.to_string(),
@@ -89,7 +141,7 @@ fn input(id: &str, to: Option<&str>, dry_run: bool) -> MoveDefinitionInput {
     }
 }
 
-fn list(store: &FileStore, prefix: &str, key: &str) -> Vec<String> {
+fn list(store: &dyn RepositoryStore, prefix: &str, key: &str) -> Vec<String> {
     store
         .load_instance_json(&format!("{prefix}/package.json"))
         .unwrap()[key]
@@ -144,19 +196,37 @@ fn moves_a_relation_type_keeping_its_id_and_the_repository_valid() {
     assert!(validate_repository(&store).unwrap().is_ok());
 }
 
-#[test]
-fn moves_every_version_of_a_type_together() {
-    let (_t, store) = repo();
-    let out = move_definition(&store, &input(T, Some(SITE), false)).unwrap();
+/// Shared with `file_store_moves_every_version_of_a_type_together` and
+/// `memory_store_moves_every_version_of_a_type_together` (srs-rust#1654): one assertion body,
+/// run against both backends, so the claim is about the service, not the adapter.
+///
+/// Uses `store.catalog()` rather than `validate_repository` for the "repository stays valid"
+/// check, as `assert_loads_clean` does in `delete_membership_cascade.rs`: `validate_repository`
+/// also reads the raw `manifest.json` text, which only a disk-backed store carries by default
+/// (a `MemoryStore` manifest is typed, not additionally mirrored as text) — `catalog()` is the
+/// store-agnostic validity check RFC-038 and ADR-045 already treat as authoritative.
+fn run_moves_every_version_of_a_type_together(store: &dyn RepositoryStore) {
+    let out = move_definition(store, &input(T, Some(SITE), false)).unwrap();
     let mut versions: Vec<u64> = out.moved.iter().map(|m| m.version).collect();
     versions.sort();
     assert_eq!(versions, vec![1, 2]);
-    assert!(list(&store, "package", "types").is_empty());
-    assert_eq!(list(&store, SITE, "types").len(), 2);
-    let report = validate_repository(&store).unwrap();
-    assert!(report.is_ok(), "{:?}", report.diagnostics);
+    assert!(list(store, "package", "types").is_empty());
+    assert_eq!(list(store, SITE, "types").len(), 2);
+    let cat = store.catalog().unwrap();
+    assert!(cat.diagnostics.is_empty(), "{:?}", cat.diagnostics);
     // the type still references the field it uses, which stays in the primary package
     assert!(out.referenced_by.is_empty());
+}
+
+#[test]
+fn file_store_moves_every_version_of_a_type_together() {
+    let (_t, store) = repo();
+    run_moves_every_version_of_a_type_together(&store);
+}
+
+#[test]
+fn memory_store_moves_every_version_of_a_type_together() {
+    run_moves_every_version_of_a_type_together(&memory_repo());
 }
 
 #[test]
@@ -184,6 +254,22 @@ fn a_dry_run_writes_nothing() {
     assert_eq!(snapshot(t.path()), before);
 }
 
+/// `MemoryStore` counterpart (srs-rust#1654): `snapshot()` above is a filesystem walk, so it has
+/// no `MemoryStore` equivalent — this asserts the same "writes nothing" claim through the
+/// store's own read surface instead: the boundary lists are unchanged before and after a dry run
+/// that still reports what it *would* move.
+#[test]
+fn memory_store_a_dry_run_writes_nothing() {
+    let store = memory_repo();
+    let before_package = list(&store, "package", "types");
+    let before_site = list(&store, SITE, "types");
+    let out = move_definition(&store, &input(T, Some(SITE), true)).unwrap();
+    assert!(out.dry_run);
+    assert_eq!(out.moved.len(), 2);
+    assert_eq!(list(&store, "package", "types"), before_package);
+    assert_eq!(list(&store, SITE, "types"), before_site);
+}
+
 #[test]
 fn moves_back_into_the_primary_package() {
     let (_t, store) = repo();
@@ -194,22 +280,34 @@ fn moves_back_into_the_primary_package() {
     assert!(validate_repository(&store).unwrap().is_ok());
 }
 
-#[test]
-fn refuses_an_unknown_id_an_unknown_target_and_the_same_boundary() {
-    let (_t, store) = repo();
+/// Shared with `file_store_refuses_an_unknown_id_an_unknown_target_and_the_same_boundary` and
+/// `memory_store_refuses_an_unknown_id_an_unknown_target_and_the_same_boundary` (srs-rust#1654):
+/// the refusal codes are a claim about the service, so they must hold against either backend.
+fn run_refuses_an_unknown_id_an_unknown_target_and_the_same_boundary(store: &dyn RepositoryStore) {
     let missing = "5a1b0c2d-0009-4aaa-8bbb-000000000000";
     assert_eq!(
-        code(move_definition(&store, &input(missing, Some(SITE), false)).unwrap_err()),
+        code(move_definition(store, &input(missing, Some(SITE), false)).unwrap_err()),
         "definition-not-found"
     );
     assert_eq!(
-        code(move_definition(&store, &input(RT, Some("packages/none"), false)).unwrap_err()),
+        code(move_definition(store, &input(RT, Some("packages/none"), false)).unwrap_err()),
         "package-not-found"
     );
     assert_eq!(
-        code(move_definition(&store, &input(RT, None, false)).unwrap_err()),
+        code(move_definition(store, &input(RT, None, false)).unwrap_err()),
         "move-same-boundary"
     );
+}
+
+#[test]
+fn file_store_refuses_an_unknown_id_an_unknown_target_and_the_same_boundary() {
+    let (_t, store) = repo();
+    run_refuses_an_unknown_id_an_unknown_target_and_the_same_boundary(&store);
+}
+
+#[test]
+fn memory_store_refuses_an_unknown_id_an_unknown_target_and_the_same_boundary() {
+    run_refuses_an_unknown_id_an_unknown_target_and_the_same_boundary(&memory_repo());
 }
 
 fn bundle() -> Vec<u8> {
