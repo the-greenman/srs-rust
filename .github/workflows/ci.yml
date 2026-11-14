@@ -78,6 +78,15 @@ jobs:
       - name: Build
         run: cargo build --target wasm32-unknown-unknown -p srs-bindings
 
+  # srs-rust#819: the npm packaging script that release.yml's publish-npm job runs.
+  npm-package-script:
+    name: npm package script
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Self-check
+        run: bash scripts/prepare-npm-package.test.sh
+
   schema-drift:
     name: Schema Drift
     runs-on: ubuntu-latest
