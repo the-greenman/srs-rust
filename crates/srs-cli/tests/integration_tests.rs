@@ -4234,6 +4234,32 @@ fn protocol_list_returns_protocols() {
 }
 
 #[test]
+fn protocol_find_by_target_type_carries_structured_diagnostics_list() {
+    let temp = create_temp_repo_with_protocol_package();
+    let stdin = minimal_protocol_json("com.test/find-test@1", "find-test");
+    let import = run_srs_stdin_in_dir(temp.path(), &["protocol", "import"], &stdin);
+    assert_eq!(import["ok"], true, "import failed: {:?}", import);
+
+    let result = run_srs_in_dir(
+        temp.path(),
+        &[
+            "protocol",
+            "find-by-target-type",
+            "--type-id",
+            "meta.extension",
+        ],
+    );
+    assert_eq!(result["ok"], true, "find failed: {:?}", result);
+    let payload = &result["payload"];
+    assert_eq!(payload["protocolId"], "com.test/find-test@1");
+    // The text list and the structured list agree entry for entry (ADR-057, #1339).
+    assert_eq!(
+        payload["diagnostics"].as_array().unwrap().len(),
+        payload["diagnosticsStructured"].as_array().unwrap().len()
+    );
+}
+
+#[test]
 fn protocol_get_returns_protocol_by_id() {
     let temp = create_temp_repo_with_protocol_package();
     let stdin = minimal_protocol_json("com.test/get-test@1", "get-test");
