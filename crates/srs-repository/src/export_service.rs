@@ -18,6 +18,9 @@ pub struct ExportBundleMetadata {
     pub rendered_filename: String,
     pub attachment_count: usize,
     pub diagnostics: Vec<String>,
+    /// `diagnostics` as structured findings, entry for entry (ADR-057,
+    /// srs-rust#1339); the text list is unchanged until srs-rust#1496.
+    pub diagnostics_structured: Vec<crate::diagnostic::Diagnostic>,
 }
 
 pub fn export_record_bundle(
@@ -103,6 +106,7 @@ pub fn export_record_bundle(
         rendered_filename: "decision.md".to_string(),
         attachment_count,
         diagnostics: render_result.diagnostics,
+        diagnostics_structured: render_result.diagnostics_structured,
     })
 }
 

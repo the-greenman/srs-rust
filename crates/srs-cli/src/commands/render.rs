@@ -134,6 +134,11 @@ fn cmd_render_export_bundle(
                 attachment_count: meta.attachment_count,
                 output_path: output_path.to_string_lossy().into_owned(),
                 diagnostics: meta.diagnostics,
+                diagnostics_structured: meta
+                    .diagnostics_structured
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
             },
         ),
         Err(e) => Ok(output::any_err("render export-bundle", &e)),
