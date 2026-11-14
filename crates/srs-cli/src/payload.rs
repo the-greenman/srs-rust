@@ -2985,6 +2985,9 @@ pub struct PackageImportsPayload {
     pub relation_types: Vec<PackageImportRecordEntry>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skipped_definitions: Vec<String>,
+    /// `skippedDefinitions` as structured findings, entry for entry (ADR-057, srs-rust#1339).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 impl From<srs_core::extensions::import_tracking::ImportSummary> for PackageImportsPayload {
@@ -3020,6 +3023,13 @@ impl From<srs_core::extensions::import_tracking::ImportSummary> for PackageImpor
                 .relation_types
                 .into_iter()
                 .map(PackageImportRecordEntry::from)
+                .collect(),
+            diagnostics_structured:
+                srs_repository::package_service::skipped_definition_diagnostics(
+                    &s.skipped_definitions,
+                )
+                .into_iter()
+                .map(Into::into)
                 .collect(),
             skipped_definitions: s.skipped_definitions,
         }

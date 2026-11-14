@@ -2034,6 +2034,27 @@ pub fn list_package_imports(
     })
 }
 
+/// `ImportSummary.skippedDefinitions` as structured findings, entry for entry
+/// (ADR-057, srs-rust#1339). The list mixes two shapes: a message written by
+/// the import-record writer (`skipped <path>: load failed`, `skipped <path>:
+/// missing id`) and a bare path (a definition whose kind has no import
+/// record). The text list is unchanged. Every entry is a warning, because the
+/// import itself succeeded; the path is the `message`'s subject.
+pub fn skipped_definition_diagnostics(skipped: &[String]) -> Vec<crate::diagnostic::Diagnostic> {
+    let mut findings = crate::diagnostic::Diagnostics::new();
+    for entry in skipped {
+        let code = if entry.starts_with("skipped ") && entry.ends_with(": load failed") {
+            "import-definition-load-failed"
+        } else if entry.starts_with("skipped ") && entry.ends_with(": missing id") {
+            "import-definition-missing-id"
+        } else {
+            "import-definition-kind-untracked"
+        };
+        findings.warning(code, entry.clone());
+    }
+    findings.into_parts().1
+}
+
 /// Input for updating package boundary metadata.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -2072,6 +2093,28 @@ pub fn update_package_metadata(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn skipped_definition_diagnostics_parallel_the_text_list() {
+        let skipped = vec![
+            "skipped a/b.json: load failed".to_string(),
+            "skipped c.json: missing id".to_string(),
+            "composition/x.json".to_string(),
+        ];
+        let d = skipped_definition_diagnostics(&skipped);
+        let codes: Vec<&str> = d.iter().map(|x| x.code.as_str()).collect();
+        assert_eq!(
+            codes,
+            [
+                "import-definition-load-failed",
+                "import-definition-missing-id",
+                "import-definition-kind-untracked"
+            ]
+        );
+        let messages: Vec<&String> = d.iter().map(|x| &x.message).collect();
+        assert_eq!(messages, skipped.iter().collect::<Vec<_>>());
+        assert!(skipped_definition_diagnostics(&[]).is_empty());
+    }
     use super::*;
     use crate::package_types::DefinitionKind;
     use crate::store::memory::MemoryStore;
