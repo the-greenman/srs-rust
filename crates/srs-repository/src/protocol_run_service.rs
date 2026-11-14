@@ -183,7 +183,7 @@ pub fn advance_stage(
     if run.status != ProtocolRunStatus::Active {
         return Err(RepositoryError::RunInvalidState {
             run_id: input.run_id.clone(),
-            message: format!("status is {:?}", run.status),
+            message: format!("status is {}", status_to_string(&run.status)),
         });
     }
 
@@ -283,7 +283,7 @@ pub fn complete_run(
     if run.status != ProtocolRunStatus::Active {
         return Err(RepositoryError::RunInvalidState {
             run_id: run_id.to_string(),
-            message: format!("status is {:?}", run.status),
+            message: format!("status is {}", status_to_string(&run.status)),
         });
     }
 
@@ -316,7 +316,7 @@ pub fn abandon_run(
     if run.status != ProtocolRunStatus::Active {
         return Err(RepositoryError::RunInvalidState {
             run_id: run_id.to_string(),
-            message: format!("status is {:?}", run.status),
+            message: format!("status is {}", status_to_string(&run.status)),
         });
     }
 
@@ -491,6 +491,20 @@ mod tests {
         abandon_run(&store, &created.run.run_id).unwrap();
         let err = abandon_run(&store, &created.run.run_id);
         assert!(err.is_err());
+    }
+
+    /// The refusal names the status by its stable wire spelling, not a `Debug` rendering.
+    #[test]
+    fn invalid_state_message_names_status_by_wire_spelling() {
+        let store = MemoryStore::empty();
+        let created = create_run(&store, make_create_input("p-1", "c-1", None)).unwrap();
+        abandon_run(&store, &created.run.run_id).unwrap();
+        match complete_run(&store, &created.run.run_id) {
+            Err(RepositoryError::RunInvalidState { message, .. }) => {
+                assert_eq!(message, "status is Abandoned")
+            }
+            other => panic!("expected RunInvalidState, got {other:?}"),
+        }
     }
 }
 
