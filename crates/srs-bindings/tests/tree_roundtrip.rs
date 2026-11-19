@@ -61,6 +61,7 @@ fn tree_binding_flow_single_edit_single_diff() {
         &store,
         RECORD_1,
         UpdateRecordInput {
+            field_values_mode: Default::default(),
             field_values: srs_core::types::record::FieldValues(
                 [
                     (

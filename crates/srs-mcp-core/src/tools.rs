@@ -24,6 +24,7 @@ use srs_core::types::relation::Relation;
 use srs_repository::attachment_service::{
     self, AddAttachmentInput, LinkAttachmentInput, RemoveAttachmentInput, UnlinkAttachmentInput,
 };
+use srs_repository::container_service::deserialize_some;
 use srs_repository::container_service::{self, ContainerCreateInput, ContainerPatch};
 use srs_repository::context_query_service::{
     list_neighbours, EdgeDirection, NeighboursPage, NeighboursQuery,
@@ -39,7 +40,7 @@ use srs_repository::protocol_run_service::{
     self, AdvanceStageInput, CreateRunInput, GetRunResult, RunListFilter, RunSummary,
 };
 use srs_repository::record_store::{
-    self, CreateRecordInput, CreateRecordSuccessorInput, FulfillmentNewRecord,
+    self, CreateRecordInput, CreateRecordSuccessorInput, FieldValuesMode, FulfillmentNewRecord,
     TransitionFulfillmentInput, TransitionLifecycleInput, UpdateRecordInput,
 };
 use srs_repository::relation_service;
@@ -357,9 +358,9 @@ binding). Each section has a name, content, and optional label. Optional contain
 note to a container atomically. Notes are the capture tier — graduate one to a typed Record \
 later when its structure stabilises.";
 
-pub const DESC_NOTE_UPDATE: &str = "Update a Tier-0 Note by instanceId. Whole-object over the \
-authoring fields: title, tags and sections are replaced by what you send (omit title/tags to \
-clear them); createdBy, createdAt and other provenance are preserved. To read a note first, use \
+pub const DESC_NOTE_UPDATE: &str = "Update a Tier-0 Note by instanceId. Send only what \
+changes: an omitted title, tags or sections is kept as stored. title: a string replaces, null \
+clears. tags and sections: [] clears, a list replaces the whole list. createdBy, createdAt and other provenance are preserved. To read a note first, use \
 find or the read tool on its record URI.";
 
 pub const DESC_TYPE_SCHEMA: &str = "Get the authoring schema for a type by its UUID \
@@ -371,9 +372,12 @@ this before creating records of an unfamiliar type — discover typeIds from the
 resources in resources/list.";
 
 // Second-wave write tool descriptions (#680)
-pub const DESC_RECORD_UPDATE: &str = "Replace the fieldValues of an existing Tier-2 Record \
-(full replace, not a patch). Provide the complete set of field values you want stored. \
-Optional typeVersion migrates the record to a different type version; omit to keep the \
+pub const DESC_RECORD_UPDATE: &str = "Update the fieldValues of an existing Tier-2 Record. \
+fieldValuesMode decides how: 'replace' (the default) stores exactly the fieldValues you send, so \
+any field you omit is REMOVED; 'merge' changes only the fields you send and keeps the rest, a \
+null value removes that field, an object merges into a stored composite value key by key, and \
+an array replaces the stored list whole. To change one field or only the tags, send \
+fieldValuesMode 'merge' with just that field (or fieldValues {}). Optional typeVersion migrates the record to a different type version; omit to keep the \
 stored version. Tag semantics: omit=preserve, []=clear, [...]=replace. Returns the updated \
 Record. Run repo_validate after to confirm consistency.";
 
@@ -855,9 +859,13 @@ impl From<NoteCreateToolInput> for CreateNoteInput {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NoteUpdateToolInput {
     pub instance_id: String,
-    pub title: Option<String>,
+    /// Omit = keep, null = clear, a string = replace.
+    #[serde(default, deserialize_with = "deserialize_some")]
+    pub title: Option<Option<String>>,
+    /// Omit = keep, [] = clear, a list = replace.
     pub tags: Option<Vec<String>>,
-    pub sections: Vec<NoteSectionInput>,
+    /// Omit = keep, [] = clear, a list = replace the whole list.
+    pub sections: Option<Vec<NoteSectionInput>>,
 }
 
 impl From<NoteUpdateToolInput> for UpdateNoteContentInput {
@@ -865,7 +873,9 @@ impl From<NoteUpdateToolInput> for UpdateNoteContentInput {
         UpdateNoteContentInput {
             title: input.title,
             tags: input.tags,
-            sections: input.sections.into_iter().map(Into::into).collect(),
+            sections: input
+                .sections
+                .map(|s| s.into_iter().map(Into::into).collect()),
         }
     }
 }
@@ -907,6 +917,11 @@ pub struct RecordUpdateToolInput {
     pub instance_id: String,
     /// RFC-039 carrier: an object keyed by `Field.name` verbatim.
     pub field_values: serde_json::Map<String, Value>,
+    /// `replace` (default): fieldValues becomes the stored set; a field you omit is REMOVED.
+    /// `merge`: only the fields you send change; omitted fields are kept, `null` removes a
+    /// field, an object merges into a stored composite key by key, an array replaces whole.
+    #[serde(default)]
+    pub field_values_mode: FieldValuesMode,
     /// Per-field provenance: omit = preserve stored, {} = clear, {...} = replace.
     #[serde(default)]
     pub field_meta: Option<std::collections::BTreeMap<String, FieldMetaInput>>,
@@ -924,6 +939,7 @@ impl From<RecordUpdateToolInput> for UpdateRecordInput {
     fn from(input: RecordUpdateToolInput) -> Self {
         UpdateRecordInput {
             field_values: FieldValues(input.field_values),
+            field_values_mode: input.field_values_mode,
             field_meta: field_meta_map(input.field_meta),
             tags: input.tags,
             type_version: input.type_version,
@@ -2693,6 +2709,7 @@ mod tests {
             field_values: [("title".to_string(), serde_json::json!("v1"))]
                 .into_iter()
                 .collect(),
+            field_values_mode: FieldValuesMode::Merge,
             field_meta: Some(
                 [(
                     "title".to_string(),
@@ -2717,6 +2734,7 @@ mod tests {
         assert_eq!(meta.edited_at.as_deref(), Some("t"));
         assert_eq!(ui.tags, Some(vec!["tag1".to_string()]));
         assert_eq!(ui.type_version, Some(2));
+        assert_eq!(ui.field_values_mode, FieldValuesMode::Merge);
         assert_eq!(
             ui.extra.get("meta"),
             Some(&serde_json::json!({"derivedFrom": "src-id"}))

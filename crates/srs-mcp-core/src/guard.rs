@@ -266,8 +266,8 @@ impl WriteGuard {
         }
     }
 
-    /// `record_update` replaces the whole `fieldValues` and `fieldMeta`, so
-    /// compare against the stored record: only a fill-only field that is
+    /// `record_update` replaces the whole `fieldValues` (or, in merge mode, the
+    /// merged result) and `fieldMeta`, so compare against the stored record: only a fill-only field that is
     /// currently unset may differ.
     fn check_update(
         &self,
@@ -283,8 +283,13 @@ impl WriteGuard {
         let Ok(Some(record)) = record_store::get_record_by_id(store, id) else {
             return Ok(()); // the service reports a missing / unloadable record
         };
-        let new = &input.field_values;
         let old = &record.field_values.0;
+        let mut new = input.field_values;
+        if input.field_values_mode == record_store::FieldValuesMode::Merge {
+            let mut merged = old.clone();
+            record_store::merge_patch(&mut merged, new);
+            new = merged;
+        }
         let changed = new
             .keys()
             .chain(old.keys())

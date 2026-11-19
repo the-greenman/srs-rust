@@ -1013,6 +1013,35 @@ mod write_guard {
         );
     }
 
+    /// srs-rust#847: the guard judges a merge-mode update by its merged result.
+    #[test]
+    fn fill_only_field_writable_by_merge_update() {
+        let (_dir, mut d) = guarded();
+        let id = create(
+            &mut d,
+            "com.example.surface/para2",
+            json!({ "body": "text" }),
+            None,
+        );
+        guard(
+            &mut d,
+            json!({ "instanceIds": [id], "fillOnlyFields": ["paragraph_title"] }),
+        );
+        let merge =
+            |fv: Value| json!({ "instanceId": id, "fieldValuesMode": "merge", "fieldValues": fv });
+        assert_rejected(&mut d, "record_update", merge(json!({ "body": null })));
+        assert_ok(
+            &mut d,
+            "record_update",
+            merge(json!({ "paragraph_title": "Intro" })),
+        );
+        assert_rejected(
+            &mut d,
+            "record_update",
+            merge(json!({ "paragraph_title": "Other" })),
+        );
+    }
+
     #[test]
     fn empty_string_and_null_count_as_unset() {
         let (_dir, mut d) = guarded();

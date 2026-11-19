@@ -789,6 +789,7 @@ impl SrsRepository {
 
     /// Update a record. `input_json` is a JSON object with fields:
     /// `fieldValues` (an object keyed by `Field.name`, RFC-039 carrier),
+    /// `fieldValuesMode` (optional `"replace"` default | `"merge"`, srs-rust#847),
     /// `fieldMeta` (optional), `tags` (optional),
     /// `typeVersion` (optional u32 — omit to keep the stored version).
     /// Returns the updated `Record` as a JS value.

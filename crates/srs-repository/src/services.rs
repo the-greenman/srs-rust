@@ -733,18 +733,19 @@ pub fn update_note(
     Ok(UpdateNoteResult { note })
 }
 
-/// Authoring fields of a Note replaced by `update_note_content` (the whole
-/// authoring surface; provenance/lifecycle fields are service-managed).
-#[derive(Debug, Clone)]
+/// Authoring fields of a Note changed by `update_note_content`
+/// (provenance/lifecycle fields are service-managed). Each is a patch
+/// (srs-rust#847): `None` keeps the stored value. `title`: `Some(None)` clears.
+/// `tags`/`sections`: `Some([])` clears, `Some([...])` replaces the list.
+#[derive(Debug, Clone, Default)]
 pub struct UpdateNoteContentInput {
-    pub title: Option<String>,
+    pub title: Option<Option<String>>,
     pub tags: Option<Vec<String>>,
-    pub sections: Vec<NoteSection>,
+    pub sections: Option<Vec<NoteSection>>,
 }
 
-/// Service: replace a note's authoring fields (title, tags, sections) while
+/// Service: patch a note's authoring fields (title, tags, sections) while
 /// preserving its stored `createdBy`, `createdAt`, `sourceRefs`, `meta` etc.
-/// Whole-object semantics over the authoring surface, like `record_update`.
 pub fn update_note_content(
     store: &dyn RepositoryStore,
     id: &str,
@@ -757,9 +758,15 @@ pub fn update_note_content(
         });
     }
     let mut note = store.load_note_by_id(id)?;
-    note.title = input.title;
-    note.tags = input.tags;
-    note.sections = input.sections;
+    if let Some(title) = input.title {
+        note.title = title;
+    }
+    if let Some(tags) = input.tags {
+        note.tags = (!tags.is_empty()).then_some(tags);
+    }
+    if let Some(sections) = input.sections {
+        note.sections = sections;
+    }
     update_note(store, note)
 }
 
@@ -1319,6 +1326,43 @@ mod tests {
             AddTagResult::NotFound => {}
             _ => panic!("Expected NotFound"),
         }
+    }
+
+    /// srs-rust#847: every authoring field is a patch — omitted keeps.
+    #[test]
+    fn update_note_content_keeps_what_is_omitted() {
+        let id = "11111111-1111-1111-8111-111111111111";
+        let note = make_note(id, "Test Note");
+        let store = store_with_note(&note, "records/notes/test-note.json");
+
+        let retitled = update_note_content(
+            &store,
+            id,
+            UpdateNoteContentInput {
+                title: Some(Some("Retitled".to_string())),
+                tags: Some(vec!["t".to_string()]),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .note;
+        assert_eq!(retitled.title.as_deref(), Some("Retitled"));
+        assert_eq!(retitled.sections, note.sections, "sections kept");
+
+        let cleared = update_note_content(
+            &store,
+            id,
+            UpdateNoteContentInput {
+                title: Some(None),
+                tags: Some(vec![]),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .note;
+        assert_eq!(cleared.title, None);
+        assert_eq!(cleared.tags, None);
+        assert_eq!(cleared.sections, note.sections);
     }
 
     #[test]

@@ -489,6 +489,15 @@ pub fn update_record(
     let mut updated_extra = record.extra;
     updated_extra.extend(input_extra);
 
+    let field_values = match input.field_values_mode {
+        FieldValuesMode::Replace => input.field_values,
+        FieldValuesMode::Merge => {
+            let mut stored = record.field_values.0;
+            merge_patch(&mut stored, input.field_values.0);
+            FieldValues(stored)
+        }
+    };
+
     let effective_fields = package.resolved_effective_fields(record_type)?;
     let updated_record = Record {
         created_by: record.created_by,
@@ -497,7 +506,7 @@ pub fn update_record(
         type_version: effective_type_version,
         type_namespace: record_type.namespace.clone(),
         type_name: record_type.name.clone(),
-        field_values: normalize_field_value_order(input.field_values, &effective_fields),
+        field_values: normalize_field_value_order(field_values, &effective_fields),
         field_meta: new_field_meta,
         lifecycle_state: record.lifecycle_state,
         tags: updated_tags,
@@ -532,6 +541,36 @@ pub fn update_record(
     store.save_record(&updated_record)?;
 
     Ok(updated_record)
+}
+
+/// JSON Merge Patch (RFC 7386) of `patch` onto `target`: `null` removes a key,
+/// an object merges recursively into a stored object, anything else (scalars,
+/// arrays — so a list-composite value is replaced whole) replaces the key.
+pub fn merge_patch(
+    target: &mut serde_json::Map<String, serde_json::Value>,
+    patch: serde_json::Map<String, serde_json::Value>,
+) {
+    for (key, value) in patch {
+        match value {
+            serde_json::Value::Null => {
+                target.shift_remove(&key);
+            }
+            serde_json::Value::Object(sub) => {
+                let entry = target
+                    .entry(key)
+                    .or_insert_with(|| serde_json::Value::Object(Default::default()));
+                if !entry.is_object() {
+                    *entry = serde_json::Value::Object(Default::default());
+                }
+                if let serde_json::Value::Object(stored) = entry {
+                    merge_patch(stored, sub);
+                }
+            }
+            other => {
+                target.insert(key, other);
+            }
+        }
+    }
 }
 
 /// I-90 fail-all: one violation keeps its own error; several are carried together
@@ -772,6 +811,10 @@ pub struct CreateRecordInput {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateRecordInput {
     pub field_values: FieldValues,
+    /// How `fieldValues` applies to the stored values (srs-rust#847). Default
+    /// `replace` keeps the whole-object contract existing clients rely on.
+    #[serde(default)]
+    pub field_values_mode: FieldValuesMode,
     #[serde(default)]
     pub field_meta: Option<indexmap::IndexMap<String, srs_core::types::record::FieldMeta>>,
     #[serde(default)]
@@ -784,6 +827,20 @@ pub struct UpdateRecordInput {
     /// preserve-if-absent convention `fieldMeta`/`tags` already use.
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,
+}
+
+/// How `UpdateRecordInput.field_values` applies to a record's stored values.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[cfg_attr(feature = "mcp-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum FieldValuesMode {
+    /// The sent `fieldValues` become the stored values; a field not sent is removed.
+    #[default]
+    Replace,
+    /// JSON Merge Patch (RFC 7386) onto the stored values: a field not sent is
+    /// kept, `null` removes it, an object merges into a stored composite value
+    /// key by key (same rule at every depth), and an array or scalar replaces.
+    Merge,
 }
 
 /// Self-contained input for `validate_record_input` (no-write preflight).
@@ -3076,6 +3133,7 @@ pub(crate) mod tests {
             &store,
             &instance_id,
             UpdateRecordInput {
+                field_values_mode: Default::default(),
                 field_meta: None,
                 field_values: updated_values,
                 tags: None,
@@ -3098,6 +3156,7 @@ pub(crate) mod tests {
             &store,
             &instance_id,
             UpdateRecordInput {
+                field_values_mode: Default::default(),
                 field_meta: None,
                 field_values: invalid_values,
                 tags: None,
@@ -4189,6 +4248,7 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
+                field_values_mode: Default::default(),
                 field_values: new_fv,
                 field_meta: Some(meta_for("test-name", "ai")),
                 tags: None,
@@ -4226,6 +4286,7 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
+                field_values_mode: Default::default(),
                 field_meta: None,
                 field_values: new_fv,
                 tags: None,
@@ -4263,6 +4324,7 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
+                field_values_mode: Default::default(),
                 field_values: fvs(vec![("test-name", json!("Initial"))]),
                 field_meta: None,
                 tags: None,
@@ -4293,6 +4355,7 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
+                field_values_mode: Default::default(),
                 field_values: fvs(vec![("test-name", json!("Initial"))]),
                 field_meta: None,
                 tags: None,
@@ -4308,6 +4371,7 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
+                field_values_mode: Default::default(),
                 field_values: fvs(vec![("test-name", json!("Changed again"))]),
                 field_meta: None,
                 tags: None,
@@ -4483,6 +4547,7 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
+                field_values_mode: Default::default(),
                 field_values: fvs(vec![("test-name", json!("Changed"))]),
                 field_meta: None,
                 tags: None,
@@ -4559,6 +4624,61 @@ pub(crate) mod tests {
         body["typeName"] = json!("other");
         let input: UpdateRecordInput = serde_json::from_value(body).expect("deserialize");
         assert!(update_record(&store, &id, input).is_err());
+    }
+
+    /// srs-rust#847: `fieldValuesMode: "merge"` keeps fields not sent and a
+    /// null removes one; the default stays a whole replace.
+    #[test]
+    fn update_record_field_values_mode() {
+        let store = make_store_with_package();
+        let fv = fvs(vec![
+            ("test-name", json!("Initial")),
+            ("test-status", json!("active")),
+        ]);
+        let id = create_record(&store, "type-test-001", 1, fv, None, None)
+            .expect("create")
+            .instance_id;
+        let update = |body: serde_json::Value| {
+            let input: UpdateRecordInput = serde_json::from_value(body).expect("deserialize");
+            update_record(&store, &id, input).expect("update")
+        };
+
+        let r = update(json!({"fieldValuesMode": "merge", "fieldValues": {"test-name": "Merged"}}));
+        assert_eq!(r.value("test-name"), Some(&json!("Merged")));
+        assert_eq!(r.value("test-status"), Some(&json!("active")), "kept");
+
+        let r = update(json!({"fieldValuesMode": "merge", "fieldValues": {"test-status": null}}));
+        assert_eq!(r.value("test-name"), Some(&json!("Merged")));
+        assert_eq!(r.value("test-status"), None, "null removes");
+
+        update(json!({"fieldValuesMode": "merge", "fieldValues": {"test-status": "inactive"}}));
+        let r = update(json!({"fieldValues": {"test-name": "Replaced"}}));
+        assert_eq!(r.value("test-status"), None, "default replace drops it");
+
+        let bad: Result<UpdateRecordInput, _> =
+            serde_json::from_value(json!({"fieldValuesMode": "patch", "fieldValues": {}}));
+        assert!(bad.is_err());
+    }
+
+    #[test]
+    fn merge_patch_recurses_into_objects_and_replaces_arrays() {
+        let mut stored = json!({
+            "a": {"x": 1, "y": {"p": 1, "q": 2}},
+            "list": [1, 2, 3],
+            "s": "keep"
+        });
+        let patch = json!({
+            "a": {"x": null, "y": {"q": 3}, "z": {"n": null, "m": 1}},
+            "list": [9]
+        });
+        merge_patch(
+            stored.as_object_mut().unwrap(),
+            patch.as_object().unwrap().clone(),
+        );
+        assert_eq!(
+            stored,
+            json!({"a": {"y": {"p": 1, "q": 3}, "z": {"m": 1}}, "list": [9], "s": "keep"})
+        );
     }
 
     #[test]
@@ -4686,6 +4806,7 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
+                field_values_mode: Default::default(),
                 field_meta: None,
                 field_values: new_fv,
                 tags: None,
@@ -4827,6 +4948,7 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
+                field_values_mode: Default::default(),
                 field_meta: None,
                 field_values: fv,
                 tags: None,
@@ -4853,6 +4975,7 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
+                field_values_mode: Default::default(),
                 field_meta: None,
                 field_values: fv,
                 tags: Some(vec![]),
@@ -4886,6 +5009,7 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
+                field_values_mode: Default::default(),
                 field_meta: None,
                 field_values: fv,
                 tags: Some(vec!["new-tag-1".to_string(), "new-tag-2".to_string()]),
@@ -6367,6 +6491,7 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
+                field_values_mode: Default::default(),
                 field_meta: None,
                 field_values: new_fv,
                 tags: None,
@@ -6406,6 +6531,7 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
+                field_values_mode: Default::default(),
                 field_meta: None,
                 field_values: new_fv,
                 tags: None,
@@ -6440,6 +6566,7 @@ pub(crate) mod tests {
             &store,
             &record.instance_id,
             UpdateRecordInput {
+                field_values_mode: Default::default(),
                 field_meta: None,
                 field_values: new_fv,
                 tags: None,
@@ -6469,6 +6596,7 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
+                field_values_mode: Default::default(),
                 field_meta: None,
                 field_values: new_fv,
                 tags: None,
@@ -7267,6 +7395,7 @@ pub(crate) mod tests {
             &store,
             &created.instance_id,
             UpdateRecordInput {
+                field_values_mode: Default::default(),
                 field_meta: None,
                 type_version: None,
                 field_values: fvs(vec![("trigger", json!("active"))]),
@@ -7314,6 +7443,7 @@ pub(crate) mod tests {
             &store,
             &created.instance_id,
             UpdateRecordInput {
+                field_values_mode: Default::default(),
                 field_meta: None,
                 type_version: None,
                 field_values: fvs(vec![("trigger", json!("active"))]),

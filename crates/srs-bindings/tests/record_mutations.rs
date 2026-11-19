@@ -150,6 +150,7 @@ fn update_record_changes_field_value() {
         &store,
         &instance_id,
         record_store::UpdateRecordInput {
+            field_values_mode: Default::default(),
             field_values: srs_core::types::record::FieldValues(
                 [("title".to_string(), serde_json::json!("Updated Title"))]
                     .into_iter()

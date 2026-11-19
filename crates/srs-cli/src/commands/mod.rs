@@ -1395,7 +1395,9 @@ pub enum RecordCommand {
         #[arg(long, hide = true)]
         json: bool,
     },
-    /// Update a record by ID (reads JSON from stdin)
+    /// Update a record by ID (reads JSON from stdin). `fieldValues` replaces the
+    /// stored set unless `"fieldValuesMode": "merge"` (JSON Merge Patch: unsent fields
+    /// kept, null removes)
     Update {
         /// Record instance ID
         id: String,
