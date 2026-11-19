@@ -449,6 +449,18 @@ pub fn update_record(
 
     let effective_type_version = input.type_version.unwrap_or(record.type_version);
 
+    // A merge starts from every stored key; under a typeVersion change the keys
+    // the new version dropped would survive and fail [R1], so refuse the pair.
+    if input.field_values_mode == FieldValuesMode::Merge
+        && effective_type_version != record.type_version
+    {
+        return Err(RepositoryError::InvalidInput {
+            message: "fieldValuesMode 'merge' cannot change typeVersion; migrate with \
+                      fieldValuesMode 'replace' and the complete fieldValues"
+                .to_string(),
+        });
+    }
+
     let package = store.load_package()?;
     let record_type = package
         .resolve_type(&record.type_id, effective_type_version)
@@ -470,11 +482,13 @@ pub fn update_record(
         Some(v) => Some(v),
     };
 
-    // fieldMeta: None = preserve stored value; Some(m) = replace/clear.
-    let new_field_meta = match input.field_meta {
-        Some(m) => Some(m),
-        None => record.field_meta,
-    };
+    let (field_values, new_field_meta) = resolve_field_update(
+        input.field_values_mode,
+        &record.field_values,
+        record.field_meta.as_ref(),
+        input.field_values,
+        input.field_meta,
+    );
 
     // Envelope extras (`meta`, …): a key sent in the update replaces (or adds)
     // its stored value; a key not sent is left untouched — same preserve-if-
@@ -488,15 +502,6 @@ pub fn update_record(
     reject_reserved_envelope_keys(&input_extra)?;
     let mut updated_extra = record.extra;
     updated_extra.extend(input_extra);
-
-    let field_values = match input.field_values_mode {
-        FieldValuesMode::Replace => input.field_values,
-        FieldValuesMode::Merge => {
-            let mut stored = record.field_values.0;
-            merge_patch(&mut stored, input.field_values.0);
-            FieldValues(stored)
-        }
-    };
 
     let effective_fields = package.resolved_effective_fields(record_type)?;
     let updated_record = Record {
@@ -543,9 +548,44 @@ pub fn update_record(
     Ok(updated_record)
 }
 
+type FieldMetaMap = indexmap::IndexMap<String, srs_core::types::record::FieldMeta>;
+
+/// The `fieldValues` and `fieldMeta` an update stores, from the stored ones and
+/// what was sent (srs-rust#847). One rule for `update_record` and any caller
+/// that must judge the result before the write (the MCP write guard).
+///
+/// - `Replace`: the sent values; sent `fieldMeta`, or the stored one when omitted.
+/// - `Merge`: [`merge_patch`] of the sent values onto the stored ones; sent
+///   `fieldMeta` entries overlay the stored ones by key; the meta of every field
+///   the patch removed is dropped with it (so [R6] keeps holding).
+pub fn resolve_field_update(
+    mode: FieldValuesMode,
+    stored_values: &FieldValues,
+    stored_meta: Option<&FieldMetaMap>,
+    sent_values: FieldValues,
+    sent_meta: Option<FieldMetaMap>,
+) -> (FieldValues, Option<FieldMetaMap>) {
+    match mode {
+        FieldValuesMode::Replace => (sent_values, sent_meta.or_else(|| stored_meta.cloned())),
+        FieldValuesMode::Merge => {
+            let mut values = stored_values.0.clone();
+            merge_patch(&mut values, sent_values.0);
+            if stored_meta.is_none() && sent_meta.is_none() {
+                return (FieldValues(values), None);
+            }
+            let mut meta = stored_meta.cloned().unwrap_or_default();
+            meta.extend(sent_meta.unwrap_or_default());
+            meta.retain(|k, _| values.contains_key(k));
+            (FieldValues(values), Some(meta))
+        }
+    }
+}
+
 /// JSON Merge Patch (RFC 7386) of `patch` onto `target`: `null` removes a key,
 /// an object merges recursively into a stored object, anything else (scalars,
 /// arrays — so a list-composite value is replaced whole) replaces the key.
+/// One departure: an object the patch creates that ends up empty only
+/// because its keys were nulls (at any depth) is not stored (no spurious empty composite).
 pub fn merge_patch(
     target: &mut serde_json::Map<String, serde_json::Value>,
     patch: serde_json::Map<String, serde_json::Value>,
@@ -556,14 +596,20 @@ pub fn merge_patch(
                 target.shift_remove(&key);
             }
             serde_json::Value::Object(sub) => {
-                let entry = target
-                    .entry(key)
-                    .or_insert_with(|| serde_json::Value::Object(Default::default()));
-                if !entry.is_object() {
-                    *entry = serde_json::Value::Object(Default::default());
-                }
-                if let serde_json::Value::Object(stored) = entry {
-                    merge_patch(stored, sub);
+                let mut stored = match target.get_mut(&key) {
+                    Some(serde_json::Value::Object(existing)) => {
+                        merge_patch(existing, sub);
+                        continue;
+                    }
+                    _ => serde_json::Map::new(),
+                };
+                // Non-empty patch, empty result: only nulls (at any depth) built it.
+                let sent_something = !sub.is_empty();
+                merge_patch(&mut stored, sub);
+                if stored.is_empty() && sent_something {
+                    target.shift_remove(&key);
+                } else {
+                    target.insert(key, serde_json::Value::Object(stored));
                 }
             }
             other => {
@@ -840,6 +886,9 @@ pub enum FieldValuesMode {
     /// JSON Merge Patch (RFC 7386) onto the stored values: a field not sent is
     /// kept, `null` removes it, an object merges into a stored composite value
     /// key by key (same rule at every depth), and an array or scalar replaces.
+    /// Sent `fieldMeta` overlays the stored map by key; a removed field loses
+    /// its entry. Refused together with a `typeVersion` change. See
+    /// [`resolve_field_update`].
     Merge,
 }
 
@@ -3133,12 +3182,11 @@ pub(crate) mod tests {
             &store,
             &instance_id,
             UpdateRecordInput {
-                field_values_mode: Default::default(),
                 field_meta: None,
                 field_values: updated_values,
                 tags: None,
-                type_version: None,
                 extra: std::collections::BTreeMap::new(),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -3156,12 +3204,11 @@ pub(crate) mod tests {
             &store,
             &instance_id,
             UpdateRecordInput {
-                field_values_mode: Default::default(),
                 field_meta: None,
                 field_values: invalid_values,
                 tags: None,
-                type_version: None,
                 extra: std::collections::BTreeMap::new(),
+                ..Default::default()
             }
         )
         .is_err());
@@ -4248,12 +4295,11 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
-                field_values_mode: Default::default(),
                 field_values: new_fv,
                 field_meta: Some(meta_for("test-name", "ai")),
                 tags: None,
-                type_version: None,
                 extra: std::collections::BTreeMap::new(),
+                ..Default::default()
             },
         )
         .expect("update");
@@ -4286,12 +4332,11 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
-                field_values_mode: Default::default(),
                 field_meta: None,
                 field_values: new_fv,
                 tags: None,
-                type_version: None,
                 extra: std::collections::BTreeMap::new(),
+                ..Default::default()
             },
         )
         .expect("update");
@@ -4324,12 +4369,11 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
-                field_values_mode: Default::default(),
                 field_values: fvs(vec![("test-name", json!("Initial"))]),
                 field_meta: None,
                 tags: None,
-                type_version: None,
                 extra,
+                ..Default::default()
             },
         )
         .expect("update");
@@ -4355,12 +4399,11 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
-                field_values_mode: Default::default(),
                 field_values: fvs(vec![("test-name", json!("Initial"))]),
                 field_meta: None,
                 tags: None,
-                type_version: None,
                 extra,
+                ..Default::default()
             },
         )
         .expect("first update sets meta");
@@ -4371,12 +4414,11 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
-                field_values_mode: Default::default(),
                 field_values: fvs(vec![("test-name", json!("Changed again"))]),
                 field_meta: None,
                 tags: None,
-                type_version: None,
                 extra: std::collections::BTreeMap::new(),
+                ..Default::default()
             },
         )
         .expect("second update");
@@ -4547,12 +4589,11 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
-                field_values_mode: Default::default(),
                 field_values: fvs(vec![("test-name", json!("Changed"))]),
                 field_meta: None,
                 tags: None,
-                type_version: None,
                 extra,
+                ..Default::default()
             },
         )
         .expect_err("reserved envelope key must be rejected");
@@ -4658,6 +4699,33 @@ pub(crate) mod tests {
         let bad: Result<UpdateRecordInput, _> =
             serde_json::from_value(json!({"fieldValuesMode": "patch", "fieldValues": {}}));
         assert!(bad.is_err());
+
+        // fieldMeta merges by key; removing a field removes its meta ([R6] holds).
+        let meta = |s: &str| json!({"source": s});
+        update(
+            json!({"fieldValues": {"test-name": "N", "test-status": "active"},
+                      "fieldMeta": {"test-name": meta("human"), "test-status": meta("ai")}}),
+        );
+        let r = update(
+            json!({"fieldValuesMode": "merge", "fieldValues": {"test-name": "M"},
+                              "fieldMeta": {"test-name": meta("imported")}}),
+        );
+        let m = serde_json::to_value(r.field_meta.unwrap()).unwrap();
+        assert_eq!(m["test-name"]["source"], "imported");
+        assert_eq!(m["test-status"]["source"], "ai", "unsent meta kept");
+        let r = update(json!({"fieldValuesMode": "merge", "fieldValues": {"test-status": null}}));
+        assert_eq!(r.value("test-status"), None);
+        assert!(!r.field_meta.unwrap().contains_key("test-status"));
+
+        // Merge refuses a typeVersion change.
+        let input: UpdateRecordInput = serde_json::from_value(
+            json!({"fieldValuesMode": "merge", "fieldValues": {}, "typeVersion": 2}),
+        )
+        .unwrap();
+        assert!(matches!(
+            update_record(&store, &id, input),
+            Err(RepositoryError::InvalidInput { .. })
+        ));
     }
 
     #[test]
@@ -4669,7 +4737,8 @@ pub(crate) mod tests {
         });
         let patch = json!({
             "a": {"x": null, "y": {"q": 3}, "z": {"n": null, "m": 1}},
-            "list": [9]
+            "list": [9],
+            "absent": {"a": null, "b": {"c": null}}
         });
         merge_patch(
             stored.as_object_mut().unwrap(),
@@ -4806,12 +4875,11 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
-                field_values_mode: Default::default(),
                 field_meta: None,
                 field_values: new_fv,
                 tags: None,
-                type_version: None,
                 extra: std::collections::BTreeMap::new(),
+                ..Default::default()
             },
         )
         .expect("update");
@@ -4948,12 +5016,11 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
-                field_values_mode: Default::default(),
                 field_meta: None,
                 field_values: fv,
                 tags: None,
-                type_version: None,
                 extra: std::collections::BTreeMap::new(),
+                ..Default::default()
             },
         )
         .expect("update");
@@ -4975,12 +5042,11 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
-                field_values_mode: Default::default(),
                 field_meta: None,
                 field_values: fv,
                 tags: Some(vec![]),
-                type_version: None,
                 extra: std::collections::BTreeMap::new(),
+                ..Default::default()
             },
         )
         .expect("update");
@@ -5009,12 +5075,11 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
-                field_values_mode: Default::default(),
                 field_meta: None,
                 field_values: fv,
                 tags: Some(vec!["new-tag-1".to_string(), "new-tag-2".to_string()]),
-                type_version: None,
                 extra: std::collections::BTreeMap::new(),
+                ..Default::default()
             },
         )
         .expect("update");
@@ -6491,12 +6556,11 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
-                field_values_mode: Default::default(),
                 field_meta: None,
                 field_values: new_fv,
-                tags: None,
                 type_version: Some(2),
                 extra: std::collections::BTreeMap::new(),
+                ..Default::default()
             },
         )
         .expect("migration to v2 should succeed");
@@ -6531,12 +6595,11 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
-                field_values_mode: Default::default(),
                 field_meta: None,
                 field_values: new_fv,
                 tags: None,
-                type_version: None,
                 extra: std::collections::BTreeMap::new(),
+                ..Default::default()
             },
         )
         .expect("update without type_version should preserve stored version");
@@ -6566,12 +6629,11 @@ pub(crate) mod tests {
             &store,
             &record.instance_id,
             UpdateRecordInput {
-                field_values_mode: Default::default(),
                 field_meta: None,
                 field_values: new_fv,
-                tags: None,
                 type_version: Some(99),
                 extra: std::collections::BTreeMap::new(),
+                ..Default::default()
             },
         );
 
@@ -6596,12 +6658,11 @@ pub(crate) mod tests {
             &store,
             &id,
             UpdateRecordInput {
-                field_values_mode: Default::default(),
                 field_meta: None,
                 field_values: new_fv,
-                tags: None,
                 type_version: Some(2),
                 extra: std::collections::BTreeMap::new(),
+                ..Default::default()
             },
         )
         .expect("migration to v2 should succeed");
@@ -7395,12 +7456,11 @@ pub(crate) mod tests {
             &store,
             &created.instance_id,
             UpdateRecordInput {
-                field_values_mode: Default::default(),
                 field_meta: None,
-                type_version: None,
                 field_values: fvs(vec![("trigger", json!("active"))]),
                 tags: None,
                 extra: std::collections::BTreeMap::new(),
+                ..Default::default()
             },
         );
         assert!(
@@ -7443,12 +7503,11 @@ pub(crate) mod tests {
             &store,
             &created.instance_id,
             UpdateRecordInput {
-                field_values_mode: Default::default(),
                 field_meta: None,
-                type_version: None,
                 field_values: fvs(vec![("trigger", json!("active"))]),
                 tags: None,
                 extra: std::collections::BTreeMap::new(),
+                ..Default::default()
             },
         )
         .expect_err("update must be rejected");

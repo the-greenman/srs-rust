@@ -323,12 +323,11 @@ fn update_input(statement: &str, created_by: Option<Value>) -> UpdateRecordInput
         extra.insert("createdBy".to_string(), v);
     }
     UpdateRecordInput {
-        field_values_mode: Default::default(),
         field_values: purpose_input(statement).field_values,
         field_meta: None,
         tags: None,
-        type_version: None,
         extra,
+        ..Default::default()
     }
 }
 

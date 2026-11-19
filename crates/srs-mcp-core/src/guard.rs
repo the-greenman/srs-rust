@@ -283,13 +283,14 @@ impl WriteGuard {
         let Ok(Some(record)) = record_store::get_record_by_id(store, id) else {
             return Ok(()); // the service reports a missing / unloadable record
         };
-        let old = &record.field_values.0;
-        let mut new = input.field_values;
-        if input.field_values_mode == record_store::FieldValuesMode::Merge {
-            let mut merged = old.clone();
-            record_store::merge_patch(&mut merged, new);
-            new = merged;
-        }
+        let (new, new_meta) = record_store::resolve_field_update(
+            input.field_values_mode,
+            &record.field_values,
+            record.field_meta.as_ref(),
+            srs_core::types::record::FieldValues(input.field_values),
+            tools::field_meta_map(input.field_meta),
+        );
+        let (new, old) = (&new.0, &record.field_values.0);
         let changed = new
             .keys()
             .chain(old.keys())
@@ -306,20 +307,18 @@ impl WriteGuard {
                 )));
             }
         }
-        // Provenance of every non-fill field must survive a whole-map replace.
-        if let Some(meta) = tools::field_meta_map(input.field_meta) {
-            let stored = serde_json::to_value(&record.field_meta).unwrap_or(Value::Null);
-            let sent = serde_json::to_value(&meta).unwrap_or(Value::Null);
-            let keep = |v: &Value| {
-                let mut m = v.as_object().cloned().unwrap_or_default();
-                m.retain(|k, _| !self.fill_only_fields.contains(k));
-                m
-            };
-            if keep(&stored) != keep(&sent) {
-                return Err(self.deny(&format!(
-                    "record '{id}' is protected; fieldMeta of non-fill fields cannot be changed"
-                )));
-            }
+        // Provenance of every non-fill field must survive the update.
+        let stored = serde_json::to_value(&record.field_meta).unwrap_or(Value::Null);
+        let resolved = serde_json::to_value(&new_meta).unwrap_or(Value::Null);
+        let keep = |v: &Value| {
+            let mut m = v.as_object().cloned().unwrap_or_default();
+            m.retain(|k, _| !self.fill_only_fields.contains(k));
+            m
+        };
+        if keep(&stored) != keep(&resolved) {
+            return Err(self.deny(&format!(
+                "record '{id}' is protected; fieldMeta of non-fill fields cannot be changed"
+            )));
         }
         Ok(())
     }
