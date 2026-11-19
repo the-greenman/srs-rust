@@ -592,14 +592,46 @@ fn container_update_is_a_partial_patch_that_keeps_omitted_fields() {
     let got = &u["result"]["structuredContent"]["container"];
     assert_eq!(got["title"], "New");
     assert_eq!(got["description"], "keep me");
-    assert_eq!(
-        tool(
-            &mut d,
-            "container_update",
-            json!({ "containerId": id, "patch": { "bogus": 1 } })
-        )["error"]["code"],
-        -32602
+    for bad in [json!({ "bogus": 1 }), json!({ "description": null })] {
+        assert_eq!(
+            tool(
+                &mut d,
+                "container_update",
+                json!({ "containerId": id, "patch": bad })
+            )["error"]["code"],
+            -32602
+        );
+    }
+}
+
+#[test]
+fn container_update_null_clears_pointers_and_reports_dropped_members() {
+    let (_dir, mut d) = setup();
+    let n = tool(
+        &mut d,
+        "note_create",
+        json!({ "title": "n", "sections": [{ "name": "body", "content": "b" }] }),
     );
+    let nid = n["result"]["structuredContent"]["instanceId"].clone();
+    let c = tool(
+        &mut d,
+        "container_create",
+        json!({ "title": "C", "memberInstanceIds": [{ "instanceId": nid }],
+                "anchorInstanceId": nid, "identityInstanceId": nid }),
+    );
+    assert_eq!(c["result"]["isError"], false, "{c}");
+    let id = c["result"]["structuredContent"]["containerId"].clone();
+    let u = tool(
+        &mut d,
+        "container_update",
+        json!({ "containerId": id, "patch": {
+            "identityInstanceId": null, "anchorInstanceId": null, "memberInstanceIds": [] } }),
+    );
+    assert_eq!(u["result"]["isError"], false, "{u}");
+    let r = &u["result"]["structuredContent"];
+    assert!(r["container"]["identityInstanceId"].is_null(), "{u}");
+    assert!(r["container"]["anchorInstanceId"].is_null(), "{u}");
+    assert_eq!(r["diagnostics"].as_array().unwrap().len(), 1, "{u}");
 }
 
 // ── Session write guard (srs-rust#1165) ──────────────────────────────────────
@@ -1072,6 +1104,11 @@ mod write_guard {
         let other = create(&mut d, ty, json!({ "body": "c" }), None);
         assert_rejected(
             &mut d,
+            "container_update",
+            json!({ "containerId": cid, "patch": { "title": "x" } }),
+        );
+        assert_rejected(
+            &mut d,
             "container_member_add",
             json!({ "containerId": cid, "instanceId": other }),
         );
@@ -1473,6 +1510,11 @@ mod write_guard {
         );
         let filed = create(&mut d, ty, json!({ "body": "c" }), Some(&cid));
         // Nothing else is.
+        assert_rejected(
+            &mut d,
+            "container_update",
+            json!({ "containerId": cid, "patch": { "title": "x" } }),
+        );
         assert_rejected(
             &mut d,
             "container_member_remove",

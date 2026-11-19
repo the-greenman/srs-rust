@@ -412,12 +412,13 @@ Returns the created container.";
 pub const DESC_CONTAINER_UPDATE: &str = "Update an existing container: the same PARTIAL patch \
 as `srs container update`. `containerId` names the container; `patch` carries only the properties \
 to change. Omitted keys are KEPT; a present key replaces that property (`title`, `description`, \
-`namespace`, `name`, `containerType`, `tags`, `meta`, `anchorInstanceId`, `identityInstanceId`, \
-`memberInstanceIds`, `childContainerIds`). `memberInstanceIds` and `childContainerIds` replace the \
-whole list (members as the ordered `{instanceId, depth?}` outline; ids dropped are reported in \
-diagnostics) — to add or remove one member use container_member_add / container_member_remove. \
-`identityInstanceId: null` clears the identity. Invalid input is rejected whole. Returns \
-`{container, diagnostics}`.";
+`namespace`, `name`, `containerType`, `tags`, `meta` (an object), `anchorInstanceId`, \
+`identityInstanceId`, `memberInstanceIds`, `childContainerIds`). `null` is accepted only on \
+`identityInstanceId` and `anchorInstanceId`, where it CLEARS the pointer; `null` on any other key is \
+refused. `memberInstanceIds` replaces the whole ordered `{instanceId, depth?}` outline (ids dropped \
+are reported in `diagnostics`); `childContainerIds` replaces the whole list and is stored sorted and \
+deduplicated, not in the order sent. To add or remove one member use container_member_add / \
+container_member_remove. Invalid input is rejected whole. Returns `{container, diagnostics}`.";
 
 pub const DESC_CONTAINER_MEMBER_ADD: &str = "Add an instance to a container's ordered \
 memberInstanceIds outline (RFC-043). With no position it appends at depth 0; `position` (0-based) \
@@ -2034,6 +2035,16 @@ pub fn call_tool(
             }
         }
         TOOL_CONTAINER_UPDATE => {
+            // `null` clears only the two pointers; elsewhere serde would read it as "omitted".
+            if let Some(Value::Object(p)) = arguments.as_ref().and_then(|a| a.get("patch")) {
+                if let Some((k, _)) = p.iter().find(|(k, v)| {
+                    v.is_null() && !matches!(k.as_str(), "identityInstanceId" | "anchorInstanceId")
+                }) {
+                    return Err(McpApplicationError::invalid_params(format!(
+                        "patch.{k} cannot be null (omit it to keep the value); null clears only identityInstanceId and anchorInstanceId"
+                    )));
+                }
+            }
             let input: ContainerUpdateToolInput = parse_args(arguments)?;
             match container_service::update_container(store, &input.container_id, input.patch) {
                 Ok(r) => {

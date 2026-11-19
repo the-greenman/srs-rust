@@ -51,14 +51,32 @@ pub struct ContainerPatch {
     pub description: Option<String>,
     pub container_type: Option<String>,
     pub tags: Option<Vec<String>>,
+    #[cfg_attr(
+        feature = "mcp-schema",
+        schemars(with = "Option<serde_json::Map<String, serde_json::Value>>")
+    )]
     pub meta: Option<serde_json::Value>,
-    /// Double-`Option` (srs-rust#1293): `None` means the key was omitted — leave the field
-    /// untouched; `Some(None)` means the key was sent as JSON `null` — clear the field.
-    /// A single `Option<String>` cannot distinguish those two cases.
+    // Double-`Option` (srs-rust#1293): `None` = key omitted (keep); `Some(None)` = JSON `null`
+    // (clear). A single `Option<String>` cannot tell those apart.
     #[serde(default, deserialize_with = "deserialize_some")]
+    #[cfg_attr(
+        feature = "mcp-schema",
+        schemars(
+            with = "Option<String>",
+            description = "Instance id of the identity entry (must be a member). Send null to clear; omit to keep."
+        )
+    )]
     pub identity_instance_id: Option<Option<String>>,
-    pub anchor_instance_id: Option<String>,
-    /// RFC-043: the whole ordered outline (replaces the arrangement; order is data, never sorted).
+    #[serde(default, deserialize_with = "deserialize_some")]
+    #[cfg_attr(
+        feature = "mcp-schema",
+        schemars(
+            with = "Option<String>",
+            description = "Instance id of the typing anchor (should be a member). Send null to clear; omit to keep."
+        )
+    )]
+    pub anchor_instance_id: Option<Option<String>>,
+    // RFC-043: the whole ordered outline (replaces the arrangement; order is data, never sorted).
     #[cfg_attr(
         feature = "mcp-schema",
         schemars(with = "Option<Vec<ContainerEntryInput>>")
@@ -389,8 +407,8 @@ pub fn update_container(
     if let Some(v) = patch.identity_instance_id {
         container.identity_instance_id = v;
     }
-    if let Some(ref v) = patch.anchor_instance_id {
-        container.anchor_instance_id = Some(v.clone());
+    if let Some(v) = patch.anchor_instance_id {
+        container.anchor_instance_id = v;
     }
     let mut diagnostics: Vec<String> = Vec::new();
     if let Some(v) = patch.member_instance_ids {
@@ -2949,7 +2967,7 @@ mod tests {
             &store,
             &a.container_id,
             ContainerPatch {
-                anchor_instance_id: Some(id.to_string()),
+                anchor_instance_id: Some(Some(id.to_string())),
                 ..Default::default()
             },
         )
@@ -3392,7 +3410,7 @@ mod tests {
         let id = "550e8400-e29b-41d4-a716-446655440000";
         create_container(&store, minimal_container(id, "Root")).unwrap();
         let patch = ContainerPatch {
-            anchor_instance_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
+            anchor_instance_id: Some(Some("11111111-1111-4111-8111-111111111111".to_string())),
             ..ContainerPatch::default()
         };
         let updated = update_container(&store, id, patch).unwrap().container;
@@ -3579,7 +3597,7 @@ mod tests {
 
         let patch = ContainerPatch {
             identity_instance_id: Some(Some("11111111-1111-4111-8111-111111111111".to_string())),
-            anchor_instance_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
+            anchor_instance_id: Some(Some("11111111-1111-4111-8111-111111111111".to_string())),
             member_instance_ids: Some(srs_core::types::container::entries(vec![
                 "22222222-2222-4222-8222-222222222222".to_string(),
             ])),
