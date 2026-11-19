@@ -2185,7 +2185,8 @@ impl SrsRepository {
     /// Link an existing source document to a record instance.
     ///
     /// `input_json` is `{"instanceId":"<uuid>","documentId":"<uuid>"}`.
-    /// Returns `{"instanceId","documentId","sourceRefsCount"}` as a JS value.
+    /// Returns `{"instanceId","documentId","sourceRefsCount","alreadyLinked"}` as a JS value.
+    /// Linking an already-linked pair is a no-op reporting `alreadyLinked: true`.
     pub fn link_attachment(&self, input_json: &str) -> Result<JsValue, JsValue> {
         let input: LinkAttachmentBindingInput = serde_json::from_str(input_json)
             .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
@@ -3833,11 +3834,13 @@ mod tests {
             instance_id: "inst-001".to_string(),
             document_id: "doc-001".to_string(),
             source_refs_count: 3,
+            already_linked: true,
         };
         let json = serde_json::to_value(&result).expect("LinkAttachmentResult must serialize");
         assert_eq!(json["instanceId"].as_str(), Some("inst-001"));
         assert_eq!(json["documentId"].as_str(), Some("doc-001"));
         assert_eq!(json["sourceRefsCount"].as_u64(), Some(3));
+        assert_eq!(json["alreadyLinked"].as_bool(), Some(true));
     }
 
     /// Verify that `ProjectedRecord.relations` serialises with camelCase keys matching the

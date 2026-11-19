@@ -3449,6 +3449,8 @@ pub struct AttachmentLinkPayload {
     pub instance_id: String,
     pub document_id: String,
     pub source_refs_count: usize,
+    /// `true` when the pair was already linked and nothing was written.
+    pub already_linked: bool,
 }
 
 impl From<srs_repository::attachment_service::LinkAttachmentResult> for AttachmentLinkPayload {
@@ -3457,6 +3459,7 @@ impl From<srs_repository::attachment_service::LinkAttachmentResult> for Attachme
             instance_id: r.instance_id,
             document_id: r.document_id,
             source_refs_count: r.source_refs_count,
+            already_linked: r.already_linked,
         }
     }
 }

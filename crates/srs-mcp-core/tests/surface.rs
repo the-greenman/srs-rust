@@ -853,14 +853,15 @@ mod write_guard {
             assert!(tool(&mut d, "attachment_add", bad).get("error").is_some());
         }
         assert!(!docs.join("c.txt").exists());
-        // Link, then a duplicate and an unknown document are tool errors.
+        // Link, then a duplicate is a no-op and an unknown document is a tool error.
         let doc = a["result"]["structuredContent"]["documentId"]
             .as_str()
             .unwrap();
         let link = json!({ "instanceId": id, "documentId": doc });
         assert_ok(&mut d, "attachment_link", link.clone());
         let dup = tool(&mut d, "attachment_link", link.clone());
-        assert_eq!(dup["result"]["isError"], true, "{dup}");
+        assert_eq!(dup["result"]["isError"], false, "{dup}");
+        assert_eq!(dup["result"]["structuredContent"]["alreadyLinked"], true);
         let unknown = tool(
             &mut d,
             "attachment_link",
