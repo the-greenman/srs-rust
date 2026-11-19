@@ -958,7 +958,7 @@ Usage: srs repo guidance [OPTIONS] <COMMAND>
 
 Commands:
   get   Show manifest.aiGuidance (`null` when the manifest has none)
-  set   Replace manifest.aiGuidance, touching nothing else in the manifest. Stdin: `{summary?, navigationHints?, suggestedEntryPoints?}`; an entry point is an instance path or id and is stored as the instance's path. One that names no instance is refused (`instance-not-found`) and nothing is written
+  set   Replace manifest.aiGuidance, touching nothing else in the manifest (`{}` removes it). Stdin: `{summary?, navigationHints?, suggestedEntryPoints?}`; an entry point is an instance path or id and is stored as the instance's path. One that names no instance is refused (`instance-not-found`) and nothing is written
   help  Print this message or the help of the given subcommand(s)
 
 Options:
@@ -1035,7 +1035,7 @@ Options:
 ### `srs repo guidance set`
 
 ```text
-Replace manifest.aiGuidance, touching nothing else in the manifest. Stdin: `{summary?, navigationHints?, suggestedEntryPoints?}`; an entry point is an instance path or id and is stored as the instance's path. One that names no instance is refused (`instance-not-found`) and nothing is written
+Replace manifest.aiGuidance, touching nothing else in the manifest (`{}` removes it). Stdin: `{summary?, navigationHints?, suggestedEntryPoints?}`; an entry point is an instance path or id and is stored as the instance's path. One that names no instance is refused (`instance-not-found`) and nothing is written
 
 Usage: srs repo guidance set [OPTIONS]
 

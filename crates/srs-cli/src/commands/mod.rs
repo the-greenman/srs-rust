@@ -969,7 +969,7 @@ pub enum RepoPresentationCommand {
 pub enum RepoGuidanceCommand {
     /// Show manifest.aiGuidance (`null` when the manifest has none)
     Get,
-    /// Replace manifest.aiGuidance, touching nothing else in the manifest. Stdin:
+    /// Replace manifest.aiGuidance, touching nothing else in the manifest (`{}` removes it). Stdin:
     /// `{summary?, navigationHints?, suggestedEntryPoints?}`; an entry point is an instance
     /// path or id and is stored as the instance's path. One that names no instance is
     /// refused (`instance-not-found`) and nothing is written

@@ -89,4 +89,12 @@ fn guidance_set_round_trips_and_writes_only_ai_guidance() {
     let v = srs(d, &["repo", "guidance", "set"], r#"{"other":"x"}"#);
     assert_eq!(v["ok"], false, "an undeclared key is refused: {v}");
     assert_eq!(manifest(d), unchanged);
+
+    // `set {}` removes the guidance; `get` then reports null.
+    ok(d, &["repo", "guidance", "set"], "{}");
+    assert_eq!(
+        ok(d, &["repo", "guidance", "get"], "")["payload"],
+        json!({"aiGuidance": null})
+    );
+    assert_eq!(manifest(d), before);
 }

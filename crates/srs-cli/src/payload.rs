@@ -2484,11 +2484,18 @@ pub struct RepoAiGuidance {
 impl From<Option<srs_repository::agent_index_service::AiGuidance>> for RepoGuidancePayload {
     fn from(g: Option<srs_repository::agent_index_service::AiGuidance>) -> Self {
         Self {
-            ai_guidance: g.map(|g| RepoAiGuidance {
-                summary: g.summary,
-                suggested_entry_points: g.suggested_entry_points,
-                navigation_hints: g.navigation_hints,
-            }),
+            // Exhaustive: a field added to the core type fails to compile here.
+            ai_guidance: g.map(
+                |srs_repository::agent_index_service::AiGuidance {
+                     summary,
+                     suggested_entry_points,
+                     navigation_hints,
+                 }| RepoAiGuidance {
+                    summary,
+                    suggested_entry_points,
+                    navigation_hints,
+                },
+            ),
         }
     }
 }

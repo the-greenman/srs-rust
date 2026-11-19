@@ -506,7 +506,7 @@ impl SrsRepository {
     }
 
     /// Replace `manifest.aiGuidance` and touch nothing else — the CLI `repo guidance set`
-    /// (srs-rust#1668). `guidance_json` is `{summary?, navigationHints?,
+    /// (srs-rust#1668); `{}` removes it. `guidance_json` is `{summary?, navigationHints?,
     /// suggestedEntryPoints?}`; an entry point is an instance path or id and is stored as the
     /// path; one naming no instance throws `instance-not-found`. Returns the stored guidance.
     pub fn set_ai_guidance(&self, guidance_json: &str) -> Result<JsValue, JsValue> {

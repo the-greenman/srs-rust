@@ -13,12 +13,15 @@ use rmcp::ErrorData as McpError;
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use srs_mcp_core::{srs_metadata, McpApplication as _, McpApplicationError, SrsMcpApplication};
-use srs_repository::agent_index_service::orientation_note;
+use srs_repository::agent_index_service::{orientation_note, ORIENTATION_NOTE_MAX_BYTES};
 use srs_repository::boundary_service::{Access, Boundary};
 use srs_repository::error::RepositoryError;
 use srs_repository::store::FileStore;
 
 pub(crate) type App = SrsMcpApplication<FileStore>;
+
+/// Combined cap (bytes) on the repository guidance appended to the instructions (srs-rust#1668).
+const REGISTRY_GUIDANCE_MAX_BYTES: usize = 4 * ORIENTATION_NOTE_MAX_BYTES;
 
 fn mcp_error(error: McpApplicationError) -> McpError {
     McpError::new(
@@ -91,25 +94,38 @@ pub(crate) fn server_info(
         );
         info.instructions = Some(base + &note);
     }
-    // srs-rust#1668: each served repository's own aiGuidance, read at connect time.
+    // srs-rust#1668: the served repositories' own aiGuidance, read at connect time. In a
+    // registry only the default and the writable members contribute (a read-only member is
+    // reference material, not the session's workspace), within a combined cap.
     let ids: Vec<Option<&str>> = if boundary.is_registry() {
         boundary
             .members()
             .iter()
+            .filter(|m| !m.read_only || m.id.eq_ignore_ascii_case(boundary.default_id()))
             .map(|m| Some(m.id.as_str()))
             .collect()
     } else {
         vec![None]
     };
+    let mut added = 0;
     for id in ids {
         let Ok(target) = boundary.resolve(id, Access::Read) else {
             continue;
         };
-        if let Some(note) = orientation_note(&FileStore::new(&target.path)) {
-            let instructions = info.instructions.get_or_insert_with(String::new);
-            instructions.push_str("\n\n");
-            instructions.push_str(&note);
+        let Some(note) = orientation_note(&FileStore::new(&target.path)) else {
+            continue;
+        };
+        let instructions = info.instructions.get_or_insert_with(String::new);
+        if added + note.len() > REGISTRY_GUIDANCE_MAX_BYTES {
+            instructions.push_str(&format!(
+                "\n\nRepository {} also has guidance: read srs://{}/agent-index.",
+                target.id, target.id
+            ));
+            continue;
         }
+        added += note.len();
+        instructions.push_str("\n\n");
+        instructions.push_str(&note);
     }
     info
 }

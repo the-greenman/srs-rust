@@ -191,18 +191,16 @@ fn build_repo_map_from_manifest(
     let schemas = summarize_schemas(store);
     let source_documents = summarize_source_documents(manifest, cat);
     let containers_summary = summarize_containers(store)?;
-    let ai_guidance = manifest.extra.get("aiGuidance").cloned();
-    let entry_points = ai_guidance
+    // The one typed reader (srs-rust#1668): a schema-invalid aiGuidance reads as absent
+    // here, and `repo validate` reports it against the manifest schema.
+    let guidance = crate::agent_index_service::ai_guidance_of(manifest)
+        .ok()
+        .flatten();
+    let entry_points = guidance
         .as_ref()
-        .and_then(|guidance| guidance.get("suggestedEntryPoints"))
-        .and_then(|value| value.as_array())
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| item.as_str().map(ToString::to_string))
-                .collect()
-        })
+        .and_then(|g| g.suggested_entry_points.clone())
         .unwrap_or_default();
+    let ai_guidance = guidance.and_then(|g| serde_json::to_value(g).ok());
 
     let cp = crate::core_package::core_package();
     let core_package = CorePackageSummary {
