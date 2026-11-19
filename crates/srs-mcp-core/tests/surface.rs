@@ -63,11 +63,11 @@ fn application_reads_repository_id_from_manifest() {
 }
 
 #[test]
-fn tool_catalogue_has_all_forty_three_tools_and_core_owns_the_schemas() {
+fn tool_catalogue_has_all_forty_four_tools_and_core_owns_the_schemas() {
     let (_dir, mut d) = setup();
     let listed = rpc(&mut d, "tools/list", json!({}));
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 43);
+    assert_eq!(tools.len(), 44);
     assert!(tools
         .iter()
         .all(|t| t["description"].is_string() && t["inputSchema"]["type"] == "object"));
@@ -569,6 +569,34 @@ fn container_create_accepts_the_complete_field_set_and_rejects_unknown_keys() {
             &mut d,
             "container_create",
             json!({ "title": "x", "bogus": 1 })
+        )["error"]["code"],
+        -32602
+    );
+}
+
+#[test]
+fn container_update_is_a_partial_patch_that_keeps_omitted_fields() {
+    let (_dir, mut d) = setup();
+    let c = tool(
+        &mut d,
+        "container_create",
+        json!({ "title": "Old", "description": "keep me" }),
+    );
+    let id = c["result"]["structuredContent"]["containerId"].clone();
+    let u = tool(
+        &mut d,
+        "container_update",
+        json!({ "containerId": id, "patch": { "title": "New" } }),
+    );
+    assert_eq!(u["result"]["isError"], false, "{u}");
+    let got = &u["result"]["structuredContent"]["container"];
+    assert_eq!(got["title"], "New");
+    assert_eq!(got["description"], "keep me");
+    assert_eq!(
+        tool(
+            &mut d,
+            "container_update",
+            json!({ "containerId": id, "patch": { "bogus": 1 } })
         )["error"]["code"],
         -32602
     );

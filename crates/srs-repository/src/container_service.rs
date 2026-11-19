@@ -43,6 +43,7 @@ pub struct ContainerSummary {
 
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[cfg_attr(feature = "mcp-schema", derive(schemars::JsonSchema))]
 pub struct ContainerPatch {
     pub title: Option<String>,
     pub namespace: Option<String>,
@@ -58,6 +59,10 @@ pub struct ContainerPatch {
     pub identity_instance_id: Option<Option<String>>,
     pub anchor_instance_id: Option<String>,
     /// RFC-043: the whole ordered outline (replaces the arrangement; order is data, never sorted).
+    #[cfg_attr(
+        feature = "mcp-schema",
+        schemars(with = "Option<Vec<ContainerEntryInput>>")
+    )]
     pub member_instance_ids: Option<Vec<ContainerEntry>>,
     pub child_container_ids: Option<Vec<String>>,
 }
