@@ -927,7 +927,9 @@ pub struct RecordUpdateToolInput {
     /// array replaces whole; sent fieldMeta overlays by key. Cannot change typeVersion.
     #[serde(default)]
     pub field_values_mode: FieldValuesMode,
-    /// Per-field provenance: omit = preserve stored, {} = clear, {...} = replace.
+    /// Per-field provenance. Omit = keep stored. Replace mode: {} = clear, {...} = replace
+    /// the whole map. Merge mode: entries overlay the stored ones by key ({} changes nothing);
+    /// a field removed by the merge loses its entry; an entry for a field with no value is refused.
     #[serde(default)]
     pub field_meta: Option<std::collections::BTreeMap<String, FieldMetaInput>>,
     #[serde(default)]

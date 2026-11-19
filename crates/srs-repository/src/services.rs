@@ -758,6 +758,9 @@ pub fn update_note_content(
         });
     }
     let mut note = store.load_note_by_id(id)?;
+    if input.title.is_none() && input.tags.is_none() && input.sections.is_none() {
+        return Ok(UpdateNoteResult { note }); // nothing to change: write nothing
+    }
     if let Some(title) = input.title {
         note.title = title;
     }
@@ -1363,6 +1366,21 @@ mod tests {
         assert_eq!(cleared.title, None);
         assert_eq!(cleared.tags, None);
         assert_eq!(cleared.sections, note.sections);
+
+        // Nothing to change: the stored file is not rewritten.
+        let before = store
+            .load_instance_json("records/notes/test-note.json")
+            .unwrap();
+        let same = update_note_content(&store, id, UpdateNoteContentInput::default())
+            .unwrap()
+            .note;
+        assert_eq!(same, cleared);
+        assert_eq!(
+            store
+                .load_instance_json("records/notes/test-note.json")
+                .unwrap(),
+            before
+        );
     }
 
     #[test]

@@ -555,9 +555,12 @@ type FieldMetaMap = indexmap::IndexMap<String, srs_core::types::record::FieldMet
 /// that must judge the result before the write (the MCP write guard).
 ///
 /// - `Replace`: the sent values; sent `fieldMeta`, or the stored one when omitted.
-/// - `Merge`: [`merge_patch`] of the sent values onto the stored ones; sent
-///   `fieldMeta` entries overlay the stored ones by key; the meta of every field
-///   the patch removed is dropped with it (so [R6] keeps holding).
+/// - `Merge`: [`merge_patch`] of the sent values onto the stored ones. Stored
+///   `fieldMeta` of a field the merge removed is dropped with it; sent entries
+///   then overlay by key (a sent entry for a field with no value is kept, so
+///   validation refuses it under [R6] exactly as in replace mode).
+///
+/// An empty `fieldMeta` map comes back as `None`, so `{}` is never stored.
 pub fn resolve_field_update(
     mode: FieldValuesMode,
     stored_values: &FieldValues,
@@ -565,27 +568,26 @@ pub fn resolve_field_update(
     sent_values: FieldValues,
     sent_meta: Option<FieldMetaMap>,
 ) -> (FieldValues, Option<FieldMetaMap>) {
-    match mode {
+    let (values, meta) = match mode {
         FieldValuesMode::Replace => (sent_values, sent_meta.or_else(|| stored_meta.cloned())),
         FieldValuesMode::Merge => {
             let mut values = stored_values.0.clone();
             merge_patch(&mut values, sent_values.0);
-            if stored_meta.is_none() && sent_meta.is_none() {
-                return (FieldValues(values), None);
-            }
             let mut meta = stored_meta.cloned().unwrap_or_default();
-            meta.extend(sent_meta.unwrap_or_default());
             meta.retain(|k, _| values.contains_key(k));
+            meta.extend(sent_meta.unwrap_or_default());
             (FieldValues(values), Some(meta))
         }
-    }
+    };
+    (values, meta.filter(|m| !m.is_empty()))
 }
 
 /// JSON Merge Patch (RFC 7386) of `patch` onto `target`: `null` removes a key,
 /// an object merges recursively into a stored object, anything else (scalars,
 /// arrays — so a list-composite value is replaced whole) replaces the key.
-/// One departure: an object the patch creates that ends up empty only
-/// because its keys were nulls (at any depth) is not stored (no spurious empty composite).
+/// One departure: an object left empty by a non-empty patch (only nulls, at
+/// any depth, can do that) is removed rather than stored as `{}`, whether the
+/// patch created it or emptied a stored one. An explicit `{}` is still stored.
 pub fn merge_patch(
     target: &mut serde_json::Map<String, serde_json::Value>,
     patch: serde_json::Map<String, serde_json::Value>,
@@ -596,20 +598,21 @@ pub fn merge_patch(
                 target.shift_remove(&key);
             }
             serde_json::Value::Object(sub) => {
-                let mut stored = match target.get_mut(&key) {
-                    Some(serde_json::Value::Object(existing)) => {
-                        merge_patch(existing, sub);
-                        continue;
-                    }
-                    _ => serde_json::Map::new(),
-                };
-                // Non-empty patch, empty result: only nulls (at any depth) built it.
+                // Non-empty patch, empty result: only nulls (at any depth) did that.
                 let sent_something = !sub.is_empty();
-                merge_patch(&mut stored, sub);
-                if stored.is_empty() && sent_something {
+                let slot = target
+                    .entry(key.clone())
+                    .or_insert_with(|| serde_json::Value::Object(Default::default()));
+                if !slot.is_object() {
+                    *slot = serde_json::Value::Object(Default::default());
+                }
+                let mut emptied = false;
+                if let serde_json::Value::Object(stored) = slot {
+                    merge_patch(stored, sub);
+                    emptied = stored.is_empty() && sent_something;
+                }
+                if emptied {
                     target.shift_remove(&key);
-                } else {
-                    target.insert(key, serde_json::Value::Object(stored));
                 }
             }
             other => {
@@ -4717,6 +4720,27 @@ pub(crate) mod tests {
         assert_eq!(r.value("test-status"), None);
         assert!(!r.field_meta.unwrap().contains_key("test-status"));
 
+        // Sent meta for a field with no value is refused ([R6]), as in replace mode.
+        let orphan: UpdateRecordInput = serde_json::from_value(json!({
+            "fieldValuesMode": "merge", "fieldValues": {},
+            "fieldMeta": {"test-status": meta("ai")}
+        }))
+        .unwrap();
+        assert!(update_record(&store, &id, orphan).is_err());
+
+        // Removing the last field with meta leaves no `fieldMeta: {}` behind.
+        update(json!({"fieldValues": {"test-name": "N"}, "fieldMeta": {"test-name": meta("ai")}}));
+        let r = update(
+            json!({"fieldValuesMode": "merge", "fieldValues": {"test-name": "N2"},
+                              "fieldMeta": {}}),
+        );
+        assert!(
+            r.field_meta.is_some(),
+            "{{}} overlays nothing in merge mode"
+        );
+        let r = update(json!({"fieldValues": {"test-name": "N3"}, "fieldMeta": {}}));
+        assert!(r.field_meta.is_none(), "empty map normalised to None");
+
         // Merge refuses a typeVersion change.
         let input: UpdateRecordInput = serde_json::from_value(
             json!({"fieldValuesMode": "merge", "fieldValues": {}, "typeVersion": 2}),
@@ -4731,6 +4755,7 @@ pub(crate) mod tests {
     #[test]
     fn merge_patch_recurses_into_objects_and_replaces_arrays() {
         let mut stored = json!({
+            "emptied": {"k": 1},
             "a": {"x": 1, "y": {"p": 1, "q": 2}},
             "list": [1, 2, 3],
             "s": "keep"
@@ -4738,7 +4763,8 @@ pub(crate) mod tests {
         let patch = json!({
             "a": {"x": null, "y": {"q": 3}, "z": {"n": null, "m": 1}},
             "list": [9],
-            "absent": {"a": null, "b": {"c": null}}
+            "absent": {"a": null, "b": {"c": null}},
+            "emptied": {"k": null}
         });
         merge_patch(
             stored.as_object_mut().unwrap(),
