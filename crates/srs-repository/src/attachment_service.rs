@@ -1574,71 +1574,6 @@ mod tests {
         );
     }
 
-    // Cross-store roundtrip (#1669): on a real FileStore a duplicate link writes nothing.
-    #[test]
-    fn link_attachment_duplicate_noop_writes_nothing_filestore() {
-        let temp = tempfile::TempDir::new().unwrap();
-        let root = temp.path();
-        let record_id = "aaaabbbb-0000-4000-8000-0000000000f1";
-        std::fs::create_dir_all(root.join(".srs")).unwrap();
-        std::fs::write(
-            root.join("manifest.json"),
-            r#"{"dataModelRevision":2,"sourceDocumentsPath":"source-documents"}"#,
-        )
-        .unwrap();
-        std::fs::create_dir_all(root.join("package")).unwrap();
-        std::fs::write(
-            root.join("package/package.json"),
-            serde_json::json!({
-                "$schema": srs_schema::PACKAGE_MANIFEST_SCHEMA_ID,
-                "id": "rt-pkg", "namespace": "com.test", "name": "test",
-                "version": "1.0.0", "title": "test", "description": "",
-                "status": "active", "createdAt": "2026-01-01T00:00:00Z",
-                "fields": [], "types": []
-            })
-            .to_string(),
-        )
-        .unwrap();
-        std::fs::create_dir_all(root.join("source-documents")).unwrap();
-        std::fs::write(root.join("source-documents/brief.pdf"), b"pdf").unwrap();
-        std::fs::write(
-            root.join("source-documents/brief.meta.json"),
-            serde_json::json!({
-                "documentId": "doc-fs-1", "contentPath": "brief.pdf",
-                "contentType": "application/pdf", "createdAt": "2026-01-01T00:00:00Z"
-            })
-            .to_string(),
-        )
-        .unwrap();
-        std::fs::create_dir_all(root.join("records/tier-2")).unwrap();
-        let record_path = root.join(format!(
-            "records/tier-2/test-record-{}.json",
-            &record_id[..8]
-        ));
-        std::fs::write(
-            &record_path,
-            serde_json::json!({
-                "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-                "instanceId": record_id, "typeId": "type-test-001", "typeVersion": 1,
-                "typeNamespace": "com.test", "typeName": "test-type", "fieldValues": {}
-            })
-            .to_string(),
-        )
-        .unwrap();
-
-        let store = crate::validation::fixture_ladder::store(root);
-        let input = || LinkAttachmentInput {
-            instance_id: record_id.to_string(),
-            document_id: "doc-fs-1".to_string(),
-        };
-        assert!(!link_attachment(&store, input()).unwrap().already_linked);
-        let before = std::fs::read(&record_path).unwrap();
-        let again = link_attachment(&store, input()).unwrap();
-        assert!(again.already_linked);
-        assert_eq!(again.source_refs_count, 1);
-        assert_eq!(std::fs::read(&record_path).unwrap(), before);
-    }
-
     #[test]
     fn link_attachment_unknown_doc_rejected() {
         let record_id = "ccccdddd-0000-4000-8000-000000000003";
@@ -2058,6 +1993,24 @@ mod tests {
             parsed["sourceRefs"][0]["sourceRole"],
             serde_json::json!("attaches")
         );
+
+        // #1669: a duplicate link is a no-op and must not touch the file at all
+        // (mtime, not only bytes: a same-content rewrite would also change mtime).
+        let path = root.join("records/tier-2/test-type-ffffffff.json");
+        let mtime = std::fs::metadata(&path).unwrap().modified().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let again = link_attachment(
+            &store,
+            LinkAttachmentInput {
+                instance_id: record_id.to_string(),
+                document_id: doc_id.to_string(),
+            },
+        )
+        .unwrap();
+        assert!(again.already_linked);
+        assert_eq!(again.source_refs_count, 1);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), val);
+        assert_eq!(std::fs::metadata(&path).unwrap().modified().unwrap(), mtime);
         assert_eq!(
             parsed["sourceRefs"][0]["sourceId"],
             serde_json::json!(doc_id)

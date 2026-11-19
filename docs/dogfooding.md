@@ -1953,7 +1953,7 @@ Returns `ok: false` with a "not found" diagnostic. Exit code 1.
 
 **Done when.** `attachment link` returns `sourceRefsCount: 1` after the first link. The record's `sourceRefs[0]` has `sourceRole: "attaches"` and no `relationType`. Duplicate link returns `ok: true` with `alreadyLinked: true`. Unknown doc ID and unknown record ID return `ok: false` with distinct diagnostics. `repo validate` returns 0 errors throughout.
 
-**Verified 2026-07-17 (#283).** All steps confirmed via unit and integration tests in `attachment_service.rs`: happy path (MemoryStore + FileStore roundtrip), duplicate rejection, unknown-doc rejection, unknown-record rejection, and preserves-existing-refs. CLI wiring confirmed by `cargo test --test payload_contracts`. Live dogfood deferred: the scaffolded `purpose` record requires a Type lookup that is not available in a blank repo without a package installed; functional verification is complete via the 6 service-layer tests.
+**Verified 2026-07-17 (#283).** All steps confirmed via unit and integration tests in `attachment_service.rs`: happy path (MemoryStore + FileStore roundtrip), duplicate link is a no-op (#1669), unknown-doc rejection, unknown-record rejection, and preserves-existing-refs. CLI wiring confirmed by `cargo test --test payload_contracts`. Live dogfood deferred: the scaffolded `purpose` record requires a Type lookup that is not available in a blank repo without a package installed; functional verification is complete via the 6 service-layer tests.
 
 ---
 
@@ -3389,9 +3389,9 @@ $SRS repo validate --repo $R                                         # 0 errors
 4. Repeat step 3 → success with `alreadyLinked: true` (no-op).
 5. `srs repo validate --repo $REPO` → 0 errors.
 
-**Done when.** The document is stored and linked purely over MCP, the negative (unknown document) is refused without partial writes, a duplicate link is a no-op, and validate is clean. With an `attachment_policy` record (`max_per_file_bytes` etc.) an over-limit `attachment_add` returns `isError: true` naming the limit and writes nothing (pinned by `surface.rs::attachment_add_rejected_by_policy_writes_nothing`; not run by hand because it needs the `com.semanticops.base` package). A Tier-0 note cannot be linked (records only), as with the CLI.
+**Done when.** The document is stored and linked purely over MCP, the step-2 negative is refused without partial writes, a duplicate link (step 4) is a no-op, and validate is clean. With an `attachment_policy` record (`max_per_file_bytes` etc.) an over-limit `attachment_add` returns `isError: true` naming the limit and writes nothing (pinned by `surface.rs::attachment_add_rejected_by_policy_writes_nothing`; not run by hand because it needs the `com.semanticops.base` package). A Tier-0 note links the same way as a record (srs-rust#1334).
 
-**Verified 2026-10-07 (#1327):** steps 1-5 run against a debug build over stdio.
+**Verified 2026-10-07 (#1327):** steps 1-5 run against a debug build over stdio (step 4 then returned an error; since #1669 it is a no-op with `alreadyLinked: true`, pinned by `surface.rs::write_guard::attachment_add_and_link_round_trip_and_guard`).
 
 ### S58 — A client acts on a refused write by its code, not its message (`errors[]` / WASM `Error.code` / MCP `structuredContent`, #1338, ADR-053)
 
