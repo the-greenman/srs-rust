@@ -2460,6 +2460,39 @@ pub struct RepoPresentationMutatePayload {
     pub presentations: Vec<RepoPresentationEntry>,
 }
 
+/// `repo guidance get` / `repo guidance set` (srs-rust#1668).
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoGuidancePayload {
+    /// `manifest.aiGuidance`; `null` when the manifest has none.
+    pub ai_guidance: Option<RepoAiGuidance>,
+}
+
+/// Mirror of `srs_repository::agent_index_service::AiGuidance`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoAiGuidance {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    /// Instance file paths.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggested_entry_points: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub navigation_hints: Option<String>,
+}
+
+impl From<Option<srs_repository::agent_index_service::AiGuidance>> for RepoGuidancePayload {
+    fn from(g: Option<srs_repository::agent_index_service::AiGuidance>) -> Self {
+        Self {
+            ai_guidance: g.map(|g| RepoAiGuidance {
+                summary: g.summary,
+                suggested_entry_points: g.suggested_entry_points,
+                navigation_hints: g.navigation_hints,
+            }),
+        }
+    }
+}
+
 // ── Package payloads ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]

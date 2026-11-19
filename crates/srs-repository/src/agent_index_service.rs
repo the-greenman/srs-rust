@@ -1,4 +1,5 @@
 use crate::analysis::build_repo_map;
+use crate::catalog::RepositoryCatalog;
 use crate::error::RepositoryError;
 use crate::package_service::list_types;
 use crate::repository_navigation_service::repository_navigation_with_depth;
@@ -98,21 +99,7 @@ pub fn build_agent_index(store: &dyn RepositoryStore) -> Result<AgentIndex, Repo
     let entry_points = repo_map
         .entry_points
         .into_iter()
-        .map(|path| {
-            let instance_id = cat
-                .instances
-                .iter()
-                .find(|e| e.locator.as_deref() == Some(path.as_str()))
-                .map(|e| e.id.clone());
-            let uri = instance_id
-                .as_deref()
-                .map(|id| resource_uri::record_uri(&repo_id, id));
-            AgentEntryPoint {
-                path,
-                instance_id,
-                uri,
-            }
-        })
+        .map(|path| resolve_entry_point(&cat, &repo_id, path))
         .collect();
 
     Ok(AgentIndex {
@@ -127,6 +114,149 @@ pub fn build_agent_index(store: &dyn RepositoryStore) -> Result<AgentIndex, Repo
         entry_points,
         relation_types_uri: resource_uri::relation_types_uri(&repo_id),
     })
+}
+
+/// The one resolution of a suggested entry point's path to the instance it holds.
+fn resolve_entry_point(cat: &RepositoryCatalog, repo_id: &str, path: String) -> AgentEntryPoint {
+    let instance_id = cat
+        .instances
+        .iter()
+        .find(|e| e.locator.as_deref() == Some(path.as_str()))
+        .map(|e| e.id.clone());
+    let uri = instance_id
+        .as_deref()
+        .map(|id| resource_uri::record_uri(repo_id, id));
+    AgentEntryPoint {
+        path,
+        instance_id,
+        uri,
+    }
+}
+
+/// `manifest.aiGuidance`, typed and closed exactly as `manifest.json` declares it
+/// (`additionalProperties: false`), so a value this parses is schema-valid.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AiGuidance {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    /// Instance file paths. On `set`, an entry may also be an instance id; it is
+    /// written as that instance's current path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggested_entry_points: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub navigation_hints: Option<String>,
+}
+
+fn invalid_guidance(e: serde_json::Error) -> RepositoryError {
+    RepositoryError::InvalidInput {
+        message: format!("manifest.aiGuidance: {e}"),
+    }
+}
+
+/// The repository's `manifest.aiGuidance`, or `None` when it has none.
+pub fn get_ai_guidance(store: &dyn RepositoryStore) -> Result<Option<AiGuidance>, RepositoryError> {
+    let manifest = store.load_manifest()?;
+    manifest
+        .extra
+        .get("aiGuidance")
+        .map(|v| serde_json::from_value(v.clone()).map_err(invalid_guidance))
+        .transpose()
+}
+
+/// Replace `manifest.aiGuidance` with `guidance` and touch nothing else in the manifest.
+/// Each suggested entry point is an instance path or id and is stored as the path; one
+/// that names no instance is refused with `instance-not-found` and nothing is written.
+pub fn set_ai_guidance(
+    store: &dyn RepositoryStore,
+    mut guidance: AiGuidance,
+) -> Result<AiGuidance, RepositoryError> {
+    if let Some(points) = guidance.suggested_entry_points.as_mut() {
+        let cat = store.catalog()?;
+        for point in points.iter_mut() {
+            let entry = cat
+                .instances
+                .iter()
+                .find(|e| e.locator.as_deref() == Some(point.as_str()))
+                .or_else(|| cat.instances.iter().find(|e| e.id == *point));
+            match entry.and_then(|e| e.locator.clone()) {
+                Some(path) => *point = path,
+                None => {
+                    return Err(RepositoryError::InstanceNotFound { id: point.clone() });
+                }
+            }
+        }
+    }
+    let mut manifest = store.load_manifest()?;
+    let value = serde_json::to_value(&guidance).map_err(invalid_guidance)?;
+    manifest.extra.insert("aiGuidance".to_string(), value);
+    crate::writer::write_manifest(store, &manifest)?;
+    Ok(guidance)
+}
+
+/// Upper bound (bytes) on [`orientation_note`]; longer guidance is cut and points at the agent index.
+pub const ORIENTATION_NOTE_MAX_BYTES: usize = 2048;
+
+/// The repository's own orientation for an agent that has read nothing yet (srs-rust#1668):
+/// a heading naming the repository, `aiGuidance.summary`, `aiGuidance.navigationHints`, and
+/// each suggested entry point that resolves to an instance as its label and `srs://` uri.
+/// `None` when the manifest has no `aiGuidance` (or nothing in it). MCP servers append it to
+/// their `initialize` instructions; every adapter gets the same text from here.
+pub fn orientation_note(store: &dyn RepositoryStore) -> Option<String> {
+    let guidance = get_ai_guidance(store).ok()??;
+    let manifest = store.load_manifest().ok()?;
+    let repo_id = resource_uri::repository_id(&manifest)
+        .unwrap_or("unknown")
+        .to_string();
+    let mut entries = Vec::new();
+    if let Some(paths) = guidance.suggested_entry_points.filter(|p| !p.is_empty()) {
+        let cat = store.catalog().ok()?;
+        let labels = crate::record_label::build_label_indexes(store).ok();
+        for point in paths {
+            let Some(id) = resolve_entry_point(&cat, &repo_id, point).instance_id else {
+                continue;
+            };
+            let instance = crate::record_store::get_instance_by_id(store, &id)
+                .ok()
+                .flatten();
+            let n = crate::context_query_service::neighbour_summary(
+                &id,
+                instance.as_ref(),
+                labels.as_ref(),
+                &repo_id,
+            );
+            entries.push(format!("- {}: {}", n.label.unwrap_or(id), n.uri));
+        }
+    }
+    let summary = guidance.summary.filter(|s| !s.trim().is_empty());
+    let hints = guidance.navigation_hints.filter(|s| !s.trim().is_empty());
+    if summary.is_none() && hints.is_none() && entries.is_empty() {
+        return None;
+    }
+    let mut note = match manifest.extra.get("title").and_then(|v| v.as_str()) {
+        Some(title) => format!("## Repository guidance: \"{title}\" ({repo_id})"),
+        None => format!("## Repository guidance: {repo_id}"),
+    };
+    if let Some(s) = summary {
+        note.push_str(&format!("\n\n{}", s.trim()));
+    }
+    if let Some(h) = hints {
+        note.push_str(&format!("\n\nNavigation hints: {}", h.trim()));
+    }
+    if !entries.is_empty() {
+        note.push_str("\n\nSuggested entry points (read these first):\n");
+        note.push_str(&entries.join("\n"));
+    }
+    if note.len() > ORIENTATION_NOTE_MAX_BYTES {
+        let tail = format!("\u{2026} (cut short: read srs://{repo_id}/agent-index for the rest)");
+        let mut cut = ORIENTATION_NOTE_MAX_BYTES - tail.len();
+        while !note.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        note.truncate(cut);
+        note.push_str(&tail);
+    }
+    Some(note)
 }
 
 #[cfg(test)]
@@ -411,5 +541,121 @@ mod tests {
              full-depth navigation read {full_depth_reads}; depth-0 must read fewer, \
              or build_agent_index has started descending the part-of tree again"
         );
+    }
+
+    // --- aiGuidance get/set and the orientation note (srs-rust#1668) ---
+
+    const GUIDED: &str = "00000000-0000-4000-8000-0000000000a1";
+
+    /// A fresh repository (it holds its identity note); returns the store and that note's id.
+    fn guided_repo(dir: &std::path::Path) -> (FileStore, String) {
+        use crate::repository_lifecycle::*;
+        let store = FileStore::new(dir);
+        create_repository_with_intent(
+            &store,
+            &InitializeRepositoryInput {
+                repository: RepositoryMetadata {
+                    repository_id: GUIDED.into(),
+                    namespace: "com.example.guided".into(),
+                    srs_version: "2.0-draft".into(),
+                    title: Some("Guided".into()),
+                    description: None,
+                },
+                primary_package: PrimaryPackageMetadata {
+                    id: "00000000-0000-4000-8000-0000000000a2".into(),
+                    namespace: "com.example.guided".into(),
+                    name: "fixture".into(),
+                    version: "1.0.0".into(),
+                },
+            },
+        )
+        .unwrap();
+        let id = store.catalog().unwrap().instances[0].id.clone();
+        (store, id)
+    }
+
+    fn manifest_without_guidance(store: &FileStore) -> serde_json::Value {
+        let mut m = serde_json::to_value(store.load_manifest().unwrap()).unwrap();
+        m.as_object_mut().unwrap().remove("aiGuidance");
+        m
+    }
+
+    #[test]
+    fn ai_guidance_set_round_trips_and_writes_only_ai_guidance() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, note_id) = guided_repo(dir.path());
+        assert_eq!(get_ai_guidance(&store).unwrap(), None);
+        assert_eq!(orientation_note(&store), None);
+        let before = manifest_without_guidance(&store);
+
+        let set = set_ai_guidance(
+            &store,
+            AiGuidance {
+                summary: Some("A guided repository.".into()),
+                suggested_entry_points: Some(vec![note_id.clone()]),
+                navigation_hints: Some("Start at the guide.".into()),
+            },
+        )
+        .unwrap();
+        let path = set.suggested_entry_points.as_ref().unwrap()[0].clone();
+        assert!(
+            path.ends_with(".json"),
+            "an id is stored as its path: {path}"
+        );
+        assert_eq!(get_ai_guidance(&store).unwrap(), Some(set.clone()));
+        assert_eq!(manifest_without_guidance(&store), before);
+        // A path is accepted as given.
+        assert_eq!(set_ai_guidance(&store, set.clone()).unwrap(), set);
+
+        let note = orientation_note(&store).unwrap();
+        assert!(
+            note.starts_with(&format!("## Repository guidance: \"Guided\" ({GUIDED})")),
+            "{note}"
+        );
+        assert!(note.contains("A guided repository."), "{note}");
+        assert!(note.contains("Start at the guide."), "{note}");
+        assert!(
+            note.contains(&format!("srs://{GUIDED}/record/{note_id}")),
+            "{note}"
+        );
+    }
+
+    #[test]
+    fn ai_guidance_set_refuses_an_entry_point_naming_no_instance() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, _) = guided_repo(dir.path());
+        let err = set_ai_guidance(
+            &store,
+            AiGuidance {
+                suggested_entry_points: Some(vec!["records/notes/nothing.json".into()]),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err.code(), "instance-not-found");
+        assert_eq!(get_ai_guidance(&store).unwrap(), None);
+    }
+
+    #[test]
+    fn orientation_note_is_capped_and_points_at_the_agent_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, _) = guided_repo(dir.path());
+        set_ai_guidance(
+            &store,
+            AiGuidance {
+                summary: Some("é".repeat(3000)),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let note = orientation_note(&store).unwrap();
+        assert!(note.len() <= ORIENTATION_NOTE_MAX_BYTES, "{}", note.len());
+        assert!(note.ends_with(&format!("read srs://{GUIDED}/agent-index for the rest)")));
+    }
+
+    #[test]
+    fn ai_guidance_refuses_a_key_the_schema_does_not_declare() {
+        let parsed: Result<AiGuidance, _> = serde_json::from_value(serde_json::json!({"other": 1}));
+        assert!(parsed.is_err());
     }
 }

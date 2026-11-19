@@ -210,6 +210,8 @@ fn main() {
     write_schema!("repo-presentation-list", RepoPresentationsPayload);
     write_schema!("repo-presentation-add", RepoPresentationMutatePayload);
     write_schema!("repo-presentation-remove", RepoPresentationMutatePayload);
+    write_schema!("repo-guidance-get", RepoGuidancePayload);
+    write_schema!("repo-guidance-set", RepoGuidancePayload);
     write_schema!("repo-upgrade", RepoUpgradePayload);
     write_schema!("repo-migrate-identity", RepoMigrateIdentityPayload);
     write_schema!("repo-migrations", RepoMigrationsPayload);

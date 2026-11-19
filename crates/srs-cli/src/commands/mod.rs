@@ -860,6 +860,10 @@ pub enum RepoCommand {
     /// Declared-presentation management (manifest.renderedPresentations, RFC-015 [N+31])
     #[command(subcommand)]
     Presentation(RepoPresentationCommand),
+    /// The repository's own guidance for AI agents (manifest.aiGuidance), which MCP servers
+    /// append to their `initialize` instructions
+    #[command(subcommand)]
+    Guidance(RepoGuidanceCommand),
     /// Re-stamp a seed .srsj with a new repository identity.
     /// Modifies the file at --repo in place. Requires the seed to carry meta.upstreamPackage.
     #[command(name = "init-new")]
@@ -959,6 +963,17 @@ pub enum RepoPresentationCommand {
         #[arg(long = "composition-id")]
         composition_id: String,
     },
+}
+
+#[derive(Subcommand)]
+pub enum RepoGuidanceCommand {
+    /// Show manifest.aiGuidance (`null` when the manifest has none)
+    Get,
+    /// Replace manifest.aiGuidance, touching nothing else in the manifest. Stdin:
+    /// `{summary?, navigationHints?, suggestedEntryPoints?}`; an entry point is an instance
+    /// path or id and is stored as the instance's path. One that names no instance is
+    /// refused (`instance-not-found`) and nothing is written
+    Set,
 }
 
 #[derive(Subcommand)]

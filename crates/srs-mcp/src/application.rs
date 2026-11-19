@@ -13,6 +13,7 @@ use rmcp::ErrorData as McpError;
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use srs_mcp_core::{srs_metadata, McpApplication as _, McpApplicationError, SrsMcpApplication};
+use srs_repository::agent_index_service::orientation_note;
 use srs_repository::boundary_service::{Access, Boundary};
 use srs_repository::error::RepositoryError;
 use srs_repository::store::FileStore;
@@ -89,6 +90,26 @@ pub(crate) fn server_info(
             1,
         );
         info.instructions = Some(base + &note);
+    }
+    // srs-rust#1668: each served repository's own aiGuidance, read at connect time.
+    let ids: Vec<Option<&str>> = if boundary.is_registry() {
+        boundary
+            .members()
+            .iter()
+            .map(|m| Some(m.id.as_str()))
+            .collect()
+    } else {
+        vec![None]
+    };
+    for id in ids {
+        let Ok(target) = boundary.resolve(id, Access::Read) else {
+            continue;
+        };
+        if let Some(note) = orientation_note(&FileStore::new(&target.path)) {
+            let instructions = info.instructions.get_or_insert_with(String::new);
+            instructions.push_str("\n\n");
+            instructions.push_str(&note);
+        }
     }
     info
 }

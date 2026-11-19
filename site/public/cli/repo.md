@@ -21,6 +21,7 @@ Commands:
   unset-root-container  Refused from dataModelRevision 10 (`manifest-root-container-missing`): a manifest must name its root container (RFC-052 [R1]). Point it at another container with `repo set-root-container` instead. Nothing is written
   extensions            Extension management commands
   presentation          Declared-presentation management (manifest.renderedPresentations, RFC-015 [N+31])
+  guidance              The repository's own guidance for AI agents (manifest.aiGuidance), which MCP servers append to their `initialize` instructions
   init-new              Re-stamp a seed .srsj with a new repository identity. Modifies the file at --repo in place. Requires the seed to carry meta.upstreamPackage
   upgrade               Normalise instance file paths in-place to the canonical slug-id8 convention. Only valid for file-backed repositories. Idempotent — safe to run multiple times
   migrate-identity      Graduate the Tier-0 identity note to a com.semanticops.core/purpose Tier-2 Record and repoint the root container's identityInstanceId to the new record
@@ -917,6 +918,128 @@ Options:
       --composition-id <COMPOSITION_ID>
           
 
+      --repo <REPO>
+          Repository path (defaults to auto-detect from current directory)
+
+      --format <FORMAT>
+          Output format
+
+          Possible values:
+          - json: JSON output (default)
+          - yaml: YAML output
+          - text: Human-readable text output (planned, currently returns diagnostic)
+          
+          [default: json]
+
+      --store <STORE>
+          Storage backend override. By default the backend is inferred from the repository location
+          
+          [possible values: file, json]
+
+      --pretty
+          Pretty-print JSON output (no effect on text format)
+
+      --container <CONTAINER_ID>
+          Container scope: constrains list/create/delete to this container's membership; on `context record` it adds the record's arrangement subtree in this container
+
+      --actor <ACTOR>
+          Session actor for everything this invocation creates (RFC-046 `createdBy`): JSON `{"kind":"human|ai","id":"<non-empty>","name":"<optional>"}`. Defaults to the `SRS_ACTOR` environment variable; with neither, creations are unattributed. Host configuration only — a request payload never carries it. An invalid value refuses every creating command (`actor-invalid`); a corpus below dataModelRevision 9 refuses an actor session (`revision-too-old`) until `repo apply-migration --id rfc046-actor-provenance`. A `.srsj` migrated in memory on open refuses every write first (`migration-required-before-write`) until its migrations are applied
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## `srs repo guidance`
+
+```text
+The repository's own guidance for AI agents (manifest.aiGuidance), which MCP servers append to their `initialize` instructions
+
+Usage: srs repo guidance [OPTIONS] <COMMAND>
+
+Commands:
+  get   Show manifest.aiGuidance (`null` when the manifest has none)
+  set   Replace manifest.aiGuidance, touching nothing else in the manifest. Stdin: `{summary?, navigationHints?, suggestedEntryPoints?}`; an entry point is an instance path or id and is stored as the instance's path. One that names no instance is refused (`instance-not-found`) and nothing is written
+  help  Print this message or the help of the given subcommand(s)
+
+Options:
+      --repo <REPO>
+          Repository path (defaults to auto-detect from current directory)
+
+      --format <FORMAT>
+          Output format
+
+          Possible values:
+          - json: JSON output (default)
+          - yaml: YAML output
+          - text: Human-readable text output (planned, currently returns diagnostic)
+          
+          [default: json]
+
+      --store <STORE>
+          Storage backend override. By default the backend is inferred from the repository location
+          
+          [possible values: file, json]
+
+      --pretty
+          Pretty-print JSON output (no effect on text format)
+
+      --container <CONTAINER_ID>
+          Container scope: constrains list/create/delete to this container's membership; on `context record` it adds the record's arrangement subtree in this container
+
+      --actor <ACTOR>
+          Session actor for everything this invocation creates (RFC-046 `createdBy`): JSON `{"kind":"human|ai","id":"<non-empty>","name":"<optional>"}`. Defaults to the `SRS_ACTOR` environment variable; with neither, creations are unattributed. Host configuration only — a request payload never carries it. An invalid value refuses every creating command (`actor-invalid`); a corpus below dataModelRevision 9 refuses an actor session (`revision-too-old`) until `repo apply-migration --id rfc046-actor-provenance`. A `.srsj` migrated in memory on open refuses every write first (`migration-required-before-write`) until its migrations are applied
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+### `srs repo guidance get`
+
+```text
+Show manifest.aiGuidance (`null` when the manifest has none)
+
+Usage: srs repo guidance get [OPTIONS]
+
+Options:
+      --repo <REPO>
+          Repository path (defaults to auto-detect from current directory)
+
+      --format <FORMAT>
+          Output format
+
+          Possible values:
+          - json: JSON output (default)
+          - yaml: YAML output
+          - text: Human-readable text output (planned, currently returns diagnostic)
+          
+          [default: json]
+
+      --store <STORE>
+          Storage backend override. By default the backend is inferred from the repository location
+          
+          [possible values: file, json]
+
+      --pretty
+          Pretty-print JSON output (no effect on text format)
+
+      --container <CONTAINER_ID>
+          Container scope: constrains list/create/delete to this container's membership; on `context record` it adds the record's arrangement subtree in this container
+
+      --actor <ACTOR>
+          Session actor for everything this invocation creates (RFC-046 `createdBy`): JSON `{"kind":"human|ai","id":"<non-empty>","name":"<optional>"}`. Defaults to the `SRS_ACTOR` environment variable; with neither, creations are unattributed. Host configuration only — a request payload never carries it. An invalid value refuses every creating command (`actor-invalid`); a corpus below dataModelRevision 9 refuses an actor session (`revision-too-old`) until `repo apply-migration --id rfc046-actor-provenance`. A `.srsj` migrated in memory on open refuses every write first (`migration-required-before-write`) until its migrations are applied
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+### `srs repo guidance set`
+
+```text
+Replace manifest.aiGuidance, touching nothing else in the manifest. Stdin: `{summary?, navigationHints?, suggestedEntryPoints?}`; an entry point is an instance path or id and is stored as the instance's path. One that names no instance is refused (`instance-not-found`) and nothing is written
+
+Usage: srs repo guidance set [OPTIONS]
+
+Options:
       --repo <REPO>
           Repository path (defaults to auto-detect from current directory)
 

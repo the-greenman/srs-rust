@@ -1887,3 +1887,40 @@ fn package_move_tool_uses_the_core_service() {
         "move-same-boundary"
     );
 }
+
+/// srs-rust#1668: the browser dispatcher's `initialize` carries the repository's own
+/// aiGuidance too (the path a claude.ai connector reaches through the relay).
+#[test]
+fn initialize_instructions_carry_the_repositorys_ai_guidance() {
+    use srs_repository::agent_index_service::{set_ai_guidance, AiGuidance};
+    let (_dir, mut d) = setup();
+    let init = |d: &mut McpDispatcher<SrsMcpApplication<FileStore>>| {
+        rpc(
+            d,
+            "initialize",
+            json!({ "protocolVersion": MCP_PROTOCOL_VERSION }),
+        )["result"]["instructions"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let generic = srs_mcp_core::srs_metadata::initialize_result()["instructions"].clone();
+    assert_eq!(json!(init(&mut d)), generic);
+    set_ai_guidance(
+        d.application().store(),
+        AiGuidance {
+            summary: Some("Read the guide first.".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let instructions = init(&mut d);
+    assert!(
+        instructions.contains("## Repository guidance: \"Surface fixture\""),
+        "{instructions}"
+    );
+    assert!(
+        instructions.ends_with("Read the guide first."),
+        "{instructions}"
+    );
+}

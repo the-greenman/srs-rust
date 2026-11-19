@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RepoGuidancePayload",
+  "description": "`repo guidance get` / `repo guidance set` (srs-rust#1668).",
+  "type": "object",
+  "properties": {
+    "aiGuidance": {
+      "description": "`manifest.aiGuidance`; `null` when the manifest has none.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/RepoAiGuidance"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "definitions": {
+    "RepoAiGuidance": {
+      "description": "Mirror of `srs_repository::agent_index_service::AiGuidance`.",
+      "type": "object",
+      "properties": {
+        "navigationHints": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "suggestedEntryPoints": {
+          "description": "Instance file paths.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "summary": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}
