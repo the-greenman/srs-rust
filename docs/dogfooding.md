@@ -3389,7 +3389,7 @@ $SRS repo validate --repo $R                                         # 0 errors
 4. Repeat step 3 → success with `alreadyLinked: true` (no-op).
 5. `srs repo validate --repo $REPO` → 0 errors.
 
-**Done when.** The document is stored and linked purely over MCP, both negatives are refused without partial writes, and validate is clean. With an `attachment_policy` record (`max_per_file_bytes` etc.) an over-limit `attachment_add` returns `isError: true` naming the limit and writes nothing (pinned by `surface.rs::attachment_add_rejected_by_policy_writes_nothing`; not run by hand because it needs the `com.semanticops.base` package). A Tier-0 note cannot be linked (records only), as with the CLI.
+**Done when.** The document is stored and linked purely over MCP, the negative (unknown document) is refused without partial writes, a duplicate link is a no-op, and validate is clean. With an `attachment_policy` record (`max_per_file_bytes` etc.) an over-limit `attachment_add` returns `isError: true` naming the limit and writes nothing (pinned by `surface.rs::attachment_add_rejected_by_policy_writes_nothing`; not run by hand because it needs the `com.semanticops.base` package). A Tier-0 note cannot be linked (records only), as with the CLI.
 
 **Verified 2026-10-07 (#1327):** steps 1-5 run against a debug build over stdio.
 

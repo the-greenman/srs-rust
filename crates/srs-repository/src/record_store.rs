@@ -2175,17 +2175,17 @@ pub(crate) fn write_new_record(
 }
 
 /// Push `source_ref` onto `refs` unless an identical ref (same type + id + role)
-/// is already present. Returns `(new length, pushed)`.
-fn push_source_ref(refs: &mut Vec<SourceReference>, source_ref: SourceReference) -> (usize, bool) {
+/// is already present. Returns the new length, or `None` for a duplicate.
+fn push_source_ref(refs: &mut Vec<SourceReference>, source_ref: SourceReference) -> Option<usize> {
     if refs.iter().any(|r| {
         r.source_type == source_ref.source_type
             && r.source_id == source_ref.source_id
             && r.source_role == source_ref.source_role
     }) {
-        return (refs.len(), false);
+        return None;
     }
     refs.push(source_ref);
-    (refs.len(), true)
+    Some(refs.len())
 }
 
 /// Append `source_ref` to an instance's `sourceRefs[]`, whether it is a Tier-2
@@ -2218,10 +2218,9 @@ pub(crate) fn append_source_ref(
                     })?
                 }
             };
-            let (count, appended) = push_source_ref(&mut refs, source_ref);
-            if !appended {
-                return Ok((count, false));
-            }
+            let Some(count) = push_source_ref(&mut refs, source_ref) else {
+                return Ok((refs.len(), false));
+            };
             record.extra.insert(
                 "sourceRefs".to_string(),
                 serde_json::to_value(&refs).map_err(|e| RepositoryError::Serialize {
@@ -2234,10 +2233,9 @@ pub(crate) fn append_source_ref(
         }
         Some(LoadedInstance::Note(mut note)) => {
             let mut refs = note.source_refs.take().unwrap_or_default();
-            let (count, appended) = push_source_ref(&mut refs, source_ref);
-            if !appended {
-                return Ok((count, false));
-            }
+            let Some(count) = push_source_ref(&mut refs, source_ref) else {
+                return Ok((refs.len(), false));
+            };
             note.source_refs = Some(refs);
             store.save_note(&note)?;
             Ok((count, true))
