@@ -2035,16 +2035,6 @@ pub fn call_tool(
             }
         }
         TOOL_CONTAINER_UPDATE => {
-            // `null` clears only the two pointers; elsewhere serde would read it as "omitted".
-            if let Some(Value::Object(p)) = arguments.as_ref().and_then(|a| a.get("patch")) {
-                if let Some((k, _)) = p.iter().find(|(k, v)| {
-                    v.is_null() && !matches!(k.as_str(), "identityInstanceId" | "anchorInstanceId")
-                }) {
-                    return Err(McpApplicationError::invalid_params(format!(
-                        "patch.{k} cannot be null (omit it to keep the value); null clears only identityInstanceId and anchorInstanceId"
-                    )));
-                }
-            }
             let input: ContainerUpdateToolInput = parse_args(arguments)?;
             match container_service::update_container(store, &input.container_id, input.patch) {
                 Ok(r) => {

@@ -1222,8 +1222,9 @@ impl SrsRepository {
     /// Patch a container (srs-rust#1199; same service as `srs container update`). `patch_json` is
     /// the CLI's `ContainerPatch`: any of `{ title, namespace, name, description, containerType,
     /// tags, meta, identityInstanceId, anchorInstanceId, memberInstanceIds, childContainerIds }`;
-    /// omitted keys are untouched, unknown keys are rejected. `identityInstanceId: null` clears it
-    /// (srs-rust#1293) — the one key here that distinguishes omitted from explicit `null`.
+    /// omitted keys are untouched, unknown keys are rejected. `identityInstanceId: null` and
+    /// `anchorInstanceId: null` clear the pointer (srs-rust#1293); `null` on any other key is
+    /// rejected, not ignored.
     /// Returns `{ container, diagnostics }`.
     pub fn update_container(
         &self,
