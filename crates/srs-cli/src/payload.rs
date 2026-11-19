@@ -2468,16 +2468,20 @@ pub struct RepoGuidancePayload {
     pub ai_guidance: Option<RepoAiGuidance>,
 }
 
-/// Mirror of `srs_repository::agent_index_service::AiGuidance`.
+/// Mirror of `srs_repository::agent_index_service::AiGuidance`. A field is absent or holds
+/// a value, never `null` (as the manifest schema), so each is schema'd as its value type.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoAiGuidance {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String")]
     pub summary: Option<String>,
     /// Instance file paths.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Vec<String>")]
     pub suggested_entry_points: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String")]
     pub navigation_hints: Option<String>,
 }
 

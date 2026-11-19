@@ -18,30 +18,21 @@
   },
   "definitions": {
     "RepoAiGuidance": {
-      "description": "Mirror of `srs_repository::agent_index_service::AiGuidance`.",
+      "description": "Mirror of `srs_repository::agent_index_service::AiGuidance`. A field is absent or holds a value, never `null` (as the manifest schema), so each is schema'd as its value type.",
       "type": "object",
       "properties": {
         "navigationHints": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": "string"
         },
         "suggestedEntryPoints": {
           "description": "Instance file paths.",
-          "type": [
-            "array",
-            "null"
-          ],
+          "type": "array",
           "items": {
             "type": "string"
           }
         },
         "summary": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": "string"
         }
       }
     }

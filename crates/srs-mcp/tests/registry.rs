@@ -474,15 +474,14 @@ async fn instructions_carry_each_repositorys_ai_guidance() {
     );
 }
 
-/// srs-rust#1668: the guidance added across registry members is capped in total; a member
-/// past the cap is named with a pointer to its agent index.
+/// srs-rust#1668: the guidance added across registry members is hard-capped in total; the
+/// members past the cap are counted in one closing line.
 #[tokio::test]
 async fn registry_guidance_is_capped_in_total() {
     use srs_repository::agent_index_service::{set_ai_guidance, AiGuidance};
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let mut entries = Vec::new();
-    let mut ids = Vec::new();
     for n in 0..6 {
         let name = format!("r{n}");
         let id = repo(root, &name);
@@ -497,7 +496,6 @@ async fn registry_guidance_is_capped_in_total() {
         entries.push(
             json!({ "kind": "repository", "id": id, "locator": { "mode": "local", "path": name } }),
         );
-        ids.push(id);
     }
     let registry_path = root.join("registry.json");
     std::fs::write(
@@ -507,18 +505,14 @@ async fn registry_guidance_is_capped_in_total() {
     .unwrap();
     let client = connect(SrsMcpServer::from_registry(&registry_path, None).unwrap()).await;
     let instructions = client.peer_info().unwrap().instructions.clone().unwrap();
-    let generic_len = srs_mcp_core::srs_metadata::initialize_result()["instructions"]
-        .as_str()
-        .unwrap()
-        .len();
-    assert!(
-        instructions.len() < generic_len + 4 * 2048 + 4096,
-        "{}",
-        instructions.len()
+    let guidance = &instructions[instructions.find("\n\n## Repository guidance").unwrap()..];
+    assert!(guidance.len() <= 4 * 2048, "{}", guidance.len());
+    assert_eq!(
+        guidance
+            .matches("more repositories in this registry have guidance")
+            .count(),
+        1,
+        "{guidance}"
     );
-    let last = ids.last().unwrap();
-    assert!(
-        instructions.contains(&format!("read srs://{last}/agent-index.")),
-        "{instructions}"
-    );
+    assert!(guidance.ends_with("for each."), "{guidance}");
 }

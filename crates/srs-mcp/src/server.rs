@@ -33,6 +33,8 @@ pub struct SrsMcpServer {
     session_actor: Option<serde_json::Value>,
     /// The tools advertised and accepted (srs-rust#1287); `full` by default.
     tool_profile: srs_mcp_core::tools::ToolProfile,
+    /// The repositories' own aiGuidance for the instructions, read once (srs-rust#1668).
+    guidance: String,
 }
 
 impl SrsMcpServer {
@@ -84,6 +86,7 @@ impl SrsMcpServer {
 
     fn with_boundary(boundary: Boundary) -> Self {
         Self {
+            guidance: application::repository_guidance(&boundary),
             boundary,
             session_actor: None,
             tool_profile: Default::default(),
@@ -161,7 +164,7 @@ impl SrsMcpServer {
 
 impl ServerHandler for SrsMcpServer {
     fn get_info(&self) -> ServerInfo {
-        application::server_info(self.tool_profile, &self.boundary)
+        application::server_info(self.tool_profile, &self.boundary, &self.guidance)
     }
 
     // Handlers are synchronous service calls wrapped in ready futures: the
