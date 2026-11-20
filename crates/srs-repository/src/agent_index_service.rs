@@ -143,7 +143,7 @@ fn resolve_entry_point(cat: &RepositoryCatalog, repo_id: &str, path: String) -> 
 pub struct AiGuidance {
     #[serde(
         default,
-        deserialize_with = "present",
+        deserialize_with = "crate::serde_util::deserialize_some",
         skip_serializing_if = "Option::is_none"
     )]
     pub summary: Option<String>,
@@ -151,24 +151,16 @@ pub struct AiGuidance {
     /// written as that instance's current path.
     #[serde(
         default,
-        deserialize_with = "present",
+        deserialize_with = "crate::serde_util::deserialize_some",
         skip_serializing_if = "Option::is_none"
     )]
     pub suggested_entry_points: Option<Vec<String>>,
     #[serde(
         default,
-        deserialize_with = "present",
+        deserialize_with = "crate::serde_util::deserialize_some",
         skip_serializing_if = "Option::is_none"
     )]
     pub navigation_hints: Option<String>,
-}
-
-/// An optional field that, when present, must hold a value: an explicit `null` is refused,
-/// as the manifest schema refuses it (absent stays `None` through `default`).
-fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
-    d: D,
-) -> Result<Option<T>, D::Error> {
-    T::deserialize(d).map(Some)
 }
 
 /// The one reader of `manifest.aiGuidance` (strict: a value the schema refuses is an
