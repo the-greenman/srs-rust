@@ -25,7 +25,7 @@
 use crate::error::RepositoryError;
 use crate::store::RepositoryStore;
 use crate::writer::new_instance_id;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use srs_core::arrangement;
 use srs_core::types::container::{Container, ContainerEntry};
 use srs_core::validation::container::validate_container;
@@ -116,7 +116,6 @@ where
     serde_json::Map::<String, serde_json::Value>::deserialize(deserializer)
         .map(|m| Some(serde_json::Value::Object(m)))
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
