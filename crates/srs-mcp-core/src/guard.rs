@@ -108,6 +108,9 @@ impl WriteGuard {
             tools::TOOL_CONTAINER_MEMBER_REMOVE => {
                 parse::<ContainerMemberToolInput>(args).map(|i| i.container_id)
             }
+            tools::TOOL_CONTAINER_UPDATE => {
+                parse::<tools::ContainerUpdateToolInput>(args).map(|i| i.container_id)
+            }
             tools::TOOL_CONTAINER_MEMBER_MOVE => {
                 parse::<ContainerMemberMoveToolInput>(args).map(|i| i.container_id)
             }
