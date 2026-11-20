@@ -387,8 +387,10 @@ pub struct LinkAttachmentInput {
 pub struct LinkAttachmentResult {
     pub instance_id: String,
     pub document_id: String,
-    /// Total number of sourceRefs on the record after the link was added.
+    /// Total number of sourceRefs on the record after the call (unchanged when `already_linked`).
     pub source_refs_count: usize,
+    /// `true` when the pair was already linked: nothing was written (a retry is a no-op).
+    pub already_linked: bool,
 }
 
 /// Append `sourceType:"repository-document"`, `sourceId:<documentId>`,
@@ -397,7 +399,8 @@ pub struct LinkAttachmentResult {
 /// Validation:
 /// - `document_id` MUST resolve in the catalog's source-document set (RFC-038 [R25]) →
 ///   `InvalidInput` if absent.
-/// - Duplicate link (same record + doc with `sourceRole: Attaches`) → `InvalidInput`.
+/// - Duplicate link (same record + doc with `sourceRole: Attaches`) → `Ok`, nothing written,
+///   `already_linked: true`.
 /// - Record with `instance_id` not found → `NotFound`.
 ///
 /// Write order: only the record body is written (sourceRefs are embedded there);
@@ -423,8 +426,8 @@ pub fn link_attachment(
     }
 
     // 2. Append the new SourceReference (path-encapsulated via record_store).
-    // InstanceNotFound if neither a record nor a note exists with this id; duplicate
-    // check (same source_type + source_id + source_role) is handled atomically inside
+    // InstanceNotFound if neither a record nor a note exists with this id; the duplicate
+    // no-op (same source_type + source_id + source_role) is decided atomically inside
     // append_source_ref to avoid TOCTOU (ADR-034). Tier-0 notes carry a typed
     // `sourceRefs` field already (ADR-034), so linking works the same for both tiers.
     let new_ref = SourceReference {
@@ -436,13 +439,14 @@ pub fn link_attachment(
         confidence: None,
         note: None,
     };
-    let source_refs_count =
-        record_store::append_source_ref(store, &input.instance_id, new_ref, true)?;
+    let (source_refs_count, appended) =
+        record_store::append_source_ref(store, &input.instance_id, new_ref)?;
 
     Ok(LinkAttachmentResult {
         instance_id: input.instance_id,
         document_id: input.document_id,
         source_refs_count,
+        already_linked: !appended,
     })
 }
 
@@ -1536,11 +1540,12 @@ mod tests {
     }
 
     #[test]
-    fn link_attachment_duplicate_rejected() {
+    fn link_attachment_duplicate_is_noop() {
         let doc_id = "doc-bbb-222";
         let record_id = "bbbbcccc-0000-4000-8000-000000000002";
         let store = store_with_doc_and_record(doc_id, record_id);
 
+        let path = format!("records/tier-2/test-record-{}.json", &record_id[..8]);
         link_attachment(
             &store,
             LinkAttachmentInput {
@@ -1550,17 +1555,22 @@ mod tests {
         )
         .unwrap();
 
-        let err = link_attachment(
+        let before = store.load_instance_json(&path).unwrap();
+
+        let again = link_attachment(
             &store,
             LinkAttachmentInput {
                 instance_id: record_id.to_string(),
                 document_id: doc_id.to_string(),
             },
         )
-        .unwrap_err();
-        assert!(
-            matches!(err, RepositoryError::InvalidInput { .. }),
-            "expected InvalidInput for duplicate, got: {err:?}"
+        .unwrap();
+        assert!(again.already_linked);
+        assert_eq!(again.source_refs_count, 1);
+        assert_eq!(
+            store.load_instance_json(&path).unwrap(),
+            before,
+            "duplicate link must not write"
         );
     }
 
@@ -1806,11 +1816,12 @@ mod tests {
     }
 
     #[test]
-    fn link_attachment_on_note_duplicate_rejected() {
+    fn link_attachment_on_note_duplicate_is_noop() {
         let doc_id = "doc-note-222";
         let note_id = "eeeeffff-0000-4000-8000-000000000006";
         let store = store_with_doc_and_note(doc_id, note_id);
 
+        let path = format!("records/notes/test-note-{}.json", &note_id[..8]);
         link_attachment(
             &store,
             LinkAttachmentInput {
@@ -1820,17 +1831,22 @@ mod tests {
         )
         .unwrap();
 
-        let err = link_attachment(
+        let before = store.load_instance_json(&path).unwrap();
+
+        let again = link_attachment(
             &store,
             LinkAttachmentInput {
                 instance_id: note_id.to_string(),
                 document_id: doc_id.to_string(),
             },
         )
-        .unwrap_err();
-        assert!(
-            matches!(err, RepositoryError::InvalidInput { .. }),
-            "expected InvalidInput for duplicate, got: {err:?}"
+        .unwrap();
+        assert!(again.already_linked);
+        assert_eq!(again.source_refs_count, 1);
+        assert_eq!(
+            store.load_instance_json(&path).unwrap(),
+            before,
+            "duplicate link must not write"
         );
     }
 
@@ -1977,6 +1993,24 @@ mod tests {
             parsed["sourceRefs"][0]["sourceRole"],
             serde_json::json!("attaches")
         );
+
+        // #1669: a duplicate link is a no-op and must not touch the file at all
+        // (mtime, not only bytes: a same-content rewrite would also change mtime).
+        let path = root.join("records/tier-2/test-type-ffffffff.json");
+        let mtime = std::fs::metadata(&path).unwrap().modified().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let again = link_attachment(
+            &store,
+            LinkAttachmentInput {
+                instance_id: record_id.to_string(),
+                document_id: doc_id.to_string(),
+            },
+        )
+        .unwrap();
+        assert!(again.already_linked);
+        assert_eq!(again.source_refs_count, 1);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), val);
+        assert_eq!(std::fs::metadata(&path).unwrap().modified().unwrap(), mtime);
         assert_eq!(
             parsed["sourceRefs"][0]["sourceId"],
             serde_json::json!(doc_id)

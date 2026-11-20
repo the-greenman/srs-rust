@@ -2174,30 +2174,18 @@ pub(crate) fn write_new_record(
     Ok(relative_path)
 }
 
-/// Push `source_ref` onto `refs`, rejecting a duplicate (same type + id + role)
-/// when `check_duplicate` is set. Returns the new length on success.
-fn push_source_ref(
-    refs: &mut Vec<SourceReference>,
-    source_ref: SourceReference,
-    check_duplicate: bool,
-    instance_id: &str,
-) -> Result<usize, RepositoryError> {
-    if check_duplicate
-        && refs.iter().any(|r| {
-            r.source_type == source_ref.source_type
-                && r.source_id == source_ref.source_id
-                && r.source_role == source_ref.source_role
-        })
-    {
-        return Err(RepositoryError::InvalidInput {
-            message: format!(
-                "document '{}' is already linked to record '{}'",
-                source_ref.source_id, instance_id
-            ),
-        });
+/// Push `source_ref` onto `refs` unless an identical ref (same type + id + role)
+/// is already present. Returns whether it was pushed.
+fn push_source_ref(refs: &mut Vec<SourceReference>, source_ref: SourceReference) -> bool {
+    if refs.iter().any(|r| {
+        r.source_type == source_ref.source_type
+            && r.source_id == source_ref.source_id
+            && r.source_role == source_ref.source_role
+    }) {
+        return false;
     }
     refs.push(source_ref);
-    Ok(refs.len())
+    true
 }
 
 /// Append `source_ref` to an instance's `sourceRefs[]`, whether it is a Tier-2
@@ -2206,19 +2194,19 @@ fn push_source_ref(
 /// `source_refs` field). Path/tier lookup is encapsulated here so service callers
 /// never handle storage paths (ADR-010 storage-boundary rule).
 ///
-/// When `check_duplicate` is `true`, returns `InvalidInput` if an existing ref with the
-/// same `(source_type, source_id, source_role)` triple is already present. The check
-/// runs on the same load used for the write, eliminating the TOCTOU that would arise
-/// if callers loaded the instance separately to perform the check.
+/// If an existing ref has the same `(source_type, source_id, source_role)` triple,
+/// nothing is written. The check runs on the same load used for the write,
+/// eliminating the TOCTOU that would arise if callers loaded the instance
+/// separately to perform the check.
 ///
-/// Returns the resulting `sourceRefs` count. `InstanceNotFound` if no instance with
+/// Returns `(sourceRefs count, appended)`; `appended` is `false` for a duplicate
+/// (a no-op, not an error). `InstanceNotFound` if no instance with
 /// `instance_id` exists.
 pub(crate) fn append_source_ref(
     store: &dyn RepositoryStore,
     instance_id: &str,
     source_ref: SourceReference,
-    check_duplicate: bool,
-) -> Result<usize, RepositoryError> {
+) -> Result<(usize, bool), RepositoryError> {
     match get_instance_by_id(store, instance_id)? {
         Some(LoadedInstance::Record(mut record)) => {
             let mut refs: Vec<SourceReference> = match record.extra.get("sourceRefs") {
@@ -2230,7 +2218,10 @@ pub(crate) fn append_source_ref(
                     })?
                 }
             };
-            let count = push_source_ref(&mut refs, source_ref, check_duplicate, instance_id)?;
+            if !push_source_ref(&mut refs, source_ref) {
+                return Ok((refs.len(), false));
+            }
+            let count = refs.len();
             record.extra.insert(
                 "sourceRefs".to_string(),
                 serde_json::to_value(&refs).map_err(|e| RepositoryError::Serialize {
@@ -2239,14 +2230,17 @@ pub(crate) fn append_source_ref(
                 })?,
             );
             store.save_record(&record)?;
-            Ok(count)
+            Ok((count, true))
         }
         Some(LoadedInstance::Note(mut note)) => {
             let mut refs = note.source_refs.take().unwrap_or_default();
-            let count = push_source_ref(&mut refs, source_ref, check_duplicate, instance_id)?;
+            if !push_source_ref(&mut refs, source_ref) {
+                return Ok((refs.len(), false));
+            }
+            let count = refs.len();
             note.source_refs = Some(refs);
             store.save_note(&note)?;
-            Ok(count)
+            Ok((count, true))
         }
         None => Err(RepositoryError::InstanceNotFound {
             id: instance_id.to_string(),

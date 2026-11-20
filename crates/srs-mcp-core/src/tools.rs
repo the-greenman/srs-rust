@@ -281,7 +281,9 @@ pub const DESC_ATTACHMENT_ADD: &str = "Store a file as a source-document attachm
     with attachment_link to attach it to a record.";
 pub const DESC_ATTACHMENT_LINK: &str = "Attach a stored source document to a record (appends a \
     sourceRef with sourceRole 'attaches'). The document must already exist (attachment_add); \
-    linking the same pair twice is an error.";
+    linking an already-linked pair is a no-op that writes nothing and returns \
+    alreadyLinked: true, so retrying after a lost response is safe (unless a write guard was set on the \
+    record in between, which refuses the call before it runs).";
 pub const DESC_ATTACHMENT_UNLINK: &str = "Remove the 'attaches' sourceRef between a record and a \
     source document (the inverse of attachment_link). The file stays in the repository; an \
     unlinked pair is an error.";
