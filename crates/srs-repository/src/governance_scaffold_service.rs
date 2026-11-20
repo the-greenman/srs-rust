@@ -194,7 +194,7 @@ pub fn scaffold_governance_repo(
         store,
         &dl_container_id,
         crate::container_service::ContainerPatch {
-            anchor_instance_id: Some(dl_root_id.clone()),
+            anchor_instance_id: Some(Some(dl_root_id.clone())),
             ..Default::default()
         },
     )?;

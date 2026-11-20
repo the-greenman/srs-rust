@@ -24,7 +24,7 @@ use srs_core::types::relation::Relation;
 use srs_repository::attachment_service::{
     self, AddAttachmentInput, LinkAttachmentInput, RemoveAttachmentInput, UnlinkAttachmentInput,
 };
-use srs_repository::container_service::{self, ContainerCreateInput};
+use srs_repository::container_service::{self, ContainerCreateInput, ContainerPatch};
 use srs_repository::context_query_service::{
     list_neighbours, EdgeDirection, NeighboursPage, NeighboursQuery,
 };
@@ -73,6 +73,8 @@ pub const TOOL_CONTAINER_MEMBER_ADD: &str = "container_member_add";
 pub const TOOL_CONTAINER_MEMBER_REMOVE: &str = "container_member_remove";
 // Container creation (#1133) — one core service, `container_service::create_container`
 pub const TOOL_CONTAINER_CREATE: &str = "container_create";
+// Container update (#994) — one core service, `container_service::update_container`
+pub const TOOL_CONTAINER_UPDATE: &str = "container_update";
 // RFC-043 Change D: arrangement operations
 pub const TOOL_CONTAINER_MEMBER_MOVE: &str = "container_member_move";
 pub const TOOL_CONTAINER_MEMBER_REPAIR: &str = "container_member_repair";
@@ -406,6 +408,17 @@ typing anchor) and `identityInstanceId` (the container's identity/purpose record
 name an entry (an anchor outside the members is reported by repo_validate, I-145). Invalid input \
 is rejected whole with the validation message. \
 Returns the created container.";
+
+pub const DESC_CONTAINER_UPDATE: &str = "Update an existing container: the same PARTIAL patch \
+as `srs container update`. `containerId` names the container; `patch` carries only the properties \
+to change. Omitted keys are KEPT; a present key replaces that property (`title`, `description`, \
+`namespace`, `name`, `containerType`, `tags`, `meta` (an object), `anchorInstanceId`, \
+`identityInstanceId`, `memberInstanceIds`, `childContainerIds`). `null` is accepted only on \
+`identityInstanceId` and `anchorInstanceId`, where it CLEARS the pointer; `null` on any other key is \
+refused. `memberInstanceIds` replaces the whole ordered `{instanceId, depth?}` outline (ids dropped \
+are reported in `diagnostics`); `childContainerIds` replaces the whole list and is stored sorted and \
+deduplicated, not in the order sent. To add or remove one member use container_member_add / \
+container_member_remove. Invalid input is rejected whole. Returns `{container, diagnostics}`.";
 
 pub const DESC_CONTAINER_MEMBER_ADD: &str = "Add an instance to a container's ordered \
 memberInstanceIds outline (RFC-043). With no position it appends at depth 0; `position` (0-based) \
@@ -1058,6 +1071,14 @@ pub struct ContainerMemberToolInput {
     pub instance_id: String,
 }
 
+/// `container_update`: the container id plus the CLI's `ContainerPatch` (partial; omitted keys kept).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ContainerUpdateToolInput {
+    pub container_id: String,
+    pub patch: ContainerPatch,
+}
+
 /// `container_member_add`: `position` (0-based; default append) and `depth` (default 0) per
 /// RFC-043 Change D.
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -1444,6 +1465,11 @@ fn all_tools() -> Vec<Value> {
             TOOL_CONTAINER_CREATE,
             DESC_CONTAINER_CREATE,
             input_schema::<ContainerCreateInput>(),
+        ),
+        tool(
+            TOOL_CONTAINER_UPDATE,
+            DESC_CONTAINER_UPDATE,
+            input_schema::<ContainerUpdateToolInput>(),
         ),
         tool(
             TOOL_CONTAINER_MEMBER_ADD,
@@ -2005,6 +2031,15 @@ pub fn call_tool(
             let input: ContainerCreateInput = parse_args(arguments)?;
             match container_service::create_container(store, input.into()) {
                 Ok(container) => tool_ok(&container),
+                Err(e) => Ok(tool_err(e.report())),
+            }
+        }
+        TOOL_CONTAINER_UPDATE => {
+            let input: ContainerUpdateToolInput = parse_args(arguments)?;
+            match container_service::update_container(store, &input.container_id, input.patch) {
+                Ok(r) => {
+                    tool_ok(&json!({ "container": r.container, "diagnostics": r.diagnostics }))
+                }
                 Err(e) => Ok(tool_err(e.report())),
             }
         }
@@ -2582,6 +2617,7 @@ mod tests {
                 TOOL_RECORD_SUCCESSOR,
                 TOOL_NOTE_GRADUATE,
                 TOOL_CONTAINER_CREATE,
+                TOOL_CONTAINER_UPDATE,
                 TOOL_CONTAINER_MEMBER_ADD,
                 TOOL_CONTAINER_MEMBER_REMOVE,
                 TOOL_CONTAINER_MEMBER_MOVE,
