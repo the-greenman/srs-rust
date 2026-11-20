@@ -563,6 +563,16 @@ fn repo_presentation_remove() {
 }
 
 #[test]
+fn repo_guidance_get() {
+    check::<RepoGuidancePayload>("repo-guidance-get");
+}
+
+#[test]
+fn repo_guidance_set() {
+    check::<RepoGuidancePayload>("repo-guidance-set");
+}
+
+#[test]
 fn repo_upgrade() {
     check::<RepoUpgradePayload>("repo-upgrade");
 }

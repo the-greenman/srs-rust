@@ -676,7 +676,19 @@ fn arguments(
 impl<S: srs_repository::store::RepositoryStore> McpApplication for SrsMcpApplication<S> {
     fn initialize(&mut self, params: &Value) -> Result<Value, McpApplicationError> {
         self.apply_client_handle(params);
-        Ok(srs_metadata::initialize_result_for(self.tool_profile))
+        let mut result = srs_metadata::initialize_result_for(self.tool_profile);
+        // srs-rust#1668: the repository's own aiGuidance, as the stdio server appends it.
+        // Read per initialize, not once: this application outlives a connection (the relay
+        // re-initializes the same session) over a store the writer edits live, so guidance
+        // changed in the editor reaches the next connection. One repository; the catalog is
+        // walked only when the guidance names entry points.
+        if let Some(note) = srs_repository::agent_index_service::orientation_note(&self.store) {
+            if let Some(Value::String(instructions)) = result.get_mut("instructions") {
+                instructions.push_str("\n\n");
+                instructions.push_str(&note);
+            }
+        }
+        Ok(result)
     }
 
     fn call(&mut self, method: &str, params: Option<&Value>) -> Result<Value, McpApplicationError> {

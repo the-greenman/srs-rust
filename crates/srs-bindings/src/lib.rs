@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use srs_core::arrangement::RelativeMove;
 use srs_core::types::record::{FieldMeta, FieldValues};
+use srs_repository::agent_index_service;
 use srs_repository::attachment_service::{
     self as attachment_service, AddAttachmentInput, GetAttachmentBytesInput,
     GetRecordAttachmentsInput, LinkAttachmentInput, ListAttachmentsFilter, RemoveAttachmentInput,
@@ -496,6 +497,22 @@ impl SrsRepository {
         let report = manifest_service::declared_extensions_conformance(&self.store)
             .map_err(|e| js_err(&e))?;
         to_js(&report)
+    }
+
+    /// `manifest.aiGuidance` (`{summary?, navigationHints?, suggestedEntryPoints?}`), or
+    /// `null` when the manifest has none — the CLI `repo guidance get` (srs-rust#1668).
+    pub fn ai_guidance(&self) -> Result<JsValue, JsValue> {
+        to_js(&agent_index_service::get_ai_guidance(&self.store).map_err(|e| js_err(&e))?)
+    }
+
+    /// Replace `manifest.aiGuidance` and touch nothing else — the CLI `repo guidance set`
+    /// (srs-rust#1668); `{}` removes it. `guidance_json` is `{summary?, navigationHints?,
+    /// suggestedEntryPoints?}`; an entry point is an instance path or id and is stored as the
+    /// path; one naming no instance throws `instance-not-found`. Returns the stored guidance.
+    pub fn set_ai_guidance(&self, guidance_json: &str) -> Result<JsValue, JsValue> {
+        let guidance: agent_index_service::AiGuidance = serde_json::from_str(guidance_json)
+            .map_err(|e| js_invalid_input(format!("invalid aiGuidance: {e}")))?;
+        to_js(&agent_index_service::set_ai_guidance(&self.store, guidance).map_err(|e| js_err(&e))?)
     }
 
     /// List records. `filter_json` is a JSON string matching `RecordListFilter`

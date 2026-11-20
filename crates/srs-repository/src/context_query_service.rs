@@ -468,7 +468,7 @@ struct CardContext<'a> {
     with_summary: bool,
 }
 
-type LabelIndexes = (
+pub(crate) type LabelIndexes = (
     crate::record_label::FieldNameIndex,
     crate::record_label::IdentityFieldIndex,
 );
@@ -503,7 +503,7 @@ impl CardContext<'_> {
 /// `list_neighbours` and the context `card`/`label` projection: label via
 /// `record_display_label` (Tier 2, when the label indexes loaded) or the note title,
 /// type for records, and the `srs://` uri. `lifecycle_state`/`summary` are left `None`.
-fn neighbour_summary(
+pub(crate) fn neighbour_summary(
     id: &str,
     instance: Option<&record_store::LoadedInstance>,
     labels: Option<&LabelIndexes>,

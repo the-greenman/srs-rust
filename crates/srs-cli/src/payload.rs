@@ -2460,6 +2460,50 @@ pub struct RepoPresentationMutatePayload {
     pub presentations: Vec<RepoPresentationEntry>,
 }
 
+/// `repo guidance get` / `repo guidance set` (srs-rust#1668).
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoGuidancePayload {
+    /// `manifest.aiGuidance`; `null` when the manifest has none.
+    pub ai_guidance: Option<RepoAiGuidance>,
+}
+
+/// Mirror of `srs_repository::agent_index_service::AiGuidance`. A field is absent or holds
+/// a value, never `null` (as the manifest schema), so each is schema'd as its value type.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoAiGuidance {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String")]
+    pub summary: Option<String>,
+    /// Instance file paths.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Vec<String>")]
+    pub suggested_entry_points: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String")]
+    pub navigation_hints: Option<String>,
+}
+
+impl From<Option<srs_repository::agent_index_service::AiGuidance>> for RepoGuidancePayload {
+    fn from(g: Option<srs_repository::agent_index_service::AiGuidance>) -> Self {
+        Self {
+            // Exhaustive: a field added to the core type fails to compile here.
+            ai_guidance: g.map(
+                |srs_repository::agent_index_service::AiGuidance {
+                     summary,
+                     suggested_entry_points,
+                     navigation_hints,
+                 }| RepoAiGuidance {
+                    summary,
+                    suggested_entry_points,
+                    navigation_hints,
+                },
+            ),
+        }
+    }
+}
+
 // ── Package payloads ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]

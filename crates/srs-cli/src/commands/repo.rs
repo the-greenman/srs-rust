@@ -1,9 +1,8 @@
 use crate::commands::{
     with_migration_store, with_store, CliContext, RepoCommand, RepoExtensionsCommand,
-    RepoPresentationCommand, StoreBackend,
+    RepoGuidanceCommand, RepoPresentationCommand, StoreBackend,
 };
 use crate::output;
-use crate::payload::RepoMergePayload;
 use crate::payload::{
     InstancePathRename, MigrationSummaryPayload, RepoAgentIndexPayload, RepoApplyMigrationPayload,
     RepoCopyPayload, RepoCreatePayload, RepoDiffInstanceAdded, RepoDiffInstanceModified,
@@ -17,8 +16,11 @@ use crate::payload::{
     RepoPresentationsPayload, RepoSetRootContainerPayload, RepoUnsetRootContainerPayload,
     RepoUpgradePayload, RepoValidatePayload,
 };
+use crate::payload::{RepoGuidancePayload, RepoMergePayload};
 use anyhow::{Context, Result};
-use srs_repository::agent_index_service::build_agent_index;
+use srs_repository::agent_index_service::{
+    build_agent_index, get_ai_guidance, set_ai_guidance, AiGuidance,
+};
 use srs_repository::analysis::build_repo_map;
 use srs_repository::diff::diff_repositories;
 use srs_repository::doctor_service::{self, DoctorInput};
@@ -94,6 +96,18 @@ pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
         RepoCommand::Validate { json: _ } => cmd_repo_validate(ctx),
         RepoCommand::Extensions(ext_cmd) => cmd_repo_extensions_dispatch(ctx, ext_cmd),
         RepoCommand::Presentation(pres_cmd) => cmd_repo_presentation_dispatch(ctx, pres_cmd),
+        RepoCommand::Guidance(RepoGuidanceCommand::Get) => {
+            let guidance = with_store(&ctx, |store| Ok(get_ai_guidance(store)?))?;
+            output::serialize("repo guidance get", RepoGuidancePayload::from(guidance))
+        }
+        RepoCommand::Guidance(RepoGuidanceCommand::Set) => {
+            let input: AiGuidance = crate::input::from_stdin("aiGuidance")?;
+            let guidance = with_store(&ctx, |store| Ok(set_ai_guidance(store, input)?))?;
+            output::serialize(
+                "repo guidance set",
+                RepoGuidancePayload::from(Some(guidance)),
+            )
+        }
         RepoCommand::InitNew {
             repository_id,
             namespace,
