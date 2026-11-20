@@ -39,10 +39,11 @@ use srs_repository::protocol_run_service::{
     self, AdvanceStageInput, CreateRunInput, GetRunResult, RunListFilter, RunSummary,
 };
 use srs_repository::record_store::{
-    self, CreateRecordInput, CreateRecordSuccessorInput, FulfillmentNewRecord,
+    self, CreateRecordInput, CreateRecordSuccessorInput, FieldValuesMode, FulfillmentNewRecord,
     TransitionFulfillmentInput, TransitionLifecycleInput, UpdateRecordInput,
 };
 use srs_repository::relation_service;
+use srs_repository::serde_util::deserialize_some;
 use srs_repository::services::{self, CreateNoteInput, GraduateNoteInput, UpdateNoteContentInput};
 use srs_repository::store::RepositoryStore;
 use srs_repository::type_schema_service::{self, TypeSchemaInput};
@@ -357,9 +358,9 @@ binding). Each section has a name, content, and optional label. Optional contain
 note to a container atomically. Notes are the capture tier — graduate one to a typed Record \
 later when its structure stabilises.";
 
-pub const DESC_NOTE_UPDATE: &str = "Update a Tier-0 Note by instanceId. Whole-object over the \
-authoring fields: title, tags and sections are replaced by what you send (omit title/tags to \
-clear them); createdBy, createdAt and other provenance are preserved. To read a note first, use \
+pub const DESC_NOTE_UPDATE: &str = "Update a Tier-0 Note by instanceId. Send only what \
+changes: an omitted title, tags or sections is kept as stored; null clears any of them (so does \
+[] for tags and sections); a value replaces (a list replaces the whole list). createdBy, createdAt and other provenance are preserved. To read a note first, use \
 find or the read tool on its record URI.";
 
 pub const DESC_TYPE_SCHEMA: &str = "Get the authoring schema for a type by its UUID \
@@ -371,10 +372,15 @@ this before creating records of an unfamiliar type — discover typeIds from the
 resources in resources/list.";
 
 // Second-wave write tool descriptions (#680)
-pub const DESC_RECORD_UPDATE: &str = "Replace the fieldValues of an existing Tier-2 Record \
-(full replace, not a patch). Provide the complete set of field values you want stored. \
-Optional typeVersion migrates the record to a different type version; omit to keep the \
-stored version. Tag semantics: omit=preserve, []=clear, [...]=replace. Returns the updated \
+pub const DESC_RECORD_UPDATE: &str = "Update the fieldValues of an existing Tier-2 Record. \
+fieldValuesMode decides how: 'replace' (the default) stores exactly the fieldValues you send, so \
+any field you omit is REMOVED; 'merge' changes only the fields you send and keeps the rest, a \
+null value removes that field, an object merges into a stored composite value key by key, and \
+an array replaces the stored list whole; fieldMeta entries you send overlay the stored ones by \
+key, and a field you remove loses its fieldMeta. To change one field or only the tags, send \
+fieldValuesMode 'merge' with just that field (or fieldValues {}). In 'replace' mode fieldMeta, \
+when sent, replaces the whole map. Optional typeVersion migrates the record to a different type \
+version (replace mode only; merge refuses a typeVersion change); omit to keep the stored version. Tag semantics: omit=preserve, []=clear, [...]=replace. Returns the updated \
 Record. Run repo_validate after to confirm consistency.";
 
 pub const DESC_RECORD_TRANSITION: &str = "Transition a record's lifecycle state as defined \
@@ -855,17 +861,25 @@ impl From<NoteCreateToolInput> for CreateNoteInput {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NoteUpdateToolInput {
     pub instance_id: String,
-    pub title: Option<String>,
-    pub tags: Option<Vec<String>>,
-    pub sections: Vec<NoteSectionInput>,
+    /// Omit = keep, null = clear, a string = replace.
+    #[serde(default, deserialize_with = "deserialize_some")]
+    pub title: Option<Option<String>>,
+    /// Omit = keep, null or [] = clear, a list = replace.
+    #[serde(default, deserialize_with = "deserialize_some")]
+    pub tags: Option<Option<Vec<String>>>,
+    /// Omit = keep, null or [] = clear, a list = replace the whole list.
+    #[serde(default, deserialize_with = "deserialize_some")]
+    pub sections: Option<Option<Vec<NoteSectionInput>>>,
 }
 
 impl From<NoteUpdateToolInput> for UpdateNoteContentInput {
     fn from(input: NoteUpdateToolInput) -> Self {
         UpdateNoteContentInput {
             title: input.title,
-            tags: input.tags,
-            sections: input.sections.into_iter().map(Into::into).collect(),
+            tags: input.tags.map(Option::unwrap_or_default),
+            sections: input
+                .sections
+                .map(|s| s.unwrap_or_default().into_iter().map(Into::into).collect()),
         }
     }
 }
@@ -907,7 +921,15 @@ pub struct RecordUpdateToolInput {
     pub instance_id: String,
     /// RFC-039 carrier: an object keyed by `Field.name` verbatim.
     pub field_values: serde_json::Map<String, Value>,
-    /// Per-field provenance: omit = preserve stored, {} = clear, {...} = replace.
+    /// `replace` (default): fieldValues becomes the stored set; a field you omit is REMOVED.
+    /// `merge`: only the fields you send change; omitted fields are kept, `null` removes a
+    /// field (and its fieldMeta), an object merges into a stored composite key by key, an
+    /// array replaces whole; sent fieldMeta overlays by key. Cannot change typeVersion.
+    #[serde(default)]
+    pub field_values_mode: FieldValuesMode,
+    /// Per-field provenance. Omit = keep stored. Replace mode: {} = clear, {...} = replace
+    /// the whole map. Merge mode: entries overlay the stored ones by key ({} changes nothing);
+    /// a field removed by the merge loses its entry; an entry for a field with no value is refused.
     #[serde(default)]
     pub field_meta: Option<std::collections::BTreeMap<String, FieldMetaInput>>,
     #[serde(default)]
@@ -924,6 +946,7 @@ impl From<RecordUpdateToolInput> for UpdateRecordInput {
     fn from(input: RecordUpdateToolInput) -> Self {
         UpdateRecordInput {
             field_values: FieldValues(input.field_values),
+            field_values_mode: input.field_values_mode,
             field_meta: field_meta_map(input.field_meta),
             tags: input.tags,
             type_version: input.type_version,
@@ -2685,6 +2708,24 @@ mod tests {
         assert!(description(TOOL_CONTAINER_MEMBER_REPAIR).contains("Idempotent"));
     }
 
+    /// srs-rust#847: note_update omit keeps; null or [] clears, title included.
+    #[test]
+    fn note_update_input_omit_keeps_null_clears() {
+        let parse = |v: Value| -> UpdateNoteContentInput {
+            serde_json::from_value::<NoteUpdateToolInput>(v)
+                .unwrap()
+                .into()
+        };
+        let kept = parse(serde_json::json!({ "instanceId": "x" }));
+        assert!(kept.title.is_none() && kept.tags.is_none() && kept.sections.is_none());
+        let cleared = parse(serde_json::json!({
+            "instanceId": "x", "title": null, "tags": null, "sections": null
+        }));
+        assert_eq!(cleared.title, Some(None));
+        assert_eq!(cleared.tags, Some(vec![]));
+        assert_eq!(cleared.sections, Some(vec![]));
+    }
+
     #[test]
     fn tool_input_conversion_second_wave_exercises_every_field() {
         // RecordUpdateToolInput → UpdateRecordInput
@@ -2693,6 +2734,7 @@ mod tests {
             field_values: [("title".to_string(), serde_json::json!("v1"))]
                 .into_iter()
                 .collect(),
+            field_values_mode: FieldValuesMode::Merge,
             field_meta: Some(
                 [(
                     "title".to_string(),
@@ -2717,6 +2759,7 @@ mod tests {
         assert_eq!(meta.edited_at.as_deref(), Some("t"));
         assert_eq!(ui.tags, Some(vec!["tag1".to_string()]));
         assert_eq!(ui.type_version, Some(2));
+        assert_eq!(ui.field_values_mode, FieldValuesMode::Merge);
         assert_eq!(
             ui.extra.get("meta"),
             Some(&serde_json::json!({"derivedFrom": "src-id"}))

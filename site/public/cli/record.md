@@ -11,7 +11,7 @@ Commands:
   list                 List records, optionally filtered by type (namespace/name format). Omit --type to list all records
   get                  Get a record by ID
   create               Create a record (reads JSON from stdin)
-  update               Update a record by ID (reads JSON from stdin)
+  update               Update a record by ID (reads JSON from stdin). `fieldValues` replaces the stored set unless `"fieldValuesMode": "merge"` (JSON Merge Patch: unsent fields kept, null removes)
   validate             Validate a record input from stdin without persisting (editor preflight)
   delete               Delete a record by ID
   transition           Transition a record's lifecycle state (ext:lifecycle)
@@ -198,7 +198,7 @@ Options:
 ## `srs record update`
 
 ```text
-Update a record by ID (reads JSON from stdin)
+Update a record by ID (reads JSON from stdin). `fieldValues` replaces the stored set unless `"fieldValuesMode": "merge"` (JSON Merge Patch: unsent fields kept, null removes)
 
 Usage: srs record update [OPTIONS] <ID>
 

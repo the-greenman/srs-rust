@@ -130,8 +130,8 @@ fn single_record_edit_single_file_diff() {
                 fv
             },
             tags: None,
-            type_version: None,
             extra: std::collections::BTreeMap::new(),
+            ..Default::default()
         },
     )
     .unwrap();
@@ -202,8 +202,8 @@ fn decoys_untouched_after_edits() {
                 fv
             },
             tags: None,
-            type_version: None,
             extra: std::collections::BTreeMap::new(),
+            ..Default::default()
         },
     )
     .unwrap();

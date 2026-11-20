@@ -71,7 +71,7 @@ pub struct ContainerPatch {
     pub meta: Option<serde_json::Value>,
     // Double-`Option` (srs-rust#1293): `None` = key omitted (keep); `Some(None)` = JSON `null`
     // (clear). A single `Option<String>` cannot tell those apart.
-    #[serde(default, deserialize_with = "deserialize_some")]
+    #[serde(default, deserialize_with = "crate::serde_util::deserialize_some")]
     #[cfg_attr(
         feature = "mcp-schema",
         schemars(
@@ -80,7 +80,7 @@ pub struct ContainerPatch {
         )
     )]
     pub identity_instance_id: Option<Option<String>>,
-    #[serde(default, deserialize_with = "deserialize_some")]
+    #[serde(default, deserialize_with = "crate::serde_util::deserialize_some")]
     #[cfg_attr(
         feature = "mcp-schema",
         schemars(
@@ -115,16 +115,6 @@ where
 {
     serde_json::Map::<String, serde_json::Value>::deserialize(deserializer)
         .map(|m| Some(serde_json::Value::Object(m)))
-}
-
-/// Deserializes a present field (including JSON `null`) as `Some(_)`, so the caller can tell
-/// "key omitted" (`None`, via `#[serde(default)]`) apart from "key sent as `null`" (`Some(None)`).
-fn deserialize_some<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
-where
-    T: Deserialize<'de>,
-    D: Deserializer<'de>,
-{
-    Deserialize::deserialize(deserializer).map(Some)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

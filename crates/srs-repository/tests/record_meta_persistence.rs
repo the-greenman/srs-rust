@@ -126,8 +126,8 @@ fn file_store_update_record_persists_meta_round_trip() {
             field_values: fv,
             field_meta: None,
             tags: None,
-            type_version: None,
             extra,
+            ..Default::default()
         },
     )
     .expect("update");
@@ -176,8 +176,8 @@ fn file_store_fork_carries_meta_and_tags_round_trip() {
             field_values: fv,
             field_meta: None,
             tags: Some(vec!["alpha".to_string()]),
-            type_version: None,
             extra,
+            ..Default::default()
         },
     )
     .expect("update");
