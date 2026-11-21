@@ -327,6 +327,19 @@ pub fn create_relation(
         });
     }
 
+    // srs-rust#1680: an edge (source, type, target) that already exists is not written
+    // twice. `repo validate` warns on a duplicate edge (srs-rust#557), so the write path
+    // agrees: the create is idempotent and returns the stored relation unchanged.
+    if let Some(existing) = load_relations_with_locators(store)?.into_iter().find(|lr| {
+        lr.relation.relation_type == relation.relation_type
+            && lr.relation.source_instance_id == relation.source_instance_id
+            && lr.relation.target_instance_id == relation.target_instance_id
+    }) {
+        return Ok(CreateRelationResult {
+            relation: existing.relation,
+        });
+    }
+
     // JSON-schema gate preserved from the collection era: validate the relation
     // shape against the relations-collection schema's item definition. The
     // standalone relation.json mirror schema is registered in srs-schema
@@ -2021,6 +2034,51 @@ mod tests {
             "normal reader is denied at the collection: {err}"
         );
     }
+    /// srs-rust#1680: creating an edge that already exists is idempotent. The second
+    /// create returns the stored relation unchanged and writes nothing, so the write
+    /// path agrees with `repo validate`'s duplicate-edge check (srs-rust#557).
+    #[test]
+    fn create_relation_is_idempotent_for_an_existing_edge() {
+        let store = make_store_with_relations();
+        let def = links_def(None);
+        let first = create_relation(
+            &store,
+            make_relation(
+                "da000004-0000-4000-a000-000000000004",
+                "note-3",
+                "note-4",
+                "com.test/links",
+            ),
+            std::slice::from_ref(&def),
+        )
+        .unwrap();
+        let before = load_relations(&store).unwrap().len();
+        // Same edge, a different relationId (and a blank one, as a re-run writer sends).
+        for id in ["da000005-0000-4000-a000-000000000005", ""] {
+            let again = create_relation(
+                &store,
+                make_relation(id, "note-3", "note-4", "com.test/links"),
+                std::slice::from_ref(&def),
+            )
+            .unwrap();
+            assert_eq!(
+                again.relation, first.relation,
+                "returns the existing relation"
+            );
+        }
+        let after = load_relations(&store).unwrap();
+        assert_eq!(after.len(), before, "nothing written");
+        let edge_count = after
+            .iter()
+            .filter(|r| {
+                r.source_instance_id == "note-3"
+                    && r.target_instance_id == "note-4"
+                    && r.relation_type == "com.test/links"
+            })
+            .count();
+        assert_eq!(edge_count, 1);
+    }
+
     #[test]
     fn create_relation_refuses_duplicate_id() {
         let store = make_store_with_relations();
