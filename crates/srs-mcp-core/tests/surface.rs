@@ -1313,11 +1313,14 @@ mod write_guard {
         let ty = "com.example.surface/para2";
         let a = create(&mut d, ty, json!({ "body": "a" }), None);
         let b = create(&mut d, ty, json!({ "body": "b" }), None);
-        let rel = |d: &mut D| -> String {
+        // One distinct edge per relation: an existing edge is returned, not rewritten (#1680).
+        let c = create(&mut d, ty, json!({ "body": "c" }), None);
+        let e = create(&mut d, ty, json!({ "body": "e" }), None);
+        let rel = |d: &mut D, target: &String| -> String {
             let r = tool(
                 d,
                 "relation_create",
-                json!({ "relationType": "refines", "sourceInstanceId": a, "targetInstanceId": b, "createdAt": "2026-10-04T00:00:00Z" }),
+                json!({ "relationType": "refines", "sourceInstanceId": a, "targetInstanceId": target, "createdAt": "2026-10-04T00:00:00Z" }),
             );
             assert_eq!(r["result"]["isError"], false, "{r}");
             r["result"]["structuredContent"]["relationId"]
@@ -1329,8 +1332,8 @@ mod write_guard {
             d.application()
                 .set_session_actor(Some(json!({ "kind": "ai", "id": id })))
         };
-        let bare = rel(&mut d); // no session actor: no createdBy
-                                // createdAt is stamped when the caller omits it (#1246).
+        let bare = rel(&mut d, &b); // no session actor: no createdBy
+                                    // createdAt is stamped when the caller omits it (#1246).
         let r = tool(
             &mut d,
             "relation_create",
@@ -1345,9 +1348,9 @@ mod write_guard {
             .unwrap()
             .to_string();
         actor(&d, "agent-1");
-        let mine = rel(&mut d);
+        let mine = rel(&mut d, &c);
         actor(&d, "agent-2");
-        let theirs = rel(&mut d);
+        let theirs = rel(&mut d, &e);
         actor(&d, "agent-1");
         guard(&mut d, json!({ "instanceIds": [a] }));
 
@@ -1388,7 +1391,7 @@ mod write_guard {
         assert_eq!(e.id, mine);
         assert_eq!(e.kind, srs_repository::ChangeKind::Deleted);
         assert_eq!(e.source_instance_id.as_deref(), Some(a.as_str()));
-        assert_eq!(e.target_instance_id.as_deref(), Some(b.as_str()));
+        assert_eq!(e.target_instance_id.as_deref(), Some(c.as_str()));
 
         d.application_mut().set_write_guard(None);
         assert_ok(&mut d, "relation_delete", json!({ "relationId": theirs }));
