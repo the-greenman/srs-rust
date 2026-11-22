@@ -1794,3 +1794,47 @@ async fn tool_similar_matches_service_and_excludes_source() {
         .collect::<Vec<_>>();
     assert_eq!(hits, vec![ids[1].as_str()]);
 }
+
+/// RFC-056 (srs-rust#1240): `find` takes `fieldFilters`; a malformed filter is a tool
+/// error with its stable code, and an unknown fieldId selects nothing with a warning.
+#[tokio::test]
+async fn tool_find_field_filters_refuse_and_warn() {
+    let fx = make_fixture();
+    let client = connect(&fx).await;
+    let tools = client.list_tools(None).await.unwrap().tools;
+    for name in ["find", "similar"] {
+        let tool = tools.iter().find(|t| t.name == name).unwrap();
+        assert!(
+            tool.input_schema
+                .get("properties")
+                .and_then(|p| p.get("fieldFilters"))
+                .is_some(),
+            "{name} exposes fieldFilters"
+        );
+    }
+    let malformed = call(
+        &client,
+        "find",
+        serde_json::json!({ "fieldFilters": [{ "in": ["x"] }] }),
+    )
+    .await;
+    assert_eq!(malformed.is_error, Some(true), "{malformed:?}");
+    assert_eq!(
+        malformed.structured_content.as_ref().unwrap()["code"],
+        "query-filter-malformed"
+    );
+    let unknown = call(
+        &client,
+        "find",
+        serde_json::json!({ "fieldFilters": [{ "fieldId": "00000000-0000-4000-8000-00000000dead", "missing": true }] }),
+    )
+    .await;
+    assert_eq!(unknown.is_error, Some(false), "{unknown:?}");
+    let sc = unknown.structured_content.as_ref().unwrap();
+    assert_eq!(sc["total"], 0, "{sc}");
+    assert!(
+        sc["diagnostics"].to_string().contains("names no Field"),
+        "{sc}"
+    );
+    client.cancel().await.unwrap();
+}

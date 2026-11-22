@@ -24,6 +24,7 @@ use crate::container_service;
 use crate::diagnostic::{Diagnostic, Diagnostics};
 use crate::discovery_index::{Bm25Index, DiscoveryIndex};
 use crate::error::RepositoryError;
+use crate::field_filter::CompiledFieldFilters;
 use crate::projection::Projection;
 use crate::record_label;
 use crate::record_store::{self, RecordListFilter};
@@ -439,7 +440,9 @@ pub fn find(
     page: FindPage,
 ) -> Result<DiscoveryResult, RepositoryError> {
     let mut diagnostics = Diagnostics::new();
-    if !unresolved_filters(store, &query, &mut diagnostics)? {
+    let field_filters = compile_field_filters(store, &query, &mut diagnostics)?;
+    if !unresolved_filters(store, &query, &mut diagnostics)? || !field_filters.unresolved.is_empty()
+    {
         let (diagnostics, diagnostics_structured) = diagnostics.into_parts();
         return Ok(DiscoveryResult {
             hits: Vec::new(),
@@ -467,7 +470,8 @@ pub fn find(
         any: c.any.as_deref(),
     });
 
-    let mut candidates = collect_candidates(store, &query, &field_text_index, needle)?;
+    let mut candidates =
+        collect_candidates(store, &query, &field_filters, &field_text_index, needle)?;
 
     // Deterministic order independent of index/store iteration order.
     candidates.sort_by(|a, b| a.hit.instance_id.cmp(&b.hit.instance_id));
@@ -635,7 +639,9 @@ pub fn similar(
         });
     }
     let mut diagnostics = Diagnostics::new();
-    if !unresolved_filters(store, &query, &mut diagnostics)? {
+    let field_filters = compile_field_filters(store, &query, &mut diagnostics)?;
+    if !unresolved_filters(store, &query, &mut diagnostics)? || !field_filters.unresolved.is_empty()
+    {
         let (diagnostics, diagnostics_structured) = diagnostics.into_parts();
         return Ok(DiscoveryResult {
             hits: Vec::new(),
@@ -659,7 +665,8 @@ pub fn similar(
             format!("warning: {instance_id} has no similarity terms (no word of 3+ characters)"),
         );
     }
-    let mut candidates = collect_candidates(store, &query, &field_text_index, None)?;
+    let mut candidates =
+        collect_candidates(store, &query, &field_filters, &field_text_index, None)?;
     candidates.retain(|c| c.hit.instance_id != instance_id);
     candidates.sort_by(|a, b| a.hit.instance_id.cmp(&b.hit.instance_id));
     let ids: Vec<&str> = candidates
@@ -688,13 +695,20 @@ pub fn similar(
 fn collect_candidates(
     store: &dyn RepositoryStore,
     query: &DiscoveryQuery,
+    field_filters: &CompiledFieldFilters,
     field_text_index: &FieldTextIndex,
     needle: Option<Needle>,
 ) -> Result<Vec<Candidate>, RepositoryError> {
     let mut hits = Vec::new();
 
     if query.tier.is_none() || query.tier == Some(2) {
-        hits.extend(find_tier2(store, query, field_text_index, needle)?);
+        hits.extend(find_tier2(
+            store,
+            query,
+            field_filters,
+            field_text_index,
+            needle,
+        )?);
     }
 
     // Tier 0 carries no typeId/typeNamespace/typeName/lifecycleState — a query
@@ -703,7 +717,8 @@ fn collect_candidates(
         || query.type_namespace.is_some()
         || query.type_name.is_some()
         || query.lifecycle_state.is_some()
-        || !query.lifecycle_states.is_empty();
+        || !query.lifecycle_states.is_empty()
+        || field_filters.is_active();
 
     if !tier2_only_predicate && (query.tier.is_none() || query.tier == Some(0)) {
         hits.extend(find_tier0(store, query, needle)?);
@@ -752,7 +767,13 @@ fn tags_match(query_tags: &[String], instance_tags: &[String]) -> bool {
 pub(crate) fn record_matches_structured_predicates(
     record: &Record,
     query: &DiscoveryQuery,
+    field_filters: &CompiledFieldFilters,
 ) -> bool {
+    // RFC-056 [R1]: every field filter holds (the query's filters compiled once by the caller).
+    if !field_filters.matches(record) {
+        return false;
+    }
+
     if let Some(type_id) = &query.type_id {
         if &record.type_id != type_id {
             return false;
@@ -861,6 +882,24 @@ fn match_content(segments: Vec<TextSegment>, needle: Needle) -> (Vec<String>, Op
     }
 }
 
+/// RFC-056: refuse malformed or misfitting field filters before evaluating anything
+/// ([R7], [R8]); warn for each fieldId naming no Field, which makes the query select
+/// nothing ([R6]). Loads the package only when the query has filters.
+fn compile_field_filters(
+    store: &dyn RepositoryStore,
+    query: &DiscoveryQuery,
+    diagnostics: &mut Diagnostics,
+) -> Result<CompiledFieldFilters, RepositoryError> {
+    if query.field_filters.is_empty() {
+        return Ok(CompiledFieldFilters::default());
+    }
+    crate::field_filter::compile_reporting(
+        &store.load_package()?,
+        &query.field_filters,
+        diagnostics,
+    )
+}
+
 /// Warn (never error) when a type or container filter names nothing, so a typo is
 /// not indistinguishable from "no matches". Returns false when the query cannot
 /// match anything (an unknown container), true otherwise.
@@ -937,6 +976,7 @@ fn member_set(
 fn find_tier2(
     store: &dyn RepositoryStore,
     query: &DiscoveryQuery,
+    field_filters: &CompiledFieldFilters,
     field_text_index: &FieldTextIndex,
     needle: Option<Needle>,
 ) -> Result<Vec<Candidate>, RepositoryError> {
@@ -954,7 +994,7 @@ fn find_tier2(
 
     let mut hits = Vec::new();
     for record in &records {
-        if !record_matches_structured_predicates(record, query) {
+        if !record_matches_structured_predicates(record, query, field_filters) {
             continue;
         }
 

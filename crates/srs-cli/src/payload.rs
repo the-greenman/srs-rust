@@ -3652,6 +3652,9 @@ impl From<srs_repository::attachment_service::GetRecordAttachmentsResult>
 #[serde(rename_all = "camelCase")]
 pub struct AttachmentPolicyPayload {
     pub policy_record_present: bool,
+    /// Present only when two or more `repo_settings` records exist (I-111: policy treated as absent).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duplicate_policy_records: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_mime_types: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -3668,6 +3671,8 @@ impl From<srs_repository::attachment_policy_service::ReadAttachmentPolicyResult>
     fn from(r: srs_repository::attachment_policy_service::ReadAttachmentPolicyResult) -> Self {
         Self {
             policy_record_present: r.policy_record_present,
+            duplicate_policy_records: (r.duplicate_policy_records > 0)
+                .then_some(r.duplicate_policy_records),
             allowed_mime_types: r.policy.allowed_mime_types,
             max_per_file_bytes: r.policy.max_per_file_bytes,
             max_doc_bytes: r.policy.max_doc_bytes,

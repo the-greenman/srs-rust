@@ -28,11 +28,23 @@ pub struct ReadAttachmentPolicyResult {
     #[serde(flatten)]
     pub policy: AttachmentPolicy,
     pub policy_record_present: bool,
+    /// How many `repo_settings` records the catalog holds when that is two or more (spec I-111:
+    /// the policy is then treated as absent). Zero, and omitted from the payload, otherwise.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub duplicate_policy_records: usize,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 /// Read the current attachment policy from the optional `com.semanticops.base/repo_settings`
 /// record. Returns built-in defaults (all limits `None`) when the base package is not adopted,
 /// when no `repo_settings` record exists, or when the package cannot be loaded.
+///
+/// Two or more `repo_settings` records mean no policy (spec I-111, as `repo validate` already
+/// reports): the result carries the defaults, `policy_record_present: true` and the record count
+/// in `duplicate_policy_records`.
 ///
 /// Never returns `Err` due to a missing or absent policy — the absence of a policy is not an error.
 pub fn read_attachment_policy(
@@ -63,10 +75,18 @@ pub fn read_attachment_policy(
         return Ok(ReadAttachmentPolicyResult {
             policy: AttachmentPolicy::default(),
             policy_record_present: false,
+            duplicate_policy_records: 0,
         });
     }
 
-    // If multiple records exist, use the first (validation.rs reports the duplicate error).
+    // I-111: two or more records mean no policy; validation.rs reports the duplicate error.
+    if policy_records.len() > 1 {
+        return Ok(ReadAttachmentPolicyResult {
+            policy: AttachmentPolicy::default(),
+            policy_record_present: true,
+            duplicate_policy_records: policy_records.len(),
+        });
+    }
     let policy_record = &policy_records[0];
 
     let pkg = match store.load_package() {
@@ -75,6 +95,7 @@ pub fn read_attachment_policy(
             return Ok(ReadAttachmentPolicyResult {
                 policy: AttachmentPolicy::default(),
                 policy_record_present: true,
+                duplicate_policy_records: 0,
             });
         }
     };
@@ -128,6 +149,7 @@ pub fn read_attachment_policy(
             max_total_bytes,
         },
         policy_record_present: true,
+        duplicate_policy_records: 0,
     })
 }
 
@@ -444,8 +466,8 @@ mod tests {
     }
 
     #[test]
-    fn read_policy_multiple_records_returns_first() {
-        // Two repo_settings records in the manifest — service uses the first.
+    fn read_policy_multiple_records_is_absent() {
+        // Two repo_settings records: I-111 treats the policy as absent.
         let record_1 = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
             "instanceId": RECORD_ID,
@@ -476,8 +498,10 @@ mod tests {
 
         let result = read_attachment_policy(&store).expect("should not error");
         assert!(result.policy_record_present);
-        // First record has max_per_file_bytes = 1000, second has 9999.
-        assert_eq!(result.policy.max_per_file_bytes, Some(1000));
+        assert_eq!(result.policy, AttachmentPolicy::default());
+        assert_eq!(result.duplicate_policy_records, 2);
+        // Enforcement follows: a file over the first record's 1000-byte limit is accepted.
+        check_attachment(&store, "text/plain", 5000).expect("no policy is in force");
     }
 
     #[test]
