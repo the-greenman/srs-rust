@@ -67,7 +67,7 @@ pub struct DiscoveryQuery {
 /// query is compiled ([R7]), not here, so a malformed filter is refused with
 /// a stable error code instead of a parse error.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FieldFilter {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub field_id: Option<String>,
@@ -83,7 +83,7 @@ pub struct FieldFilter {
 
 /// RFC-056 [R4]: inclusive bounds; each a JSON number or a `YYYY[-MM[-DD]]` string.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FieldFilterRange {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from: Option<serde_json::Value>,

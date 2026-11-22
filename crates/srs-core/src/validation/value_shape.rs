@@ -276,11 +276,6 @@ pub fn validate_field_values_map(
     }
 }
 
-/// RFC-030/RFC-032 [R3]: a `valueDomain: closed` field with an inline
-/// `allowedValues` vocabulary constrains every value to that set. Scoped to
-/// the inline vocabulary only — a closed field sourced from a `vocabularyRef`
-/// is checked against its Vocabulary's term keys through the resolver
-/// (srs-rust#1602); an unresolved vocabulary is skipped here (V2 reports it).
 /// An integer value as `i64`, including one written `12.0` (RFC-056 [R5]).
 pub fn integral_i64(value: &serde_json::Value) -> Option<i64> {
     value.as_i64().or_else(|| {
@@ -291,6 +286,11 @@ pub fn integral_i64(value: &serde_json::Value) -> Option<i64> {
     })
 }
 
+/// RFC-030/RFC-032 [R3]: a `valueDomain: closed` field with an inline
+/// `allowedValues` vocabulary constrains every value to that set. Scoped to
+/// the inline vocabulary only — a closed field sourced from a `vocabularyRef`
+/// is checked against its Vocabulary's term keys through the resolver
+/// (srs-rust#1602); an unresolved vocabulary is skipped here (V2 reports it).
 fn check_closed_domain(
     key: &str,
     field_type: &FieldType,
@@ -372,6 +372,23 @@ mod tests {
             order: 0,
             field_type: Some(ft),
         }
+    }
+
+    #[test]
+    fn integral_number_is_an_integer_rfc056_r5() {
+        let check = |ft: &FieldType, v: serde_json::Value| {
+            let mut d = Vec::new();
+            validate_value("i", ft, &v, &no_resolver(), &mut d);
+            d.len()
+        };
+        assert_eq!(check(&FieldType::integer(), json!(12.0)), 0);
+        assert_eq!(check(&FieldType::integer(), json!(12)), 0);
+        assert_eq!(check(&FieldType::integer(), json!(2.5)), 1);
+        let closed = FieldType::closed_integer(vec![4, 12]);
+        assert_eq!(check(&closed, json!(12.0)), 0);
+        assert_eq!(check(&closed, json!(13.0)), 1);
+        assert_eq!(integral_i64(&json!(12.0)), Some(12));
+        assert_eq!(integral_i64(&json!(2.5)), None);
     }
 
     #[test]

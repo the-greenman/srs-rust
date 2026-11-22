@@ -683,10 +683,6 @@ pub enum RepositoryError {
         message: String,
     },
 
-    /// An RFC-026 container slice export was refused (ADR-051). `code` is one of
-    /// `slice-root-identity-invalid` (the boundary's identity entry is not a
-    /// depth-0 entry without descendants), `slice-exported-at-invalid`,
-    /// `slice-repository-id-reused`.
     /// A query's `fieldFilters` were refused and nothing was evaluated (RFC-056 [R7],
     /// [R8]). `code` is `query-filter-malformed` or `query-filter-misfit`.
     #[error("{message}")]
@@ -697,6 +693,10 @@ pub enum RepositoryError {
         message: String,
     },
 
+    /// An RFC-026 container slice export was refused (ADR-051). `code` is one of
+    /// `slice-root-identity-invalid` (the boundary's identity entry is not a
+    /// depth-0 entry without descendants), `slice-exported-at-invalid`,
+    /// `slice-repository-id-reused`.
     #[error("{message}")]
     SliceRefused {
         #[serde(skip)]

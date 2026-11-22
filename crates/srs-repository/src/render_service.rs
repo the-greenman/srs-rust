@@ -2121,6 +2121,7 @@ fn list_direct_members_degraded(
 
 fn resolve_section_instances(
     store: &dyn RepositoryStore,
+    package: &Package,
     section: &DocumentSection,
     cli_container_id: Option<&str>,
     instance_id_filter: Option<&str>,
@@ -2147,17 +2148,8 @@ fn resolve_section_instances(
             )?;
             // RFC-056: compiled once per section; a refused filter fails the render
             // ([R7], [R8]), an unresolved one renders the section empty with a warning ([R6]).
-            let field_filters = if query.field_filters.is_empty() {
-                crate::field_filter::CompiledFieldFilters::default()
-            } else {
-                crate::field_filter::compile(&store.load_package()?, &query.field_filters)?
-            };
-            for id in &field_filters.unresolved {
-                diagnostics.push_derived(format!(
-                    "[section:{}] fieldFilters: fieldId '{id}' names no Field; no instances can match",
-                    section.section_id
-                ));
-            }
+            let field_filters =
+                crate::field_filter::compile_reporting(package, &query.field_filters, diagnostics)?;
             records.retain(|r| record_matches_structured_predicates(r, query, &field_filters));
 
             // ── Container scoping (RFC-011 [N+27]) ───────────────────────────────────
@@ -2637,6 +2629,7 @@ fn resolve_section_entries(
 
     let records = resolve_section_instances(
         store,
+        package,
         section,
         cli_container_id,
         instance_id_filter,
@@ -11043,6 +11036,113 @@ mod tests {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    /// RFC-056: a `discovery-query` section consumes `fieldFilters` through the shared matcher.
+    #[test]
+    fn render_discovery_query_field_filters_rfc056() {
+        use crate::manifest::Manifest;
+        use crate::package::Package;
+        use crate::store::RepositoryStore;
+
+        fn store_with(filters: serde_json::Value) -> crate::store::memory::MemoryStore {
+            let mut dv = rfc011_dv("dv-ff", None, None, None, None, None);
+            if let SectionSource::DiscoveryQuery { query, .. } = &mut dv.sections[0].source {
+                query.field_filters = serde_json::from_value(filters).unwrap();
+            }
+            let status: srs_core::types::field::Field = serde_json::from_value(json!({
+                "id": "f-status", "namespace": "com.test", "name": "status", "version": 1,
+                "description": "status", "aiGuidance": {"purpose": "t"},
+                "fieldType": {"datatype": "string", "valueDomain": "closed", "allowedValues": ["draft", "published"]},
+                "createdAt": "2026-01-01T00:00:00Z"
+            }))
+            .unwrap();
+            let decision: srs_core::types::record_type::RecordType = serde_json::from_value(json!({
+                "id": "t-decision", "namespace": "com.test", "name": "decision", "version": 1,
+                "description": "decision", "fields": [{"fieldId": "f-status", "order": 1, "required": false}],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }))
+            .unwrap();
+            let manifest = Manifest {
+                root_container_id: None,
+                upstream_package: None,
+                extra: std::collections::BTreeMap::new(),
+                source_documents_path: None,
+                root: std::path::PathBuf::from("/memory"),
+            };
+            let package = Package {
+                id: "ff-test-pkg".to_string(),
+                namespace: "com.test".to_string(),
+                name: "ff-test".to_string(),
+                version: "1.0.0".to_string(),
+                fields: vec![status],
+                record_types: vec![decision],
+                relation_type_definitions: vec![],
+                views: vec![],
+                compositions: vec![dv],
+                themes: vec![],
+                blueprints: vec![],
+                protocols: vec![],
+                root: std::path::PathBuf::from("/memory"),
+                package_dependencies: vec![],
+                vocabularies: vec![],
+                lifecycles: vec![],
+            };
+            let store = crate::store::memory::MemoryStore::new(manifest, package);
+            for (id, status) in [
+                ("r-draft", Some("draft")),
+                ("r-pub", Some("published")),
+                ("r-none", None),
+            ] {
+                let mut values = json!({});
+                if let Some(s) = status {
+                    values["status"] = json!(s);
+                }
+                let record = json!({
+                    "instanceId": id, "typeId": "t-decision", "typeVersion": 1,
+                    "typeNamespace": "com.test", "typeName": "decision",
+                    "fieldValues": values, "createdAt": "2026-01-01T00:00:00Z"
+                });
+                store
+                    .save_instance_json(&format!("records/{id}.json"), &record)
+                    .unwrap();
+            }
+            store
+        }
+        let render = |store: &crate::store::memory::MemoryStore| {
+            render_composition(RenderCompositionOptions {
+                store,
+                view_id: "dv-ff",
+                format: Some("json"),
+                theme_variant: None,
+                container_id: None,
+                instance_id_filter: None,
+                exclude_instance_ids: &[],
+            })
+        };
+
+        let narrowed = render(&store_with(
+            json!([{"fieldId": "f-status", "in": ["published"]}]),
+        ))
+        .unwrap();
+        assert_eq!(
+            rfc011_instance_ids_in_result(&narrowed),
+            vec!["r-pub".to_string()]
+        );
+
+        let unknown = render(&store_with(json!([{"fieldId": "f-nope", "missing": true}]))).unwrap();
+        assert!(rfc011_instance_ids_in_result(&unknown).is_empty());
+        assert!(
+            unknown.diagnostics.iter().any(|d| d.contains("f-nope")),
+            "an unresolved fieldId warns: {:?}",
+            unknown.diagnostics
+        );
+
+        let misfit = render(&store_with(
+            json!([{"fieldId": "f-status", "in": ["publshed"]}]),
+        ))
+        .unwrap_err();
+        assert_eq!(misfit.code(), "query-filter-misfit");
     }
 
     #[test]

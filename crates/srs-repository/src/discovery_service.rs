@@ -882,12 +882,9 @@ fn match_content(segments: Vec<TextSegment>, needle: Needle) -> (Vec<String>, Op
     }
 }
 
-/// Warn (never error) when a type or container filter names nothing, so a typo is
-/// not indistinguishable from "no matches". Returns false when the query cannot
-/// match anything (an unknown container), true otherwise.
 /// RFC-056: refuse malformed or misfitting field filters before evaluating anything
 /// ([R7], [R8]); warn for each fieldId naming no Field, which makes the query select
-/// nothing ([R6]).
+/// nothing ([R6]). Loads the package only when the query has filters.
 fn compile_field_filters(
     store: &dyn RepositoryStore,
     query: &DiscoveryQuery,
@@ -896,16 +893,16 @@ fn compile_field_filters(
     if query.field_filters.is_empty() {
         return Ok(CompiledFieldFilters::default());
     }
-    let compiled = crate::field_filter::compile(&store.load_package()?, &query.field_filters)?;
-    for id in &compiled.unresolved {
-        diagnostics.warning(
-            "find-field-filter-unknown",
-            format!("warning: fieldFilters fieldId '{id}' names no Field; no instances can match"),
-        );
-    }
-    Ok(compiled)
+    crate::field_filter::compile_reporting(
+        &store.load_package()?,
+        &query.field_filters,
+        diagnostics,
+    )
 }
 
+/// Warn (never error) when a type or container filter names nothing, so a typo is
+/// not indistinguishable from "no matches". Returns false when the query cannot
+/// match anything (an unknown container), true otherwise.
 fn unresolved_filters(
     store: &dyn RepositoryStore,
     query: &DiscoveryQuery,

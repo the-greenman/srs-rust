@@ -7,15 +7,18 @@
 //! nothing, with a warning). [`CompiledFieldFilters::matches`] is then evaluated per record
 //! by the one structured-predicate evaluator shared by `find` and `discovery-query` sections.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use chrono::NaiveDate;
 use serde_json::Value;
 use srs_core::types::discovery::{FieldFilter, FieldFilterRange};
-use srs_core::types::field_type::{AllowedValue, Cardinality, Datatype};
+use srs_core::types::field_type::{AllowedValue, Datatype, RefMode};
 use srs_core::types::record::Record;
+use srs_core::types::term::Term;
+use srs_core::types::vocabulary::resolve_term_among;
 use srs_core::validation::value_shape::integral_i64;
 
+use crate::diagnostic::Diagnostics;
 use crate::error::RepositoryError;
 use crate::package::Package;
 
@@ -26,16 +29,21 @@ pub struct CompiledFieldFilters {
     /// `fieldId`s that resolve to no installed Field. Any one makes the query select
     /// nothing ([R6]); the caller reports a warning naming each.
     pub unresolved: Vec<String>,
+    /// Open Fields whose `vocabularyRef` resolves to nothing: their values compare as
+    /// written, with a warning (RFC-056 Change B).
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug)]
 struct Compiled {
     /// The record key the value is read under: the resolved Field's `name` (RFC-039).
     name: String,
-    /// `(typeId, typeVersion)` whose effective field set contains the Field ([R6]).
-    types: HashSet<(String, u32)>,
+    /// `typeId → typeVersion`s whose effective field set contains the Field ([R6]).
+    types: HashMap<String, HashSet<u32>>,
     datatype: Datatype,
     list: bool,
+    /// `{}` is no value only on a `map` or inline `ref` Field ([R5]).
+    empty_object_is_none: bool,
     domain: Domain,
     test: Test,
 }
@@ -45,9 +53,10 @@ enum Domain {
     Open,
     /// A closed Field's `allowedValues`.
     Allowed(Vec<AllowedValue>),
-    /// A Field bound to a Vocabulary: values resolve to term keys ([R3]).
+    /// A Field bound to a Vocabulary: values resolve to term keys over its effective
+    /// entry set, `extends` followed and retired entries excluded ([R3]).
     Vocabulary {
-        terms: Vec<(String, Vec<String>)>,
+        terms: Vec<Term>,
         closed: bool,
     },
 }
@@ -185,18 +194,8 @@ fn check_shape(i: usize, f: &FieldFilter) -> Result<(), RepositoryError> {
         if list.is_empty() {
             return Err(at(&format!("{key} is empty")));
         }
-        for v in list {
-            let ok = match v {
-                Value::String(s) => !s.is_empty(),
-                Value::Bool(_) => true,
-                Value::Number(_) => integral_i64(v).is_some() || v.as_u64().is_some(),
-                _ => false,
-            };
-            if !ok {
-                return Err(at(&format!(
-                    "{key} lists {v}, which is not an integer, a boolean or a non-empty string"
-                )));
-            }
+        if list.iter().any(|v| v.as_str() == Some("")) {
+            return Err(at(&format!("{key} lists an empty string")));
         }
     }
     if let Some(FieldFilterRange { from, to }) = &f.range {
@@ -290,13 +289,9 @@ pub fn compile(
         }
         let domain = match (&ft.vocabulary_ref, ft.allowed_values()) {
             (_, Some(av)) if ft.is_closed() => Domain::Allowed(av.to_vec()),
-            (Some(vid), _) => match package.resolve_vocabulary(vid) {
-                Some(v) => Domain::Vocabulary {
-                    terms: v
-                        .effective_terms()
-                        .into_iter()
-                        .map(|t| (t.key.clone(), t.aliases.clone().unwrap_or_default()))
-                        .collect(),
+            (Some(vid), _) => match package.effective_vocabulary_terms(vid) {
+                Some(terms) => Domain::Vocabulary {
+                    terms: terms.into_iter().cloned().collect(),
                     closed: ft.is_closed(),
                 },
                 None if ft.is_closed() => {
@@ -305,7 +300,13 @@ pub fn compile(
                     )))
                 }
                 // Open Field, unresolvable Vocabulary: values compare as written ([R3]).
-                None => Domain::Open,
+                None => {
+                    out.warnings.push(format!(
+                        "fieldFilters[{i}] on Field '{}' ({id}): its vocabularyRef '{vid}' resolves to no Vocabulary; values compare as written",
+                        field.name
+                    ));
+                    Domain::Open
+                }
             },
             _ => Domain::Open,
         };
@@ -329,18 +330,20 @@ pub fn compile(
                 }
             }
         }
-        let mut types = HashSet::new();
+        let mut types: HashMap<String, HashSet<u32>> = HashMap::new();
         for rt in &package.record_types {
             if let Ok(fas) = package.effective_fields(rt) {
                 if fas.iter().any(|fa| fa.field_id == field.id) {
-                    types.insert((rt.id.clone(), rt.version));
+                    types.entry(rt.id.clone()).or_default().insert(rt.version);
                 }
             }
         }
         out.filters.push(Compiled {
             name: field.name.clone(),
             types,
-            list: ft.cardinality == Some(Cardinality::List),
+            list: ft.is_list(),
+            empty_object_is_none: dt == Datatype::Map
+                || (dt == Datatype::Ref && ft.effective_mode() == RefMode::Inline),
             datatype: dt,
             domain,
             test,
@@ -353,11 +356,9 @@ impl Domain {
     /// The term key a string resolves to: key match first, then alias (RFC-006).
     fn resolve<'a>(&'a self, s: &'a str) -> Option<&'a str> {
         match self {
-            Domain::Vocabulary { terms, .. } => terms
-                .iter()
-                .find(|(k, _)| k == s)
-                .or_else(|| terms.iter().find(|(_, a)| a.iter().any(|x| x == s)))
-                .map(|(k, _)| k.as_str()),
+            Domain::Vocabulary { terms, .. } => {
+                resolve_term_among(&terms.iter().collect::<Vec<_>>(), s).map(|t| t.key.as_str())
+            }
             _ => Some(s),
         }
     }
@@ -430,17 +431,18 @@ impl Compiled {
         // [R6]: only a record whose bound Type version's effective field set has the Field.
         if !self
             .types
-            .contains(&(record.type_id.clone(), record.type_version))
+            .get(record.type_id.as_str())
+            .is_some_and(|v| v.contains(&record.type_version))
         {
             return false;
         }
         let value = record.field_values.get(&self.name);
-        // [R5]: absent, "", [] and {} are no value.
+        // [R5]: absent, "", [] and (on a map or inline ref Field) {} are no value.
         let has_value = match value {
             None | Some(Value::Null) => false,
             Some(Value::String(s)) => !s.is_empty(),
             Some(Value::Array(a)) => !a.is_empty(),
-            Some(Value::Object(o)) => !o.is_empty(),
+            Some(Value::Object(o)) => !(o.is_empty() && self.empty_object_is_none),
             Some(_) => true,
         };
         if let Test::Missing(m) = self.test {
@@ -469,6 +471,30 @@ impl Compiled {
             Test::Missing(_) => unreachable!(),
         }
     }
+}
+
+/// [`compile`], then report each unresolved `fieldId` ([R6]) and unresolvable open
+/// `vocabularyRef` (Change B) as a warning. The one entry point for `find`, `similar` and
+/// `discovery-query` sections.
+pub(crate) fn compile_reporting(
+    package: &Package,
+    filters: &[FieldFilter],
+    diagnostics: &mut Diagnostics,
+) -> Result<CompiledFieldFilters, RepositoryError> {
+    let compiled = compile(package, filters)?;
+    for id in &compiled.unresolved {
+        diagnostics.warning(
+            "field-filter-unknown",
+            format!("warning: fieldFilters fieldId '{id}' names no Field; no instances can match"),
+        );
+    }
+    for w in &compiled.warnings {
+        diagnostics.warning(
+            "field-filter-vocabulary-unresolved",
+            format!("warning: {w}"),
+        );
+    }
+    Ok(compiled)
 }
 
 impl CompiledFieldFilters {
@@ -591,7 +617,6 @@ mod tests {
             json!([{"fieldId": STATUS, "in": ["draft"], "missing": true}]),
             json!([{"fieldId": STATUS, "in": []}]),
             json!([{"fieldId": STATUS, "in": [""]}]),
-            json!([{"fieldId": STATUS, "in": [2.5]}]),
             json!([{"fieldId": WHEN, "range": {}}]),
             json!([{"fieldId": WHEN, "range": {"from": "2026-02-30"}}]),
             json!([{"fieldId": WHEN, "range": {"from": "2026-13"}}]),
@@ -607,6 +632,8 @@ mod tests {
             json!([{"fieldId": STATUS, "range": {"from": "2026"}}]),
             json!([{"fieldId": WORDS, "in": [4]}]),
             json!([{"fieldId": MINUTES, "in": ["4"]}]),
+            json!([{"fieldId": MINUTES, "in": [2.5]}]),
+            json!([{"fieldId": STATUS, "in": [null]}]),
             json!([{"fieldId": WHEN, "range": {"from": 2026}}]),
             json!([{"fieldId": WORDS, "range": {"from": "2026"}}]),
             json!([{"fieldId": STATUS, "in": ["publshed"]}]),
@@ -634,6 +661,93 @@ mod tests {
         .unwrap();
         assert_eq!(c.unresolved, vec!["aa000000-0000-4000-a000-00000000dead"]);
         assert!(!c.matches(&record(json!({}))));
+    }
+
+    fn vocab(
+        id: &str,
+        extends: Option<&str>,
+        terms: serde_json::Value,
+    ) -> srs_core::types::vocabulary::Vocabulary {
+        let mut v = json!({"id": id, "version": 1, "namespace": "t", "name": id, "mode": "closed",
+            "createdAt": "2026-01-01T00:00:00Z", "terms": terms});
+        if let Some(p) = extends {
+            v["extendsVocabularyId"] = json!(p);
+            v["extendsVocabularyVersion"] = json!(1);
+        }
+        serde_json::from_value(v).unwrap()
+    }
+
+    fn term(id: &str, key: &str, aliases: &[&str]) -> serde_json::Value {
+        json!({"id": id, "version": 1, "namespace": "t", "key": key, "aliases": aliases, "createdAt": "2026-01-01T00:00:00Z"})
+    }
+
+    #[test]
+    fn empty_object_is_a_value_except_on_map_or_inline_ref() {
+        // On a string Field, {} is a value that does not fit: missing:false holds, in never does.
+        assert!(holds(
+            json!({"fieldId": STATUS, "missing": false}),
+            json!({"status": {}})
+        ));
+        assert!(!holds(
+            json!({"fieldId": STATUS, "missing": true}),
+            json!({"status": {}})
+        ));
+        assert!(!holds(
+            json!({"fieldId": STATUS, "notIn": ["draft"]}),
+            json!({"status": {}})
+        ));
+    }
+
+    #[test]
+    fn open_field_with_unresolvable_vocabulary_warns_and_compares_as_written() {
+        let mut p = package();
+        p.fields.push(field(
+            "aa000000-0000-4000-a000-0000000000f6",
+            "label",
+            json!({"datatype": "string", "vocabularyRef": "aa000000-0000-4000-a000-0000000000c9"}),
+        ));
+        p.record_types[0].fields.push(serde_json::from_value(json!({"fieldId": "aa000000-0000-4000-a000-0000000000f6", "order": 6, "required": false})).unwrap());
+        let c = compile(
+            &p,
+            &filters(json!([{"fieldId": "aa000000-0000-4000-a000-0000000000f6", "in": ["x"]}])),
+        )
+        .unwrap();
+        assert_eq!(c.warnings.len(), 1);
+        assert!(c.matches(&record(json!({"label": "x"}))));
+    }
+
+    #[test]
+    fn vocabulary_extends_and_alias_tie_break() {
+        let mut p = package();
+        let parent = "aa000000-0000-4000-a000-0000000000c2";
+        p.vocabularies = vec![
+            vocab(
+                parent,
+                None,
+                json!([term("aa000000-0000-4000-a000-0000000000e1", "memo", &[])]),
+            ),
+            vocab(
+                VOCAB,
+                Some(parent),
+                json!([
+                    // Two terms share the alias "note": the lower id ("email") wins (RFC-006 V2).
+                    term("aa000000-0000-4000-a000-0000000000d2", "letter", &["note"]),
+                    term("aa000000-0000-4000-a000-0000000000d1", "email", &["note"]),
+                ]),
+            ),
+        ];
+        // A parent term is in the effective entry set, so it is not a misfit and matches.
+        let c = compile(&p, &filters(json!([{"fieldId": KIND, "in": ["memo"]}]))).unwrap();
+        assert!(c.matches(&record(json!({"kind": "memo"}))));
+        let c = compile(&p, &filters(json!([{"fieldId": KIND, "in": ["note"]}]))).unwrap();
+        assert!(c.matches(&record(json!({"kind": "email"}))));
+        assert!(!c.matches(&record(json!({"kind": "letter"}))));
+        // Validation reads the same set: keys and aliases, parent included.
+        use srs_core::validation::value_shape::RangeResolver;
+        let keys = p.vocabulary_term_keys(VOCAB).unwrap();
+        for k in ["letter", "email", "note", "memo"] {
+            assert!(keys.iter().any(|x| x == k), "{k} missing from {keys:?}");
+        }
     }
 
     #[test]
