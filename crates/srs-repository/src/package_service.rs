@@ -1032,6 +1032,10 @@ fn refuse_invalid_type_definition(
     reasons.extend(crate::validation::type_inline_lifecycle_messages(
         record_type,
     ));
+    reasons.extend(crate::validation::type_lifecycle_ref_messages(
+        &package,
+        record_type,
+    ));
     reasons.extend(crate::validation::type_cross_field_rule_scope_messages(
         &package,
         record_type,
@@ -1041,7 +1045,7 @@ fn refuse_invalid_type_definition(
     }
     Err(RepositoryError::InvalidInput {
         message: format!(
-            "type '{}/{}@{}' would fail repo validate (I-131, I-4/I-5, I-10, I-39): {}",
+            "type '{}/{}@{}' would fail repo validate (I-131, I-4/I-5, V8, I-10, I-39): {}",
             record_type.namespace,
             record_type.name,
             record_type.version,
@@ -2411,6 +2415,16 @@ mod tests {
         );
         let result = create_type(&store, rt);
         assert_type_refused_and_unwritten(&store, result, "unknown to-state", "bad-lifecycle");
+    }
+
+    /// srs-rust#1691, V8: a `lifecycleRef` naming no installed Lifecycle is refused at create.
+    #[test]
+    fn type_create_refuses_unresolved_lifecycle_ref() {
+        let store = MemoryStore::default();
+        let mut rt = make_type("00000000-0000-0000-0000-000000000035", "dangling-lc");
+        rt.lifecycle_ref = Some("00000000-0000-0000-0000-0000000000bb".to_string());
+        let result = create_type(&store, rt);
+        assert_type_refused_and_unwritten(&store, result, "V8", "dangling-lc");
     }
 
     /// srs-rust#1543, I-39: `extendsTypeId` naming no Type is refused at create.
