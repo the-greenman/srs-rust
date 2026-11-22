@@ -611,6 +611,11 @@ pub fn create_note(
     if note.instance_id.is_empty() {
         note.instance_id = new_instance_id();
     }
+    // srs-rust#1698: stamp creation time when the request omits it, as record
+    // creation does; an explicit value is kept.
+    if note.created_at.is_none() {
+        note.created_at = Some(chrono::Utc::now().to_rfc3339());
+    }
 
     // Schema validation before core validation
     let raw = serde_json::to_value(&note).map_err(|e| RepositoryError::Serialize {
@@ -2061,6 +2066,38 @@ mod tests {
             after_delete_len, initial_len,
             "instance count must return to its original value after rollback delete"
         );
+    }
+
+    #[test]
+    fn create_note_stamps_created_at_when_omitted() {
+        // srs-rust#1698: a note created without createdAt (MCP note_create) was
+        // left null; records are stamped, notes must be too. An explicit value stays.
+        use srs_core::types::note::NoteSection;
+        let store = MemoryStore::default();
+        let mk = |created_at: Option<String>| Note {
+            created_by: None,
+            instance_id: String::new(),
+            title: None,
+            tags: None,
+            sections: vec![NoteSection {
+                name: "narrative".to_string(),
+                label: None,
+                content: "x".to_string(),
+                content_hint: None,
+                tags: None,
+            }],
+            graduated_at: None,
+            source_refs: None,
+            created_at,
+            updated_at: None,
+            meta: None,
+        };
+        let stamped = create_note(&store, mk(None)).unwrap().note;
+        assert!(stamped.created_at.is_some(), "createdAt must be stamped");
+        let kept = create_note(&store, mk(Some("2020-01-01T00:00:00Z".to_string())))
+            .unwrap()
+            .note;
+        assert_eq!(kept.created_at.as_deref(), Some("2020-01-01T00:00:00Z"));
     }
 
     #[test]
