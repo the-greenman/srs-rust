@@ -2539,6 +2539,7 @@ mod tests {
                 max_total_bytes: Some(3),
             },
             policy_record_present: true,
+            duplicate_policy_records: 0,
         };
         assert_eq!(
             serde_json::to_value(set).unwrap(),
