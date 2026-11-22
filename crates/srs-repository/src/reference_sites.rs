@@ -167,6 +167,13 @@ pub(crate) const REFERENCE_SITES: &[ReferenceSite] = &[
         Some(Type),
         Lineage,
     ),
+    // RFC-056: resolved by the rule that resolves a Type FieldAssignment's fieldId.
+    site(
+        Composition,
+        "/sections/*/source/query/fieldFilters/*/fieldId",
+        Some(Field),
+        Lineage,
+    ),
     site(Composition, "/themeRef/themeId", None, Locator),
     site(
         Composition,
