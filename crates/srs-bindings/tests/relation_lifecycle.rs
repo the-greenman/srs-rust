@@ -292,6 +292,29 @@ fn set_lifecycle_state_transitions_record() {
     );
 }
 
+// srs-rust#1690: a request naming neither or both of `to` / `byTransition` is
+// malformed input, not a repository-initialization problem (ADR-053 codes).
+#[test]
+fn transition_without_exactly_one_target_is_invalid_input() {
+    let store = ladder_open(&lifecycle_srsj()).expect("lifecycle fixture must load");
+    for (to, by) in [
+        (None, None),
+        (Some("active".to_string()), Some("t".to_string())),
+    ] {
+        let err = record_store::transition_record_lifecycle(
+            &store,
+            "rec-lc-001",
+            TransitionLifecycleInput {
+                to,
+                by_transition: by,
+                fulfillment: None,
+            },
+        )
+        .expect_err("must be refused");
+        assert_eq!(err.code(), "invalid-input");
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 4b. set_lifecycle_state: full chain draft → active → archived (final state).
 // ---------------------------------------------------------------------------
