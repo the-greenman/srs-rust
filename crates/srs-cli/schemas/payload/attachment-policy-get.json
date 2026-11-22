@@ -15,6 +15,15 @@
         "type": "string"
       }
     },
+    "duplicatePolicyRecords": {
+      "description": "Present only when two or more `repo_settings` records exist (I-111: policy treated as absent).",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint",
+      "minimum": 0.0
+    },
     "maxDocBytes": {
       "type": [
         "integer",
