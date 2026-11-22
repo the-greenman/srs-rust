@@ -62,6 +62,9 @@ Options:
       --exclude-lifecycle-state <EXCLUDE_LIFECYCLE_STATE>
           Exclude records whose lifecycleState matches this value (repeatable; applied after --lifecycle-state)
 
+      --field-filter <FIELD_FILTER>
+          RFC-056 field filter as JSON (repeatable; all must hold), e.g. '{"fieldId":"<uuid>","range":{"from":"2026-08","to":"2026-08"}}'. One of in, notIn, range or missing per filter
+
       --tier <TIER>
           Instance tier filter (0=Note, 2=Record — Tier 1/TypedRecord is retired, srs#448/rfc-decision-53635966, srs-rust#888)
 
