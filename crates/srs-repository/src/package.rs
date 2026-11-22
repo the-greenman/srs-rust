@@ -461,6 +461,29 @@ impl Package {
             .find(|lc| lc.namespace == namespace && lc.name == name)
     }
 
+    /// RFC-006 effective entry set of a Vocabulary: its non-retired terms, then (following
+    /// `extendsVocabularyId`) each ancestor's non-retired terms whose key no nearer
+    /// Vocabulary defines. `None` when the Vocabulary does not resolve.
+    pub fn effective_vocabulary_terms(&self, id: &str) -> Option<Vec<&Term>> {
+        let mut terms: Vec<&Term> = Vec::new();
+        let mut keys = std::collections::HashSet::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut next = Some(self.resolve_vocabulary(id)?);
+        while let Some(v) = next.filter(|v| seen.insert(v.id.as_str())) {
+            terms.extend(
+                v.terms
+                    .iter()
+                    .filter(|t| !keys.contains(t.key.as_str()) && !t.is_retired()),
+            );
+            keys.extend(v.terms.iter().map(|t| t.key.as_str()));
+            next = v
+                .extends_vocabulary_id
+                .as_deref()
+                .and_then(|p| self.resolve_vocabulary(p));
+        }
+        Some(terms)
+    }
+
     /// Resolve a Term by vocabulary id and key (or alias).
     pub fn resolve_term_by_key(&self, vocabulary_id: &str, key: &str) -> Option<&Term> {
         self.resolve_vocabulary(vocabulary_id)
@@ -519,11 +542,12 @@ impl srs_core::validation::value_shape::RangeResolver for Package {
             return None;
         }
         Some(
-            vocab
-                .terms
-                .iter()
-                .filter(|t| t.resolves_for_reads())
-                .map(|t| t.key.clone())
+            self.effective_vocabulary_terms(vocabulary_id)?
+                .into_iter()
+                // RFC-006 key-or-alias resolution: an alias names its term, so a closed
+                // Field's domain is the keys and aliases of its non-retired terms (RFC-056).
+                .flat_map(|t| std::iter::once(&t.key).chain(t.aliases.iter().flatten()))
+                .cloned()
                 .collect(),
         )
     }

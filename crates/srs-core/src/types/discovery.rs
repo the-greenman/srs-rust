@@ -56,4 +56,37 @@ pub struct DiscoveryQuery {
     /// Free-text recall-floor predicate over the Text Projection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_match: Option<String>,
+    /// RFC-056 [R1]: tests on a Tier 2 Record's own field values, all of which
+    /// must hold. Evaluated by `srs-repository::field_filter`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub field_filters: Vec<FieldFilter>,
+}
+
+/// RFC-056: one test on one Field's value. Exactly one of `in`, `notIn`,
+/// `range` or `missing` must be set ([R2]); the shape is checked when the
+/// query is compiled ([R7]), not here, so a malformed filter is refused with
+/// a stable error code instead of a parse error.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FieldFilter {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field_id: Option<String>,
+    #[serde(rename = "in", default, skip_serializing_if = "Option::is_none")]
+    pub in_values: Option<Vec<serde_json::Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_in: Option<Vec<serde_json::Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub range: Option<FieldFilterRange>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub missing: Option<bool>,
+}
+
+/// RFC-056 [R4]: inclusive bounds; each a JSON number or a `YYYY[-MM[-DD]]` string.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FieldFilterRange {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<serde_json::Value>,
 }

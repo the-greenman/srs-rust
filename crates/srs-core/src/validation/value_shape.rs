@@ -31,8 +31,8 @@ pub struct EffectiveField {
 pub trait RangeResolver {
     fn effective_fields(&self, type_id: &str, type_version: u32) -> Option<Vec<EffectiveField>>;
 
-    /// Keys a `vocabularyRef`-backed closed field accepts when reading: the
-    /// vocabulary's terms that still resolve (not retired). `None` when the
+    /// Values a `vocabularyRef`-backed closed field accepts when reading: the keys
+    /// and aliases of the vocabulary's terms that still resolve (not retired). `None` when the
     /// vocabulary does not resolve (definition-level validation reports that,
     /// V2) or the resolver has no vocabularies (the default), so no value check.
     fn vocabulary_term_keys(&self, _vocabulary_id: &str) -> Option<Vec<String>> {
@@ -123,12 +123,18 @@ fn validate_single(
         Datatype::Integer => {
             expect(
                 key,
-                value.as_i64().is_some() || value.as_u64().is_some(),
+                // RFC-056 [R5]: an integral number written with a decimal point
+                // (`12.0`) is an integer, as JSON Schema's `integer` reads it.
+                value.as_i64().is_some()
+                    || value.as_u64().is_some()
+                    || value
+                        .as_f64()
+                        .is_some_and(|f| f.is_finite() && f.fract() == 0.0),
                 "integer",
                 value,
                 diagnostics,
             );
-            if let Some(i) = value.as_i64() {
+            if let Some(i) = integral_i64(value) {
                 check_closed_domain(
                     key,
                     field_type,
@@ -270,6 +276,16 @@ pub fn validate_field_values_map(
     }
 }
 
+/// An integer value as `i64`, including one written `12.0` (RFC-056 [R5]).
+pub fn integral_i64(value: &serde_json::Value) -> Option<i64> {
+    value.as_i64().or_else(|| {
+        value
+            .as_f64()
+            .filter(|f| f.is_finite() && f.fract() == 0.0 && f.abs() < 9.007_199_254_740_992e15)
+            .map(|f| f as i64)
+    })
+}
+
 /// RFC-030/RFC-032 [R3]: a `valueDomain: closed` field with an inline
 /// `allowedValues` vocabulary constrains every value to that set. Scoped to
 /// the inline vocabulary only — a closed field sourced from a `vocabularyRef`
@@ -356,6 +372,23 @@ mod tests {
             order: 0,
             field_type: Some(ft),
         }
+    }
+
+    #[test]
+    fn integral_number_is_an_integer_rfc056_r5() {
+        let check = |ft: &FieldType, v: serde_json::Value| {
+            let mut d = Vec::new();
+            validate_value("i", ft, &v, &no_resolver(), &mut d);
+            d.len()
+        };
+        assert_eq!(check(&FieldType::integer(), json!(12.0)), 0);
+        assert_eq!(check(&FieldType::integer(), json!(12)), 0);
+        assert_eq!(check(&FieldType::integer(), json!(2.5)), 1);
+        let closed = FieldType::closed_integer(vec![4, 12]);
+        assert_eq!(check(&closed, json!(12.0)), 0);
+        assert_eq!(check(&closed, json!(13.0)), 1);
+        assert_eq!(integral_i64(&json!(12.0)), Some(12));
+        assert_eq!(integral_i64(&json!(2.5)), None);
     }
 
     #[test]

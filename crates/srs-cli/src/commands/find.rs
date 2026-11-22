@@ -24,6 +24,24 @@ pub fn dispatch(ctx: CliContext, args: FindArgs) -> Result<String> {
         },
     };
 
+    let mut field_filters = Vec::new();
+    for raw in &args.field_filter {
+        match serde_json::from_str(raw) {
+            Ok(f) => field_filters.push(f),
+            Err(e) => {
+                return Ok(output::repo_err(
+                    "find",
+                    &RepositoryError::QueryFilterRefused {
+                        code: "query-filter-malformed",
+                        message: format!(
+                            "--field-filter '{raw}' is not a field filter object: {e}"
+                        ),
+                    },
+                ))
+            }
+        }
+    }
+
     // Container scope comes from the global `--container` flag, like `tree`.
     let query = DiscoveryQuery {
         type_id: args.type_id,
@@ -36,6 +54,7 @@ pub fn dispatch(ctx: CliContext, args: FindArgs) -> Result<String> {
         exclude_lifecycle_states: args.exclude_lifecycle_state,
         tier: args.tier,
         content_match: args.text,
+        field_filters,
     };
     let page = FindPage {
         limit: args.limit,

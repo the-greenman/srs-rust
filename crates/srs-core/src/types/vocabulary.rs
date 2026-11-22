@@ -63,34 +63,25 @@ impl Vocabulary {
     /// Key match takes priority over alias match.
     /// Among alias matches, lexicographically smallest `id` wins (V2 tie-break).
     pub fn resolve_term_by_key(&self, key: &str) -> Option<&Term> {
-        let effective: Vec<&Term> = self.effective_terms();
-
-        // Key match (highest priority)
-        for term in &effective {
-            if term.key == key {
-                return Some(term);
-            }
-        }
-
-        // Alias match — lowest id wins on tie
-        let mut alias_matches: Vec<&Term> = effective
-            .iter()
-            .filter(|t| {
-                t.aliases
-                    .as_ref()
-                    .map(|a| a.iter().any(|al| al == key))
-                    .unwrap_or(false)
-            })
-            .copied()
-            .collect();
-
-        if alias_matches.is_empty() {
-            return None;
-        }
-
-        alias_matches.sort_by(|a, b| a.id.cmp(&b.id));
-        Some(alias_matches[0])
+        resolve_term_among(&self.effective_terms(), key)
     }
+}
+
+/// RFC-006 key-or-alias resolution over an effective entry set: a key match first; among
+/// alias matches, the lexicographically smallest `id` wins (V2 tie-break).
+pub fn resolve_term_among<'a>(terms: &[&'a Term], key: &str) -> Option<&'a Term> {
+    if let Some(t) = terms.iter().find(|t| t.key == key) {
+        return Some(t);
+    }
+    terms
+        .iter()
+        .filter(|t| {
+            t.aliases
+                .as_ref()
+                .is_some_and(|a| a.iter().any(|al| al == key))
+        })
+        .min_by(|a, b| a.id.cmp(&b.id))
+        .copied()
 }
 
 #[cfg(test)]

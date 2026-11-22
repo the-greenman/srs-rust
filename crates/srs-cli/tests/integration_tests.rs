@@ -9392,3 +9392,78 @@ fn ladder_pending(dir: &std::path::Path, args: &[&str]) {
         }
     }
 }
+
+/// RFC-056: `find --field-filter` narrows by a record's own field value, and refusals
+/// carry their stable error codes (srs-rust#1240).
+#[test]
+fn find_field_filter_narrows_and_refuses_with_codes() {
+    let temp = create_temp_repo();
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(package_dir.join("types")).unwrap();
+    std::fs::create_dir_all(package_dir.join("fields")).unwrap();
+    let field_id = "eeeeeeee-0000-4000-8000-0000000000f1";
+    write_json(
+        &package_dir.join("fields/status.json"),
+        serde_json::json!({
+            "id": field_id, "namespace": "com.test", "name": "status", "version": 1,
+            "description": "status", "aiGuidance": {"purpose": "t"},
+            "fieldType": {"datatype": "string", "valueDomain": "closed", "allowedValues": ["draft", "published"]},
+            "createdAt": "2026-01-01T00:00:00Z"
+        }),
+    );
+    write_json(
+        &package_dir.join("types/item.json"),
+        serde_json::json!({
+            "id": "type-ff-001", "namespace": "com.test", "name": "item", "version": 1,
+            "description": "item", "fields": [{"fieldId": field_id, "order": 1, "required": false}]
+        }),
+    );
+    write_json(
+        &package_dir.join("package.json"),
+        serde_json::json!({
+            "id": "test-pkg", "namespace": "com.test", "name": "test", "version": "1.0.0",
+            "fields": ["fields/status.json"], "types": ["types/item.json"]
+        }),
+    );
+    std::fs::create_dir_all(temp.path().join("records/items")).unwrap();
+    for (id, status) in [
+        ("eeeeeeee-0000-4000-8000-000000000001", "draft"),
+        ("eeeeeeee-0000-4000-8000-000000000002", "published"),
+    ] {
+        write_json(
+            &temp.path().join(format!("records/items/{id}.json")),
+            serde_json::json!({
+                "instanceId": id, "typeId": "type-ff-001", "typeVersion": 1,
+                "typeNamespace": "com.test", "typeName": "item",
+                "fieldValues": {"status": status}, "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+    }
+    write_manifest_fixture(
+        temp.path(),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "srsVersion": "2.0-draft", "dataModelRevision": 2, "repositoryId": "test-repo"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let filter = format!(r#"{{"fieldId":"{field_id}","in":["published"]}}"#);
+    let hit = run_srs_in_dir(temp.path(), &["find", "--field-filter", &filter]);
+    assert_eq!(hit["ok"], true, "{hit:?}");
+    let hits = hit["payload"]["result"]["hits"].as_array().unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(
+        hits[0]["instanceId"],
+        "eeeeeeee-0000-4000-8000-000000000002"
+    );
+
+    let bad_json = run_srs_in_dir(temp.path(), &["find", "--field-filter", "{not json"]);
+    assert_eq!(bad_json["ok"], false);
+    assert_eq!(bad_json["errors"][0]["code"], "query-filter-malformed");
+
+    let misfit = format!(r#"{{"fieldId":"{field_id}","in":["publshed"]}}"#);
+    let refused = run_srs_in_dir(temp.path(), &["find", "--field-filter", &misfit]);
+    assert_eq!(refused["ok"], false);
+    assert_eq!(refused["errors"][0]["code"], "query-filter-misfit");
+}

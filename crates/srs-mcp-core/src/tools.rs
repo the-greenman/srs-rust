@@ -604,6 +604,55 @@ pub struct FindToolInput {
     /// projection. A name no Field defines is a `find-field-unknown` warning in `diagnostics`.
     #[serde(default)]
     pub fields: Option<Vec<String>>,
+    /// RFC-056 field filters, all of which must hold: each names a Field by `fieldId` and carries
+    /// exactly one of `in` / `notIn` (string, integer, boolean Fields), `range` {from?, to?}
+    /// (date, integer, number Fields; both bounds included, `2026-08` = all of August) or
+    /// `missing` (true = no value). Notes never match. A malformed or misfitting filter refuses
+    /// the query (`query-filter-malformed` / `query-filter-misfit`).
+    #[serde(default)]
+    pub field_filters: Vec<FieldFilterInput>,
+}
+
+/// Mirrors `srs_core::types::discovery::FieldFilter` (RFC-056).
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FieldFilterInput {
+    /// The Field tested, by its UUID.
+    pub field_id: Option<String>,
+    /// Holds when the value (any element of a list) equals a listed value.
+    #[serde(rename = "in")]
+    pub in_values: Option<Vec<serde_json::Value>>,
+    /// Holds when the field has a value and no element equals a listed value.
+    pub not_in: Option<Vec<serde_json::Value>>,
+    /// Inclusive bounds: numbers, or dates written YYYY, YYYY-MM or YYYY-MM-DD.
+    pub range: Option<FieldFilterRangeInput>,
+    /// true: the field has no value (absent, "", [], {}); false: it has one.
+    pub missing: Option<bool>,
+}
+
+/// Mirrors `srs_core::types::discovery::FieldFilterRange`.
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FieldFilterRangeInput {
+    pub from: Option<serde_json::Value>,
+    pub to: Option<serde_json::Value>,
+}
+
+impl From<FieldFilterInput> for srs_core::types::discovery::FieldFilter {
+    fn from(i: FieldFilterInput) -> Self {
+        Self {
+            field_id: i.field_id,
+            in_values: i.in_values,
+            not_in: i.not_in,
+            range: i
+                .range
+                .map(|r| srs_core::types::discovery::FieldFilterRange {
+                    from: r.from,
+                    to: r.to,
+                }),
+            missing: i.missing,
+        }
+    }
 }
 
 /// Input of the `similar` tool: the source `instanceId` plus find's structured filters
@@ -635,6 +684,13 @@ pub struct SimilarToolInput {
     pub projection: Option<Projection>,
     /// Include facets over the similar set, as in find (default: only when limit is 0).
     pub facets: Option<bool>,
+    /// RFC-056 field filters, all of which must hold: each names a Field by `fieldId` and carries
+    /// exactly one of `in` / `notIn` (string, integer, boolean Fields), `range` {from?, to?}
+    /// (date, integer, number Fields; both bounds included, `2026-08` = all of August) or
+    /// `missing` (true = no value). Notes never match. A malformed or misfitting filter refuses
+    /// the query (`query-filter-malformed` / `query-filter-misfit`).
+    #[serde(default)]
+    pub field_filters: Vec<FieldFilterInput>,
 }
 
 impl SimilarToolInput {
@@ -658,6 +714,7 @@ impl SimilarToolInput {
             exclude_lifecycle_states: self.exclude_lifecycle_states,
             tier: self.tier,
             content_match: None,
+            field_filters: self.field_filters.into_iter().map(Into::into).collect(),
         };
         (self.instance_id, query, page)
     }
@@ -676,6 +733,7 @@ impl From<FindToolInput> for DiscoveryQuery {
             exclude_lifecycle_states: input.exclude_lifecycle_states,
             tier: input.tier,
             content_match: input.content_match,
+            field_filters: input.field_filters.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -2401,8 +2459,25 @@ mod tests {
             facets: Some(true),
             projection: Some(Projection::Card),
             fields: None,
+            field_filters: vec![FieldFilterInput {
+                field_id: Some("fid".into()),
+                range: Some(FieldFilterRangeInput {
+                    from: Some(serde_json::json!("2026-08")),
+                    to: None,
+                }),
+                ..Default::default()
+            }],
         };
         let q: DiscoveryQuery = find.into();
+        assert_eq!(q.field_filters.len(), 1);
+        assert_eq!(q.field_filters[0].field_id.as_deref(), Some("fid"));
+        assert_eq!(
+            q.field_filters[0]
+                .range
+                .as_ref()
+                .and_then(|r| r.from.clone()),
+            Some(serde_json::json!("2026-08"))
+        );
         assert_eq!(q.type_id.as_deref(), Some("tid"));
         assert_eq!(q.type_namespace.as_deref(), Some("ns"));
         assert_eq!(q.type_name.as_deref(), Some("nm"));
