@@ -2440,7 +2440,39 @@ pub(crate) fn composition_render_view_messages(
     .collect()
 }
 
-/// I-12 and I-35 over every View and Composition of the package.
+/// I-44 for one Composition: every `navigationLinks[].fromSectionId` and `toSectionId` names a
+/// `sectionId` declared in the Composition's own `sections[]`. It needs only the Composition,
+/// not the package. Shared by `repo validate` and the pre-write refusal in `view_service`
+/// (srs-rust#1666, ADR-048 rule 3).
+pub(crate) fn composition_navigation_link_messages(
+    composition: &srs_core::types::view::Composition,
+) -> Vec<String> {
+    let Some(links) = composition.navigation_links.as_ref() else {
+        return Vec::new();
+    };
+    let declared: std::collections::HashSet<&str> = composition
+        .sections
+        .iter()
+        .map(|s| s.section_id.as_str())
+        .collect();
+    let mut messages = Vec::new();
+    for (i, link) in links.iter().enumerate() {
+        for (field, id) in [
+            ("fromSectionId", &link.from_section_id),
+            ("toSectionId", &link.to_section_id),
+        ] {
+            if !declared.contains(id.as_str()) {
+                messages.push(format!(
+                    "composition '{}' ({}): I-44 navigationLinks/{i}/{field} '{id}' names no sectionId declared in sections[]",
+                    composition.name, composition.id
+                ));
+            }
+        }
+    }
+    messages
+}
+
+/// I-12, I-35 and I-44 over every View and Composition of the package.
 fn validate_definition_references(
     pkg: &crate::package::Package,
     diagnostics: &mut Vec<ValidationDiagnostic>,
@@ -2460,6 +2492,15 @@ fn validate_definition_references(
         for message in composition_render_view_messages(pkg, composition) {
             diagnostics.push(ValidationDiagnostic {
                 code: Some("composition-render-view-unresolved".to_string()),
+                severity: DiagnosticSeverity::Error,
+                relative_path: "package/package.json".to_string(),
+                schema_id: None,
+                message,
+            });
+        }
+        for message in composition_navigation_link_messages(composition) {
+            diagnostics.push(ValidationDiagnostic {
+                code: Some("composition-navigation-link-unresolved".to_string()),
                 severity: DiagnosticSeverity::Error,
                 relative_path: "package/package.json".to_string(),
                 schema_id: None,
