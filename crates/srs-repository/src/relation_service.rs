@@ -38,16 +38,16 @@ use std::collections::{HashMap, HashSet};
 pub struct RelationSummary {
     pub relation_id: String,
     pub relation_type: String,
-    pub source_id: String,
-    pub target_id: String,
-    /// Display label for `source_id`, resolved via `record_label` (RFC-020 Rule
+    pub source_instance_id: String,
+    pub target_instance_id: String,
+    /// Display label for `source_instance_id`, resolved via `record_label` (RFC-020 Rule
     /// [N+36] for Tier-2, `Note.title` for Tier-0) — srs-rust#1046. `None` when
     /// the endpoint isn't an instance the label helper can resolve (a Container,
     /// a dangling reference, or an I/O error loading it) — a client falls back
     /// to `source_id` in that case, same as today.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_label: Option<String>,
-    /// Display label for `target_id` — see `source_label`.
+    /// Display label for `target_instance_id` — see `source_label`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_label: Option<String>,
     /// RFC-046 creator of the stored relation (who asserted it), carried
@@ -178,8 +178,8 @@ pub fn list_relations(
             relation_type: r.relation_type.clone(),
             source_label: label_for(&r.source_instance_id),
             target_label: label_for(&r.target_instance_id),
-            source_id: r.source_instance_id.clone(),
-            target_id: r.target_instance_id.clone(),
+            source_instance_id: r.source_instance_id.clone(),
+            target_instance_id: r.target_instance_id.clone(),
             created_by: r.created_by.clone(),
         })
         .collect();
@@ -556,8 +556,8 @@ impl From<Relation> for RelationSummary {
         Self {
             relation_id: r.relation_id,
             relation_type: r.relation_type,
-            source_id: r.source_instance_id,
-            target_id: r.target_instance_id,
+            source_instance_id: r.source_instance_id,
+            target_instance_id: r.target_instance_id,
             source_label: None,
             target_label: None,
             created_by: r.created_by,
@@ -927,8 +927,8 @@ pub fn rebuild_precedes_chain(
             target_label: label_indexes.as_ref().and_then(|(fni, ifi)| {
                 resolve_endpoint_label(store, &r.target_instance_id, fni, ifi)
             }),
-            source_id: r.source_instance_id.clone(),
-            target_id: r.target_instance_id.clone(),
+            source_instance_id: r.source_instance_id.clone(),
+            target_instance_id: r.target_instance_id.clone(),
             created_by: r.created_by.clone(),
         })
         .collect();
@@ -1191,8 +1191,8 @@ fn apply_precedes_splice(
         target_label: label_indexes
             .as_ref()
             .and_then(|(fni, ifi)| resolve_endpoint_label(store, target, fni, ifi)),
-        source_id: source.to_string(),
-        target_id: target.to_string(),
+        source_instance_id: source.to_string(),
+        target_instance_id: target.to_string(),
         created_by: None,
     };
 
@@ -1527,7 +1527,7 @@ mod tests {
         };
         let result = list_relations(&store, filter).unwrap();
         assert_eq!(result.len(), 2);
-        assert!(result.iter().all(|r| r.source_id == "note-1"));
+        assert!(result.iter().all(|r| r.source_instance_id == "note-1"));
     }
 
     #[test]
@@ -2627,10 +2627,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.created.len(), 2, "3 ids → 2 edges");
-        assert_eq!(result.created[0].source_id, "id-a");
-        assert_eq!(result.created[0].target_id, "id-b");
-        assert_eq!(result.created[1].source_id, "id-b");
-        assert_eq!(result.created[1].target_id, "id-c");
+        assert_eq!(result.created[0].source_instance_id, "id-a");
+        assert_eq!(result.created[0].target_instance_id, "id-b");
+        assert_eq!(result.created[1].source_instance_id, "id-b");
+        assert_eq!(result.created[1].target_instance_id, "id-c");
         let all = list_relations(&store, ListRelationsFilter::default()).unwrap();
         assert_eq!(
             all.iter().filter(|r| r.relation_type == "precedes").count(),
@@ -2690,10 +2690,10 @@ mod tests {
                 .any(|r| r.relation_id == "eeeeeeee-0000-4000-8000-00000000ff02"),
             "old-2 must be removed"
         );
-        assert_eq!(result.created[0].source_id, "id-a");
-        assert_eq!(result.created[0].target_id, "id-b");
-        assert_eq!(result.created[1].source_id, "id-b");
-        assert_eq!(result.created[1].target_id, "id-c");
+        assert_eq!(result.created[0].source_instance_id, "id-a");
+        assert_eq!(result.created[0].target_instance_id, "id-b");
+        assert_eq!(result.created[1].source_instance_id, "id-b");
+        assert_eq!(result.created[1].target_instance_id, "id-c");
     }
 
     #[test]
@@ -2833,10 +2833,10 @@ mod tests {
         // Enumeration order carries no meaning (RFC-038); assert the edge set.
         assert!(precedes
             .iter()
-            .any(|r| r.source_id == "id-a" && r.target_id == "id-b"));
+            .any(|r| r.source_instance_id == "id-a" && r.target_instance_id == "id-b"));
         assert!(precedes
             .iter()
-            .any(|r| r.source_id == "id-b" && r.target_id == "id-c"));
+            .any(|r| r.source_instance_id == "id-b" && r.target_instance_id == "id-c"));
     }
 
     // ── Chain-local splice (srs-rust#1124, Gap 2) ─────────────────────────────
@@ -3002,8 +3002,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.removed.len(), 1);
-        assert_eq!(result.removed[0].source_id, "b");
-        assert_eq!(result.removed[0].target_id, "c");
+        assert_eq!(result.removed[0].source_instance_id, "b");
+        assert_eq!(result.removed[0].target_instance_id, "c");
         assert_eq!(result.created.len(), 2);
 
         let edges = precedes_edges(&store);
@@ -3056,8 +3056,8 @@ mod tests {
 
         assert_eq!(result.removed.len(), 2, "both incident edges removed");
         assert_eq!(result.created.len(), 1, "reconnect edge created");
-        assert_eq!(result.created[0].source_id, "a");
-        assert_eq!(result.created[0].target_id, "c");
+        assert_eq!(result.created[0].source_instance_id, "a");
+        assert_eq!(result.created[0].target_instance_id, "c");
 
         assert_eq!(
             precedes_edges(&store),

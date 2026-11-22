@@ -3423,7 +3423,7 @@ pub(crate) mod tests {
                 assert_eq!(relations.len(), 1);
                 assert_eq!(relations[0].relation_id, relation_id);
                 assert_eq!(relations[0].relation_type, "derived-from");
-                assert_eq!(relations[0].target_id, original_id);
+                assert_eq!(relations[0].target_instance_id, original_id);
             }
             other => panic!("expected RecordHasInboundRelations, got {other:?}"),
         }
@@ -3454,7 +3454,7 @@ pub(crate) mod tests {
         assert_eq!(result.cascaded_relations.len(), 1);
         assert_eq!(result.cascaded_relations[0].relation_id, relation_id);
         assert_eq!(result.cascaded_relations[0].relation_type, "derived-from");
-        assert_eq!(result.cascaded_relations[0].target_id, original_id);
+        assert_eq!(result.cascaded_relations[0].target_instance_id, original_id);
 
         assert!(store.find_instance(&original_id).unwrap().is_none());
         let relations_after = relation_service::list_relations(

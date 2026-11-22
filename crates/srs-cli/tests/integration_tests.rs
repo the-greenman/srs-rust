@@ -3529,7 +3529,16 @@ fn relation_list_filters_by_source_target_and_type() {
     let by_source = run_srs_in_dir(temp.path(), &["relation", "list", "--source", "note-1"]);
     let source_relations = by_source["payload"]["relations"].as_array().unwrap();
     assert_eq!(source_relations.len(), 2);
-    assert!(source_relations.iter().all(|r| r["sourceId"] == "note-1"));
+    assert!(source_relations
+        .iter()
+        .all(|r| r["sourceInstanceId"] == "note-1"));
+    // srs-rust#1697: endpoints carry the schema names, not sourceId/targetId.
+    assert!(source_relations
+        .iter()
+        .all(|r| r.get("sourceId").is_none() && r.get("targetId").is_none()));
+    assert!(source_relations
+        .iter()
+        .all(|r| r["targetInstanceId"].is_string()));
 
     let by_target = run_srs_in_dir(temp.path(), &["relation", "list", "--target", "note-2"]);
     let target_relations = by_target["payload"]["relations"].as_array().unwrap();

@@ -898,10 +898,10 @@ pub fn validate_repository(
                                             let satisfied = rels.iter().any(|r| {
                                                 let anchored = match direction {
                                                     RelationDirection::Incoming => {
-                                                        r.target_id == record.instance_id
+                                                        r.target_instance_id == record.instance_id
                                                     }
                                                     RelationDirection::Outgoing => {
-                                                        r.source_id == record.instance_id
+                                                        r.source_instance_id == record.instance_id
                                                     }
                                                 };
                                                 anchored && declared.contains(&r.relation_type)

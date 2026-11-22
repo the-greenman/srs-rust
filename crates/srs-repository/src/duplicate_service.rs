@@ -192,7 +192,7 @@ mod tests {
             .unwrap()
             .into_iter()
             .filter(|r| r.relation_type == ty)
-            .map(|r| (r.source_id, r.target_id))
+            .map(|r| (r.source_instance_id, r.target_instance_id))
             .collect()
     }
 
