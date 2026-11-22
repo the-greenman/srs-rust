@@ -5,9 +5,9 @@ description: Work with an SRS (Semantic Record System) repository through its MC
 
 # SRS: Semantic Record System
 
-An SRS repository holds **records** (typed, with named fields), **notes** (free text, no type), **relations** (typed links from one record or note to another) and **containers** (ordered outlines that group them). You read and write it through an MCP server or the `srs` CLI. Both run the same engine and enforce the repository's type and relation contracts.
+An SRS repository holds **records** (typed, with named fields), **notes** (free text, no type), **relations** (typed links from one record or note to another) and **containers** (ordered outlines that group them). You read and write it through an MCP server or the `srs` CLI. Both enforce the repository's contracts.
 
-This file is complete on its own. Tool names are the MCP tools. CLI equivalents are at the end. A project instruction file (CLAUDE.md, AGENTS.md) or a project skill wins over this one.
+This file is complete on its own. CLI equivalents are at the end. A project instruction file (CLAUDE.md, AGENTS.md) or a project skill wins over this one.
 
 ## Five rules
 
@@ -38,7 +38,6 @@ Three traps. `agent-index` lists sections flat, so take nesting from the outline
 - Relations are not found with `find`. Use `neighbours` (`direction: "out"` or `"in"`, optional `relationType`). It returns edges, so read the record at the other end if you need its content. A `relationType` that is not an exact key returns zero edges and no warning.
 - `similar` with an `instanceId` gives more like this one. Use it before creating, to catch a duplicate.
 - For everything about one record, read `srs://<repositoryId>/context/<containerId>/<instanceId>`. For a record with many edges, use `neighbours` with a `limit`.
-- A hit's `uri` is the address to read. Copy it.
 
 ## Write
 
@@ -128,6 +127,7 @@ Every command prints one JSON envelope: `{"ok", "command", "version", "payload"}
 ## More, if you can fetch it
 
 - Structure checks with thresholds: https://engine.semanticops.com/structure.md
+- What a repository's guidance says: https://github.com/the-greenman/srs-rust/blob/master/skills/GUIDANCE.md
 - CLI reference: https://engine.semanticops.com/cli/index.md
 - Project memory in an SRS repository: https://skill.semanticops.com/srs-memory/SKILL.md
 - The specification: https://srs.semanticops.com/llms.txt

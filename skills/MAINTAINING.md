@@ -112,7 +112,7 @@ One row per rule in `SKILL.md`. "Retire when" names the lower-channel fix.
 | Never send `createdBy` | RFC-046 (`actor-supplied`) | never |
 | Validate by `summary.errors == 0`; check `ok`, not the exit code | findings 74561bed, 670655d6 | exit codes are reconciled |
 | Server may be older than this file | finding e6f9b6ba; check 2026-11-22: `srs repo guidance` missing from the pinned build | the server reports its version in `initialize` and the skill names a minimum |
-| Set the repository's guidance | scan 2026-11-22: set in 1 of 9 served repositories (finding 731e1662) | `repo validate` warns when it is empty |
+| Set the repository's guidance (what it says: `GUIDANCE.md`) | scan 2026-11-22: set in 1 of 9 served repositories (finding 731e1662) | `repo validate` warns when it is empty |
 | Type, state, relation, container, tag table | survey 2026-11-21: tags as entities (2,516 distinct in one corpus), a container per state (721 and 410 members), `from:<repo>:<id>` tags as edges | validation warns on each |
 | Hubs and no isolated records | survey 2026-11-21: 0% isolated in the derivation-chain corpus, 57% and 86% in the flat ones; usage log: 55% of tier-2 records never read | not expected |
 | Short fields, bounded containers, no unused types | survey 2026-11-21: fields of 97,712 and 75,453 chars; 40 unused types | `repo doctor` reports them |
