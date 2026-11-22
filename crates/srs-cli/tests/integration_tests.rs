@@ -4646,6 +4646,63 @@ fn container_list_returns_empty_initially() {
     assert_eq!(non_root_containers(&result), serde_json::json!([]));
 }
 
+/// Create a vocabulary of `mode` with one term `web`, a container tagged `tag`, and
+/// return the repo's `repo validate` diagnostics that mention the container tag rule.
+fn container_tag_diagnostics(modes: &[&str], tag: &str) -> Vec<String> {
+    let temp = TempDir::new().unwrap();
+    let repo = create_repo_with_package(&temp, "container-tag-resolution");
+    for (i, mode) in modes.iter().enumerate() {
+        let vocab = serde_json::json!({
+            "version": 1, "namespace": "com.test", "name": format!("tag-vocab-{i}"),
+            "mode": mode, "terms": [], "createdAt": "2026-01-01T00:00:00Z"
+        });
+        let v = run_srs_stdin_in_dir(&repo, &["vocabulary", "create"], &vocab.to_string());
+        assert_eq!(v["ok"], true, "{v:?}");
+        let vocab_id = v["payload"]["vocabulary"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let term = serde_json::json!({"version": 1, "namespace": "com.test", "key": "web"});
+        let t = run_srs_stdin_in_dir(
+            &repo,
+            &["vocabulary", "term-create", "--vocabulary-id", &vocab_id],
+            &term.to_string(),
+        );
+        assert_eq!(t["ok"], true, "{t:?}");
+    }
+    let c = run_srs_stdin_in_dir(
+        &repo,
+        &["container", "create"],
+        &serde_json::json!({"title": "Tagged", "tags": [tag]}).to_string(),
+    );
+    assert_eq!(c["ok"], true, "{c:?}");
+    let (_, report) = run_srs_any_status_in_dir(&repo, &["repo", "validate"]);
+    report["payload"]["diagnostics"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|d| d["message"].as_str())
+        .filter(|m| m.contains("on container"))
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn repo_validate_reports_unresolved_container_tag_under_closed_vocabulary() {
+    // srs-rust#1667 (I-65): Container tags resolve like Record tags.
+    let bad = container_tag_diagnostics(&["closed"], "nope");
+    assert_eq!(bad.len(), 1, "{bad:?}");
+    assert!(bad[0].contains("tag 'nope' on container"), "{bad:?}");
+}
+
+#[test]
+fn repo_validate_accepts_resolving_container_tag_and_open_vocabulary_exemption() {
+    assert!(container_tag_diagnostics(&["closed"], "web").is_empty());
+    // An open vocabulary anywhere in the package exempts unresolved tags (srs-rust#702).
+    assert!(container_tag_diagnostics(&["closed", "open"], "nope").is_empty());
+}
+
 #[test]
 fn container_create_returns_container() {
     let temp = make_container_test_repo();
