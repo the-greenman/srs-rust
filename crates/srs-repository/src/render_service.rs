@@ -2145,7 +2145,20 @@ fn resolve_section_instances(
                     tag: query.tag.first().cloned(),
                 },
             )?;
-            records.retain(|r| record_matches_structured_predicates(r, query));
+            // RFC-056: compiled once per section; a refused filter fails the render
+            // ([R7], [R8]), an unresolved one renders the section empty with a warning ([R6]).
+            let field_filters = if query.field_filters.is_empty() {
+                crate::field_filter::CompiledFieldFilters::default()
+            } else {
+                crate::field_filter::compile(&store.load_package()?, &query.field_filters)?
+            };
+            for id in &field_filters.unresolved {
+                diagnostics.push_derived(format!(
+                    "[section:{}] fieldFilters: fieldId '{id}' names no Field; no instances can match",
+                    section.section_id
+                ));
+            }
+            records.retain(|r| record_matches_structured_predicates(r, query, &field_filters));
 
             // ── Container scoping (RFC-011 [N+27]) ───────────────────────────────────
             let scope = container_scope

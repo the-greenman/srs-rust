@@ -523,7 +523,10 @@ impl srs_core::validation::value_shape::RangeResolver for Package {
                 .terms
                 .iter()
                 .filter(|t| t.resolves_for_reads())
-                .map(|t| t.key.clone())
+                // RFC-006 key-or-alias resolution: an alias names its term, so a closed
+                // Field's domain is the keys and aliases of its non-retired terms (RFC-056).
+                .flat_map(|t| std::iter::once(&t.key).chain(t.aliases.iter().flatten()))
+                .cloned()
                 .collect(),
         )
     }

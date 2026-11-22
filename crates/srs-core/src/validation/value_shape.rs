@@ -31,8 +31,8 @@ pub struct EffectiveField {
 pub trait RangeResolver {
     fn effective_fields(&self, type_id: &str, type_version: u32) -> Option<Vec<EffectiveField>>;
 
-    /// Keys a `vocabularyRef`-backed closed field accepts when reading: the
-    /// vocabulary's terms that still resolve (not retired). `None` when the
+    /// Values a `vocabularyRef`-backed closed field accepts when reading: the keys
+    /// and aliases of the vocabulary's terms that still resolve (not retired). `None` when the
     /// vocabulary does not resolve (definition-level validation reports that,
     /// V2) or the resolver has no vocabularies (the default), so no value check.
     fn vocabulary_term_keys(&self, _vocabulary_id: &str) -> Option<Vec<String>> {
@@ -123,12 +123,18 @@ fn validate_single(
         Datatype::Integer => {
             expect(
                 key,
-                value.as_i64().is_some() || value.as_u64().is_some(),
+                // RFC-056 [R5]: an integral number written with a decimal point
+                // (`12.0`) is an integer, as JSON Schema's `integer` reads it.
+                value.as_i64().is_some()
+                    || value.as_u64().is_some()
+                    || value
+                        .as_f64()
+                        .is_some_and(|f| f.is_finite() && f.fract() == 0.0),
                 "integer",
                 value,
                 diagnostics,
             );
-            if let Some(i) = value.as_i64() {
+            if let Some(i) = integral_i64(value) {
                 check_closed_domain(
                     key,
                     field_type,
@@ -275,6 +281,16 @@ pub fn validate_field_values_map(
 /// the inline vocabulary only — a closed field sourced from a `vocabularyRef`
 /// is checked against its Vocabulary's term keys through the resolver
 /// (srs-rust#1602); an unresolved vocabulary is skipped here (V2 reports it).
+/// An integer value as `i64`, including one written `12.0` (RFC-056 [R5]).
+pub fn integral_i64(value: &serde_json::Value) -> Option<i64> {
+    value.as_i64().or_else(|| {
+        value
+            .as_f64()
+            .filter(|f| f.is_finite() && f.fract() == 0.0 && f.abs() < 9.007_199_254_740_992e15)
+            .map(|f| f as i64)
+    })
+}
+
 fn check_closed_domain(
     key: &str,
     field_type: &FieldType,

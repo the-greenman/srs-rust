@@ -31,6 +31,7 @@ pub mod doctor_service;
 pub mod duplicate_service;
 pub mod error;
 pub mod export_service;
+pub mod field_filter;
 pub(crate) mod field_json;
 #[cfg(test)]
 mod field_json_parity_tests;
