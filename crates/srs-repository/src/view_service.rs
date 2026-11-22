@@ -501,6 +501,22 @@ fn refuse_dangling_render_views(
     })
 }
 
+/// Refuse a Composition whose `navigationLinks` name a section it does not declare (I-44);
+/// see [`refuse_dangling_view_fields`]. Needs no package load.
+fn refuse_dangling_navigation_links(composition: &Composition) -> Result<(), RepositoryError> {
+    let reasons = crate::validation::composition_navigation_link_messages(composition);
+    if reasons.is_empty() {
+        return Ok(());
+    }
+    Err(RepositoryError::InvalidInput {
+        message: format!(
+            "composition '{}' would fail repo validate (I-44): {}",
+            composition.name,
+            reasons.join("; ")
+        ),
+    })
+}
+
 // ── View CRUD ─────────────────────────────────────────────────────────────────
 
 /// Create a View from a raw JSON value with normalized defaults (issue #511).
@@ -665,6 +681,7 @@ pub fn create_composition(
         path: std::path::PathBuf::from(format!("{boundary_path}/compositions")),
         source: e,
     })?;
+    refuse_dangling_navigation_links(&composition)?;
     refuse_dangling_render_views(store, &composition)?;
     crate::package_service::refuse_cross_boundary_duplicate_id(
         store,
@@ -699,6 +716,7 @@ pub fn update_composition(
         path: std::path::PathBuf::from("package/compositions"),
         source: e,
     })?;
+    refuse_dangling_navigation_links(&composition)?;
     refuse_dangling_render_views(store, &composition)?;
     store.update_composition(&composition)?;
     Ok(UpdateCompositionResult { composition })
@@ -919,6 +937,74 @@ mod tests {
         assert_eq!(
             hits[0].code.as_deref(),
             Some("composition-render-view-unresolved")
+        );
+        assert!(hits[0].message.contains(&made.id));
+    }
+
+    /// srs-rust#1666, I-44: a navigation link naming no declared section is refused on create and
+    /// update and reported by `repo validate`; a valid link and a Composition with none pass.
+    #[test]
+    fn composition_refuses_dangling_navigation_link_and_validate_reports_it() {
+        use srs_core::types::view::NavigationLink;
+        let temp = tempfile::TempDir::new().unwrap();
+        setup_minimal_repo(temp.path());
+        let store = FileStore::new(temp.path());
+
+        let plain = create_composition(&store, minimal_composition("plain"), None)
+            .unwrap()
+            .composition;
+        assert!(plain.navigation_links.is_none());
+
+        let section = minimal_composition("probe").sections[0].section_id.clone();
+        let link = |from: &str, to: &str| NavigationLink {
+            from_section_id: from.to_string(),
+            to_section_id: to.to_string(),
+            label: None,
+            bidirectional: None,
+        };
+        for (from, to, field) in [
+            (MISSING_ID, section.as_str(), "fromSectionId"),
+            (section.as_str(), MISSING_ID, "toSectionId"),
+        ] {
+            let mut bad = minimal_composition("bad");
+            bad.navigation_links = Some(vec![link(from, to)]);
+            match create_composition(&store, bad, None) {
+                Err(RepositoryError::InvalidInput { message }) => assert!(
+                    message.contains("I-44")
+                        && message.contains(MISSING_ID)
+                        && message.contains(field),
+                    "{message}"
+                ),
+                Ok(_) => panic!("expected InvalidInput naming I-44"),
+                Err(e) => panic!("expected InvalidInput naming I-44, got {e:?}"),
+            }
+        }
+
+        let mut good = minimal_composition("good");
+        good.navigation_links = Some(vec![link(&section, &section)]);
+        let made = create_composition(&store, good, None).unwrap().composition;
+
+        let mut updated = made.clone();
+        updated.navigation_links = Some(vec![link(&section, MISSING_ID)]);
+        assert!(matches!(
+            update_composition(&store, &made.id, updated),
+            Err(RepositoryError::InvalidInput { .. })
+        ));
+
+        // A dangling link placed behind the writer's back is reported by repo validate.
+        let mut sneaked = made.clone();
+        sneaked.navigation_links = Some(vec![link(MISSING_ID, &section)]);
+        store.update_composition(&sneaked).unwrap();
+        let report = crate::validation::validate_repository(&store).unwrap();
+        let hits: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("I-44"))
+            .collect();
+        assert_eq!(hits.len(), 1, "{:?}", report.diagnostics);
+        assert_eq!(
+            hits[0].code.as_deref(),
+            Some("composition-navigation-link-unresolved")
         );
         assert!(hits[0].message.contains(&made.id));
     }
