@@ -1490,7 +1490,7 @@ pub fn transition_record_lifecycle(
                 to: transition_name.clone(),
             })?,
         _ => {
-            return Err(RepositoryError::InvalidRepositoryInitialization {
+            return Err(RepositoryError::InvalidInput {
                 message: "exactly one of 'to' or 'byTransition' must be provided".to_string(),
             })
         }
