@@ -27,7 +27,7 @@ use base64::Engine as _;
 use srs_core::types::container::{Container, ContainerIndexEntry};
 use srs_core::types::relation::Relation;
 use std::collections::{BTreeMap, HashMap};
-use std::io::{Read, Seek, Write};
+use std::io::{Cursor, Read, Seek, Write};
 use zip::write::SimpleFileOptions;
 
 /// Enumerate the repository as a path→bytes tree.
@@ -313,7 +313,7 @@ pub fn archive_pack(
 /// `archive_pack` and the RFC-026 slice export (ADR-051).
 pub(crate) fn pack_tree(
     entries: &BTreeMap<String, Vec<u8>>,
-    writer: impl Write + Seek,
+    mut writer: impl Write + Seek,
 ) -> Result<(), RepositoryError> {
     // Never *produce* an archive that names a path outside the tree it
     // describes, whatever the in-memory session holds. Checked before the
@@ -324,7 +324,7 @@ pub(crate) fn pack_tree(
 
     // BTreeMap iteration is already lexicographic — the ADR-033 entry-order
     // and determinism guarantees hold by construction.
-    let mut zip = zip::ZipWriter::new(writer);
+    let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
     for (path, bytes) in entries {
         let options = SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated)
@@ -335,8 +335,62 @@ pub(crate) fn pack_tree(
                 message: e.to_string(),
             })?;
     }
-    let _ = zip.finish()?;
+    let mut buf = zip.finish()?.into_inner();
+    set_utf8_flag(&mut buf)?;
+    writer
+        .write_all(&buf)
+        .map_err(|e| RepositoryError::InvalidArchive {
+            message: e.to_string(),
+        })?;
 
+    Ok(())
+}
+
+/// I-105: the general-purpose flag bit 11 (language encoding, UTF-8 names)
+/// MUST be 1 in every local header and central directory entry. The `zip`
+/// crate sets it only for non-ASCII names, so the finished buffer is patched
+/// here, in the one writer: both headers sit at fixed offsets, so the result
+/// stays deterministic.
+fn set_utf8_flag(buf: &mut [u8]) -> Result<(), RepositoryError> {
+    const EOCD_SIG: [u8; 4] = [0x50, 0x4b, 0x05, 0x06];
+    const CEN_SIG: [u8; 4] = [0x50, 0x4b, 0x01, 0x02];
+    const LOC_SIG: [u8; 4] = [0x50, 0x4b, 0x03, 0x04];
+    const UTF8: u16 = 0x0800;
+    let bad = |m: &str| RepositoryError::InvalidArchive {
+        message: format!("cannot set the UTF-8 flag: {m}"),
+    };
+    let u16_at = |b: &[u8], o: usize| u16::from_le_bytes([b[o], b[o + 1]]);
+    let u32_at = |b: &[u8], o: usize| u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]]);
+
+    if buf.len() < 22 {
+        return Err(bad("archive too short"));
+    }
+    // No archive comment is written, so the end record is the last 22 bytes.
+    let eocd = buf.len() - 22;
+    if buf[eocd..eocd + 4] != EOCD_SIG {
+        return Err(bad("end of central directory not found"));
+    }
+    let count = u16_at(buf, eocd + 10) as usize;
+    let mut cen = u32_at(buf, eocd + 16) as usize;
+    for _ in 0..count {
+        if cen + 46 > buf.len() || buf[cen..cen + 4] != CEN_SIG {
+            return Err(bad("malformed central directory"));
+        }
+        let loc = u32_at(buf, cen + 42) as usize;
+        if loc + 30 > buf.len() || buf[loc..loc + 4] != LOC_SIG {
+            return Err(bad("malformed local header"));
+        }
+        let cf = u16_at(buf, cen + 8) | UTF8;
+        buf[cen + 8..cen + 10].copy_from_slice(&cf.to_le_bytes());
+        let lf = u16_at(buf, loc + 6) | UTF8;
+        buf[loc + 6..loc + 8].copy_from_slice(&lf.to_le_bytes());
+        let (n, x, c) = (
+            u16_at(buf, cen + 28) as usize,
+            u16_at(buf, cen + 30) as usize,
+            u16_at(buf, cen + 32) as usize,
+        );
+        cen += 46 + n + x + c;
+    }
     Ok(())
 }
 
@@ -1100,6 +1154,34 @@ mod tests {
         let mut sorted = names.clone();
         sorted.sort();
         assert_eq!(names, sorted, "ZIP entries are not in lexicographic order");
+    }
+
+    /// I-105: bit 11 is set in every central directory entry and every local
+    /// header, ASCII names included.
+    #[test]
+    fn test_archive_utf8_flag_set() {
+        let store = init_memory_store();
+        let bytes = pack_to_bytes(&store);
+        assert_utf8_flag_everywhere(&bytes);
+    }
+
+    pub(crate) fn assert_utf8_flag_everywhere(bytes: &[u8]) {
+        let mut zip = zip::ZipArchive::new(Cursor::new(bytes.to_vec())).expect("open zip");
+        assert!(!zip.is_empty());
+        for i in 0..zip.len() {
+            let entry = zip.by_index(i).unwrap();
+            let name = entry.name().to_string();
+            let cen = entry.central_header_start() as usize;
+            let cflag = u16::from_le_bytes([bytes[cen + 8], bytes[cen + 9]]);
+            assert_eq!(
+                cflag & 0x0800,
+                0x0800,
+                "central entry '{name}' lacks bit 11"
+            );
+            let loc = entry.header_start() as usize;
+            let lflag = u16::from_le_bytes([bytes[loc + 6], bytes[loc + 7]]);
+            assert_eq!(lflag & 0x0800, 0x0800, "local header '{name}' lacks bit 11");
+        }
     }
 
     #[test]
