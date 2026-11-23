@@ -619,7 +619,18 @@ pub struct NeighboursResult {
     /// Every matching edge, before paging.
     pub total: usize,
     pub neighbours: Vec<NeighbourEdge>,
+    /// Non-fatal findings: a `relationType` filter naming no installed relation type
+    /// (`neighbours-relation-type-unknown`), so an empty page is not read as "no edges".
+    #[serde(default)]
+    pub diagnostics: Vec<String>,
+    /// The same findings as structured entries (ADR-057).
+    #[serde(default)]
+    pub diagnostics_structured: Vec<crate::diagnostic::Diagnostic>,
 }
+
+/// Stable code of the warning for a `relationType` filter that no installed relation type has
+/// as its key (srs-rust#1682).
+pub const NEIGHBOURS_RELATION_TYPE_UNKNOWN: &str = "neighbours-relation-type-unknown";
 
 /// Bounded read of an instance's relation neighbours. Edges are filtered, sorted by
 /// `(relationType, createdAt none-last, relationId)` and paged first; only the returned page
@@ -634,6 +645,28 @@ pub fn list_neighbours(
         return Err(RepositoryError::NotFound {
             path: std::path::PathBuf::from(id),
         });
+    }
+    let mut diagnostics = crate::diagnostic::Diagnostics::new();
+    // The filter is an exact key match, so a namespaced spelling of a core key matches nothing.
+    // Say so rather than answering a bare zero. A package that will not load is not a finding.
+    if let (Some(wanted), Ok(package)) = (query.relation_type.as_deref(), store.load_package()) {
+        let mut keys: Vec<&str> = package
+            .relation_type_definitions
+            .iter()
+            .map(|d| d.key.as_str())
+            .collect();
+        if !keys.contains(&wanted) {
+            keys.sort_unstable();
+            diagnostics.warning(
+                NEIGHBOURS_RELATION_TYPE_UNKNOWN,
+                format!(
+                    "warning: {NEIGHBOURS_RELATION_TYPE_UNKNOWN}: no relation type with key \
+                     '{wanted}' is installed; the filter is an exact key, so no edge can match \
+                     (installed keys: {}; see srs://<repositoryId>/relation-types)",
+                    keys.join(", ")
+                ),
+            );
+        }
     }
     let wants = |d| query.direction.is_none_or(|q| q == d);
     let mut edges = Vec::new();
@@ -689,10 +722,13 @@ pub fn list_neighbours(
             }
         })
         .collect();
+    let (diagnostics, diagnostics_structured) = diagnostics.into_parts();
     Ok(NeighboursResult {
         instance_id: query.instance_id,
         total,
         neighbours,
+        diagnostics,
+        diagnostics_structured,
     })
 }
 
@@ -1829,6 +1865,37 @@ mod tests {
             .neighbours
             .iter()
             .all(|e| e.direction == EdgeDirection::In));
+    }
+
+    #[test]
+    fn neighbours_unknown_relation_type_warns_srs_rust_1682() {
+        let (store, hub, _) = neighbours_fixture(2);
+        let run = |t: &str| {
+            list_neighbours(
+                &store,
+                NeighboursQuery {
+                    relation_type: Some(t.into()),
+                    ..nq(&hub)
+                },
+                NeighboursPage::default(),
+            )
+            .unwrap()
+        };
+        let bad = run("com.semanticops.srs/depends-on");
+        assert_eq!(bad.total, 0);
+        assert_eq!(bad.diagnostics.len(), 1);
+        assert!(bad.diagnostics[0].contains(NEIGHBOURS_RELATION_TYPE_UNKNOWN));
+        assert!(bad.diagnostics[0].contains("'com.semanticops.srs/depends-on'"));
+        assert_eq!(bad.diagnostics_structured.len(), 1);
+        assert_eq!(
+            bad.diagnostics_structured[0].code,
+            NEIGHBOURS_RELATION_TYPE_UNKNOWN
+        );
+        // No filter, no warning.
+        assert!(list_neighbours(&store, nq(&hub), NeighboursPage::default())
+            .unwrap()
+            .diagnostics
+            .is_empty());
     }
 
     #[test]
