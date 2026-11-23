@@ -118,6 +118,13 @@ fn neighbours_both_directions_match() {
                 neighbour: n(false),
             },
         ],
+        diagnostics: vec!["warning: neighbours-relation-type-unknown: x".into()],
+        diagnostics_structured: vec![srs_repository::diagnostic::Diagnostic {
+            severity: srs_repository::validation::DiagnosticSeverity::Warning,
+            code: "neighbours-relation-type-unknown".into(),
+            message: "warning: neighbours-relation-type-unknown: x".into(),
+            instance_id: None,
+        }],
     };
     let direct = to_value(&r).unwrap();
     assert_eq!(direct, to_value(NeighboursResultPayload::from(r)).unwrap());
