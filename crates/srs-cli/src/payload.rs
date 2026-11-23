@@ -1141,6 +1141,9 @@ pub struct NeighboursResultPayload {
     pub instance_id: String,
     pub total: usize,
     pub neighbours: Vec<NeighbourEdgePayload>,
+    pub diagnostics: Vec<String>,
+    /// The same findings as structured entries (ADR-057).
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 impl From<NeighboursResult> for NeighboursResultPayload {
@@ -1149,11 +1152,15 @@ impl From<NeighboursResult> for NeighboursResultPayload {
             instance_id,
             total,
             neighbours,
+            diagnostics,
+            diagnostics_structured,
         } = r;
         Self {
             instance_id,
             total,
             neighbours: neighbours.into_iter().map(Into::into).collect(),
+            diagnostics,
+            diagnostics_structured: diagnostics_structured.into_iter().map(Into::into).collect(),
         }
     }
 }
