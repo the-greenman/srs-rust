@@ -80,7 +80,7 @@ fn targets_of(store: &dyn RepositoryStore, source: &str) -> Vec<String> {
     )
     .unwrap()
     .into_iter()
-    .map(|r| r.target_id)
+    .map(|r| r.target_instance_id)
     .collect()
 }
 

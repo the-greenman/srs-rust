@@ -417,8 +417,8 @@ fn run_scenario(sc: &Value, fixture_repo: &Path) -> Result<(), String> {
             {
                 if !present.iter().any(|r| {
                     r.relation_type == s(rel, "relationType")
-                        && r.source_id == s(rel, "sourceInstanceId")
-                        && r.target_id == s(rel, "targetInstanceId")
+                        && r.source_instance_id == s(rel, "sourceInstanceId")
+                        && r.target_instance_id == s(rel, "targetInstanceId")
                 }) {
                     return Err(format!("ignoredRelations: {rel} is not in the fixture"));
                 }

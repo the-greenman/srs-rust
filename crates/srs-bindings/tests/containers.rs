@@ -230,7 +230,13 @@ fn fork_carry_all_is_order_independent_and_dedups() {
     .unwrap();
     let mut keys: Vec<_> = rels
         .iter()
-        .map(|r| (&r.relation_type, &r.source_id, &r.target_id))
+        .map(|r| {
+            (
+                &r.relation_type,
+                &r.source_instance_id,
+                &r.target_instance_id,
+            )
+        })
         .collect();
     let n = keys.len();
     keys.sort();

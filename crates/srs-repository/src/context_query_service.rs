@@ -263,8 +263,8 @@ pub fn get_record_context(
                 }
             }
             let other = match direction {
-                EdgeDirection::Out => &relation.target_id,
-                EdgeDirection::In => &relation.source_id,
+                EdgeDirection::Out => &relation.target_instance_id,
+                EdgeDirection::In => &relation.source_instance_id,
             };
             let neighbour = record_store::get_instance_by_id(store, other)?;
             let created = neighbour
@@ -424,8 +424,8 @@ fn context_markdown(ctx: &RecordContextResult, field_rows: &str) -> String {
             group = Some(key);
         }
         let other = match rel.direction {
-            EdgeDirection::Out => &rel.relation.target_id,
-            EdgeDirection::In => &rel.relation.source_id,
+            EdgeDirection::Out => &rel.relation.target_instance_id,
+            EdgeDirection::In => &rel.relation.source_instance_id,
         };
         match &rel.neighbour {
             Some(ContextInstance::Card(c)) => {
@@ -1133,8 +1133,8 @@ mod tests {
             .iter()
             .find(|r| r.direction == EdgeDirection::Out)
             .unwrap();
-        assert_eq!(out.relation.source_id, src.instance_id);
-        assert_eq!(out.relation.target_id, tgt.instance_id);
+        assert_eq!(out.relation.source_instance_id, src.instance_id);
+        assert_eq!(out.relation.target_instance_id, tgt.instance_id);
         assert!(
             matches!(&out.neighbour, Some(ContextInstance::Record(r)) if r.instance_id == tgt.instance_id)
         );
@@ -1143,7 +1143,7 @@ mod tests {
             .iter()
             .find(|r| r.direction == EdgeDirection::In)
             .unwrap();
-        assert_eq!(inn.relation.source_id, unrelated.instance_id);
+        assert_eq!(inn.relation.source_instance_id, unrelated.instance_id);
         assert!(
             matches!(&inn.neighbour, Some(ContextInstance::Record(r)) if r.instance_id == unrelated.instance_id)
         );
@@ -1231,7 +1231,7 @@ mod tests {
             let rel = r
                 .relations
                 .iter()
-                .find(|e| e.relation.target_id == id)
+                .find(|e| e.relation.target_instance_id == id)
                 .expect("edge");
             assert!(rel.relation.source_label.is_none() && rel.relation.target_label.is_none());
             match rel.neighbour.clone().expect("neighbour") {
@@ -1255,7 +1255,7 @@ mod tests {
         let full_label = |id: &str| {
             full.relations
                 .iter()
-                .find(|e| e.relation.target_id == id)
+                .find(|e| e.relation.target_instance_id == id)
                 .and_then(|e| e.relation.target_label.clone())
         };
         let c = card_of(&card, &spoke.instance_id);
@@ -1571,13 +1571,13 @@ mod tests {
         let ids: Vec<_> = r
             .relations
             .iter()
-            .map(|e| e.relation.source_id.clone())
+            .map(|e| e.relation.source_instance_id.clone())
             .collect();
         assert_eq!(ids.len(), 2);
         let created = |id: &str| {
             r.relations
                 .iter()
-                .find(|e| e.relation.source_id == id)
+                .find(|e| e.relation.source_instance_id == id)
                 .and_then(|e| match &e.neighbour {
                     Some(ContextInstance::Record(rec)) => rec.created_at.clone(),
                     _ => None,

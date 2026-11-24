@@ -974,7 +974,7 @@ impl SrsRepository {
     /// then `n-1` new `precedes` edges connect `instanceIds[0]→[1]→…→[n-1]`.
     ///
     /// Returns `{ "created": [<RelationSummary>, ...] }` as a JS value where each
-    /// `RelationSummary` is `{ "relationId", "relationType", "sourceId", "targetId" }`.
+    /// `RelationSummary` is `{ "relationId", "relationType", "sourceInstanceId", "targetInstanceId" }`.
     pub fn rebuild_precedes_chain(&self, input_json: &str) -> Result<JsValue, JsValue> {
         #[derive(serde::Deserialize)]
         #[serde(rename_all = "camelCase")]
@@ -3518,10 +3518,10 @@ mod tests {
         .expect("rebuild_precedes_chain should succeed");
 
         assert_eq!(result.created.len(), 2);
-        assert_eq!(result.created[0].source_id, "id-a");
-        assert_eq!(result.created[0].target_id, "id-b");
-        assert_eq!(result.created[1].source_id, "id-b");
-        assert_eq!(result.created[1].target_id, "id-c");
+        assert_eq!(result.created[0].source_instance_id, "id-a");
+        assert_eq!(result.created[0].target_instance_id, "id-b");
+        assert_eq!(result.created[1].source_instance_id, "id-b");
+        assert_eq!(result.created[1].target_instance_id, "id-c");
     }
 
     fn precedes_chain_splice_test_srsj() -> String {

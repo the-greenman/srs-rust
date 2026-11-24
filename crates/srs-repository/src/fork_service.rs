@@ -383,7 +383,7 @@ mod tests {
             .unwrap()
             .into_iter()
             .filter(|r| r.relation_type == FORK_RELATION_TYPE)
-            .map(|r| (r.source_id, r.target_id))
+            .map(|r| (r.source_instance_id, r.target_instance_id))
             .collect()
     }
 

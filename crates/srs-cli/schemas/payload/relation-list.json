@@ -7,7 +7,7 @@
   ],
   "properties": {
     "relations": {
-      "description": "Uses `RelationSummary` directly — its `serde(rename_all = \"camelCase\")` produces `{ \"relationId\", \"relationType\", \"sourceId\", \"targetId\" }`, plus `sourceLabel`/ `targetLabel` when the endpoint resolves to a display label (srs-rust#1046; omitted, not null, when it doesn't).",
+      "description": "Uses `RelationSummary` directly — its `serde(rename_all = \"camelCase\")` produces `{ \"relationId\", \"relationType\", \"sourceInstanceId\", \"targetInstanceId\" }`, plus `sourceLabel`/ `targetLabel` when the endpoint resolves to a display label (srs-rust#1046; omitted, not null, when it doesn't).",
       "type": "array",
       "items": true
     }

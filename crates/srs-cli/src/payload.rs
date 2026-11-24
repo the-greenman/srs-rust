@@ -640,7 +640,7 @@ impl From<ListRecordTagsResult> for RecordTagListPayload {
 #[serde(rename_all = "camelCase")]
 pub struct RelationListPayload {
     /// Uses `RelationSummary` directly — its `serde(rename_all = "camelCase")` produces
-    /// `{ "relationId", "relationType", "sourceId", "targetId" }`, plus `sourceLabel`/
+    /// `{ "relationId", "relationType", "sourceInstanceId", "targetInstanceId" }`, plus `sourceLabel`/
     /// `targetLabel` when the endpoint resolves to a display label (srs-rust#1046;
     /// omitted, not null, when it doesn't).
     #[schemars(with = "Vec<serde_json::Value>")]
@@ -3401,7 +3401,7 @@ pub struct ContextRecordPayload {
     #[schemars(with = "serde_json::Value")]
     pub field_values: srs_core::types::record::FieldValues,
     /// BEHAVIOUR CHANGE (#1134): formerly outbound only. Consumers that assumed
-    /// `sourceId == recordId` must check `direction`. Both directions; each entry is a RelationSummary plus `direction` (out|in), the
+    /// `sourceInstanceId == recordId` must check `direction`. Both directions; each entry is a RelationSummary plus `direction` (out|in), the
     /// other endpoint inline as `neighbour`, and the relation's own optional `createdAt` / `createdBy` (#1246).
     /// With `--projection card|label` (#1285) each `neighbour` is a `{kind: "card", instanceId, uri, label,
     /// typeNamespace?, typeName?, lifecycleState?, summary?}` card (no `summary` for `label`) and the edge
