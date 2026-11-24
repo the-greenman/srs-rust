@@ -754,6 +754,7 @@ fn attachment_link() {
     check::<AttachmentLinkPayload>("attachment-link");
     check::<AttachmentUnlinkPayload>("attachment-unlink");
     check::<AttachmentRemovePayload>("attachment-remove");
+    check::<AttachmentUpdatePayload>("attachment-update");
 }
 
 #[test]

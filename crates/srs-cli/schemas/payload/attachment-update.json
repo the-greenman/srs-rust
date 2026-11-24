@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AttachmentUpdatePayload",
+  "type": "object",
+  "required": [
+    "contentPath",
+    "documentId",
+    "sidecarChecksum",
+    "sidecarPath",
+    "updated"
+  ],
+  "properties": {
+    "contentPath": {
+      "type": "string"
+    },
+    "documentId": {
+      "type": "string"
+    },
+    "sidecarChecksum": {
+      "type": "string"
+    },
+    "sidecarPath": {
+      "type": "string"
+    },
+    "updated": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

@@ -2,13 +2,14 @@ use crate::commands::{with_store, AttachmentCommand, CliContext};
 use crate::output;
 use crate::payload::{
     AttachmentAddPayload, AttachmentLinkPayload, AttachmentListPayload, AttachmentPolicyPayload,
-    AttachmentRemovePayload, AttachmentUnlinkPayload, ResolveViewAttachmentsPayload,
+    AttachmentRemovePayload, AttachmentUnlinkPayload, AttachmentUpdatePayload,
+    ResolveViewAttachmentsPayload,
 };
 use anyhow::Result;
 use srs_repository::attachment_policy_service;
 use srs_repository::attachment_service::{
     self, AddAttachmentInput, LinkAttachmentInput, ListAttachmentsFilter, RemoveAttachmentInput,
-    ResolveCompositionAttachmentsInput, UnlinkAttachmentInput,
+    ResolveCompositionAttachmentsInput, UnlinkAttachmentInput, UpdateAttachmentInput,
 };
 
 pub fn dispatch(ctx: CliContext, cmd: AttachmentCommand) -> Result<String> {
@@ -31,6 +32,12 @@ pub fn dispatch(ctx: CliContext, cmd: AttachmentCommand) -> Result<String> {
         AttachmentCommand::Remove { document_id, force } => {
             cmd_attachment_remove(ctx, document_id, force)
         }
+        AttachmentCommand::Update {
+            document_id,
+            content_path,
+            title,
+            content_type,
+        } => cmd_attachment_update(ctx, document_id, content_path, title, content_type),
         AttachmentCommand::ResolveViewAttachments => cmd_attachment_resolve_view_attachments(ctx),
         AttachmentCommand::PolicyGet => cmd_attachment_policy_get(ctx),
     }
@@ -98,6 +105,25 @@ fn cmd_attachment_remove(ctx: CliContext, document_id: String, force: bool) -> R
         )?)
     })?;
     output::serialize("attachment remove", AttachmentRemovePayload::from(result))
+}
+
+fn cmd_attachment_update(
+    ctx: CliContext,
+    document_id: String,
+    content_path: Option<String>,
+    title: Option<String>,
+    content_type: Option<String>,
+) -> Result<String> {
+    let input = UpdateAttachmentInput {
+        document_id,
+        content_path,
+        title,
+        content_type,
+    };
+    let result = with_store(&ctx, |store| {
+        Ok(attachment_service::update_attachment(store, input)?)
+    })?;
+    output::serialize("attachment update", AttachmentUpdatePayload::from(result))
 }
 
 fn cmd_attachment_add(
