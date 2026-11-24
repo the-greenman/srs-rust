@@ -2583,6 +2583,25 @@ pub(crate) fn type_cross_field_rule_scope_messages(
     messages
 }
 
+/// V8 for one Type: a `lifecycleRef` must name an installed Lifecycle. Shared by
+/// `repo validate` and the `type create` / `type update` pre-write refusal (srs-rust#1691).
+pub(crate) fn type_lifecycle_ref_messages(
+    pkg: &crate::package::Package,
+    rt: &srs_core::types::record_type::RecordType,
+) -> Vec<String> {
+    match &rt.lifecycle_ref {
+        Some(ref_id)
+            if rt.lifecycle.is_none() && !pkg.lifecycles.iter().any(|lc| &lc.id == ref_id) =>
+        {
+            vec![format!(
+                "V8: type '{}' lifecycleRef '{}' does not resolve to an installed Lifecycle",
+                rt.name, ref_id
+            )]
+        }
+        _ => Vec::new(),
+    }
+}
+
 /// V9 / I-4 / I-5 for one Type's inline lifecycle: structural integrity, and
 /// `initialState` agreeing with the `isInitial` state. Shared by `repo validate` and the
 /// `type create` / `type update` pre-write refusal (srs-rust#1543).
@@ -2736,19 +2755,14 @@ fn validate_vocabulary_invariants(
         }
 
         // V8: lifecycleRef must resolve
-        if let Some(ref_id) = &rt.lifecycle_ref {
-            if !pkg.lifecycles.iter().any(|lc| &lc.id == ref_id) {
-                diagnostics.push(ValidationDiagnostic {
- code: None,
-                    severity: DiagnosticSeverity::Error,
-                    relative_path: "package/package.json".to_string(),
-                    schema_id: None,
-                    message: format!(
-                        "V8: type '{}' lifecycleRef '{}' does not resolve to an installed Lifecycle",
-                        rt.name, ref_id
-                    ),
-                });
-            }
+        for message in type_lifecycle_ref_messages(pkg, rt) {
+            diagnostics.push(ValidationDiagnostic {
+                code: None,
+                severity: DiagnosticSeverity::Error,
+                relative_path: "package/package.json".to_string(),
+                schema_id: None,
+                message,
+            });
         }
 
         // V9: structural checks on inline TypeLifecycle
