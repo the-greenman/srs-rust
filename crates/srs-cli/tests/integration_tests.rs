@@ -8561,6 +8561,17 @@ fn record_validate_rejects_invalid_input() {
         !result["diagnostics"].as_array().unwrap().is_empty(),
         "expected a diagnostic"
     );
+    // The same findings, with codes, in the payload (ADR-057, #1339).
+    let text = result["diagnostics"].as_array().unwrap();
+    let structured = result["payload"]["diagnosticsStructured"]
+        .as_array()
+        .unwrap();
+    assert_eq!(text.len(), structured.len());
+    for (t, d) in text.iter().zip(structured) {
+        assert_eq!(t, &d["message"]);
+        assert_eq!(d["severity"], "error");
+        assert!(!d["code"].as_str().unwrap().is_empty());
+    }
 }
 
 #[test]

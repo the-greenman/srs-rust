@@ -202,11 +202,25 @@ fn cmd_record_validate(ctx: CliContext) -> Result<String> {
             RecordValidatePayload {
                 ok: true,
                 errors: vec![],
+                diagnostics_structured: vec![],
             },
         )
     } else {
-        // unclassified until validation diagnostics carry codes (#1264)
-        Ok(output::err("record validate", report.errors))
+        // The text list and the envelope's errors stay as they were (#1496); the
+        // payload now carries the same findings with codes (ADR-057, #1339).
+        let payload = RecordValidatePayload {
+            ok: false,
+            diagnostics_structured: report
+                .diagnostics_structured
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            errors: report.errors.clone(),
+        };
+        Ok(output::err_with_payload(
+            output::OutputDTO::err("record validate", report.errors),
+            payload,
+        ))
     }
 }
 

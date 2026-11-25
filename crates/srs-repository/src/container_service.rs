@@ -24,6 +24,7 @@
 
 use crate::error::RepositoryError;
 use crate::store::RepositoryStore;
+use crate::validation::DiagnosticSeverity;
 use crate::writer::new_instance_id;
 use serde::{Deserialize, Deserializer, Serialize};
 use srs_core::arrangement;
@@ -122,6 +123,9 @@ where
 pub struct ContainerValidationReport {
     pub ok: bool,
     pub errors: Vec<String>,
+    /// `errors` as structured findings, entry for entry (ADR-057,
+    /// srs-rust#1339); the text list is unchanged until srs-rust#1496.
+    pub diagnostics_structured: Vec<crate::diagnostic::Diagnostic>,
 }
 
 /// Filter parameters for [`list_containers`]. No serde — this is a service contract, not a wire shape.
@@ -1645,9 +1649,9 @@ pub fn validate_container_invariants(
             })
         }
     };
-    let mut errors = Vec::new();
+    let mut found = crate::diagnostic::Diagnostics::new();
     if let Err(err) = validate_container(&container) {
-        errors.push(err.to_string());
+        found.error("container-invalid", err.to_string());
     }
 
     // RFC-013 [R6]/[R9] as amended by RFC-038 [R25]: resolved against the
@@ -1657,25 +1661,40 @@ pub fn validate_container_invariants(
     if let Some(ref entries) = container.member_instance_ids {
         for e in entries {
             if e.instance_id == container.container_id {
-                errors.push("containerId must not appear in memberInstanceIds".to_string());
+                found.error(
+                    "container-id-as-member",
+                    "containerId must not appear in memberInstanceIds".to_string(),
+                );
             }
             if !known_ids.contains(&e.instance_id) {
-                errors.push(format!(
-                    "{}: memberInstanceId '{}' not found in the instance set",
+                found.push_for(
+                    DiagnosticSeverity::Error,
                     arrangement::CODE_UNRESOLVED,
-                    e.instance_id
-                ));
+                    format!(
+                        "{}: memberInstanceId '{}' not found in the instance set",
+                        arrangement::CODE_UNRESOLVED,
+                        e.instance_id
+                    ),
+                    Some(e.instance_id.clone()),
+                );
             }
         }
         for v in arrangement::check_entries(entries, root_identity(store, container_id, &container))
         {
-            errors.push(v.to_string());
+            found.push_for(
+                DiagnosticSeverity::Error,
+                v.code,
+                v.to_string(),
+                Some(v.instance_id.clone()),
+            );
         }
     }
 
+    let (errors, diagnostics_structured) = found.into_parts();
     Ok(ContainerValidationReport {
         ok: errors.is_empty(),
         errors,
+        diagnostics_structured,
     })
 }
 
@@ -2534,6 +2553,13 @@ mod tests {
         );
         let report = validate_container_invariants(&store, &created.container_id).unwrap();
         assert!(!report.ok);
+        crate::diagnostic::assert_parallel(&report.errors, &report.diagnostics_structured);
+        let d = &report.diagnostics_structured[0];
+        assert_eq!(d.code, arrangement::CODE_UNRESOLVED);
+        assert_eq!(
+            d.instance_id.as_deref(),
+            Some("dddddddd-dddd-4ddd-8ddd-dddddddddddd")
+        );
     }
 
     #[test]
