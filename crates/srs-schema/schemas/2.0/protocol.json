@@ -45,7 +45,7 @@
     },
     "targetType": {
       "oneOf": [
-        { "type": "string", "format": "uuid" },
+        { "type": "string", "format": "uuid", "minLength": 1 },
         { "type": "string", "const": "" }
       ],
       "description": "The Record type this Protocol converges on — a LINEAGE reference (bare Type UUID; rfc-decision-c8704763). The canonical namespace/name@version form is DISPLAY-only and is never stored here. Loose exploratory Protocols whose output is input context for a tighter Protocol may carry an empty string."
