@@ -96,6 +96,9 @@ Options:
       --actor <ACTOR>
           Session actor for everything this invocation creates (RFC-046 `createdBy`): JSON `{"kind":"human|ai","id":"<non-empty>","name":"<optional>"}`. Defaults to the `SRS_ACTOR` environment variable; with neither, creations are unattributed. Host configuration only — a request payload never carries it. An invalid value refuses every creating command (`actor-invalid`); a corpus below dataModelRevision 9 refuses an actor session (`revision-too-old`) until `repo apply-migration --id rfc046-actor-provenance`. A `.srsj` migrated in memory on open refuses every write first (`migration-required-before-write`) until its migrations are applied
 
+      --section <SECTION>
+          Render only one section: a 0-based position or a section title (decision 83b841f1)
+
       --output <OUTPUT>
           Optional output file path for rendered content
 

@@ -11295,6 +11295,7 @@ mod tests {
                 container_id: None,
                 instance_id_filter: None,
                 exclude_instance_ids: &[],
+                section: None,
             })
         };
 
