@@ -78,9 +78,8 @@ pub enum RegistryEntry {
 /// `entries` and unknown top-level properties are kept verbatim ([R9]). A catalog
 /// field of the wrong type reads as absent and is kept, unchanged, in `extra`.
 ///
-/// ponytail: numbers are held as f64/i64/u64 (no `arbitrary_precision`), so a number
-/// in an unknown field or entry beyond f64 precision changes on rewrite; enable
-/// serde_json's `arbitrary_precision` if a registry ever needs exact large numbers.
+/// Numbers keep their written digits (the workspace serde_json has `arbitrary_precision`),
+/// so a number in an unknown field or entry survives a rewrite exactly.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Registry {
@@ -570,14 +569,23 @@ mod tests {
     }
 
     #[test]
-    fn ponytail_large_numbers_in_unknown_fields_lose_precision() {
-        // Pins the documented limit (no `arbitrary_precision`): 2^64 + 1 is read as f64.
+    fn numbers_in_unknown_fields_keep_their_digits_up_to_u64() {
+        // With `arbitrary_precision` a number within u64 or a decimal survives a rewrite exactly.
         let l = load(json!({"entries": [],
-            "future": serde_json::from_str::<Value>("18446744073709551617").unwrap()}))
+            "future": serde_json::from_str::<Value>("18446744073709551615").unwrap(),
+            "ratio": serde_json::from_str::<Value>("0.1000000000000000055511151231257827").unwrap()}))
         .unwrap();
-        assert!(!l
-            .registry
-            .to_canonical_json()
-            .contains("18446744073709551617"));
+        let out = l.registry.to_canonical_json();
+        assert!(out.contains("18446744073709551615"));
+        assert!(out.contains("0.1000000000000000055511151231257827"));
+    }
+
+    #[test]
+    fn integers_beyond_u64_in_unknown_fields_are_refused_not_rounded() {
+        // serde's flatten buffer has no u128: with `arbitrary_precision` such a number is a
+        // loud load refusal instead of the silent f64 rounding it was before (srs-rust#1692).
+        let r = load(json!({"entries": [],
+            "future": serde_json::from_str::<Value>("18446744073709551617").unwrap()}));
+        assert!(r.is_err());
     }
 }
