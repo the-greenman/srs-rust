@@ -605,6 +605,144 @@ pub fn remove_attachment(
     })
 }
 
+// ── update_attachment ────────────────────────────────────────────────────────
+
+/// Input for `update_attachment`. Each `Some` field replaces that sidecar key;
+/// `None` leaves it untouched. At least one must be set.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAttachmentInput {
+    pub document_id: String,
+    /// New `contentPath`, relative to `sourceDocumentsPath` (I-109), naming an existing
+    /// file in the sidecar's own directory (I-110).
+    pub content_path: Option<String>,
+    pub title: Option<String>,
+    pub content_type: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAttachmentResult {
+    pub document_id: String,
+    /// Path of the sidecar relative to `source-documents/`.
+    pub sidecar_path: String,
+    /// `contentPath` after the update.
+    pub content_path: String,
+    /// Keys this call changed, in sidecar order of the input (`contentPath`, `title`, `contentType`).
+    pub updated: Vec<String>,
+    /// `sha256:<hex>` checksum of the rewritten sidecar JSON bytes.
+    pub sidecar_checksum: String,
+}
+
+/// Why `content_path` cannot be a sidecar's `contentPath`, if it cannot (I-109, I-110):
+/// relative, no `.`/`..`/empty segments, no backslash, and in the sidecar's own directory.
+fn content_path_refusal(content_path: &str, sidecar_path: &str) -> Option<String> {
+    if content_path.is_empty()
+        || content_path.starts_with('/')
+        || content_path.contains('\\')
+        || content_path
+            .split('/')
+            .any(|seg| seg.is_empty() || seg == "." || seg == "..")
+    {
+        return Some(format!(
+            "contentPath '{content_path}' must be a relative path under sourceDocumentsPath without '.', '..' or empty segments (I-109, I-110)"
+        ));
+    }
+    let dir_of = |p: &str| {
+        p.rsplit_once('/')
+            .map(|(d, _)| d.to_string())
+            .unwrap_or_default()
+    };
+    if dir_of(content_path) != dir_of(sidecar_path) {
+        return Some(format!(
+            "contentPath '{content_path}' leaves the directory of its sidecar '{sidecar_path}' (I-110)"
+        ));
+    }
+    None
+}
+
+/// Rewrite a source document's mutable sidecar keys (`contentPath`, `title`,
+/// `contentType`) in place, keeping `documentId` and every other key unchanged
+/// (decision 239a1705). The new `contentPath` is resolved as
+/// `{sourceDocumentsPath}/{contentPath}` (I-109), must stay in the sidecar's own
+/// directory (I-110) and name an existing file. Refusals (`InvalidInput`) write nothing.
+pub fn update_attachment(
+    store: &dyn RepositoryStore,
+    input: UpdateAttachmentInput,
+) -> Result<UpdateAttachmentResult, RepositoryError> {
+    if input.content_path.is_none() && input.title.is_none() && input.content_type.is_none() {
+        return Err(RepositoryError::InvalidInput {
+            message: "nothing to update: give contentPath, title or contentType".to_string(),
+        });
+    }
+    let manifest = store.load_manifest()?;
+    let src_docs_base = manifest
+        .source_documents_path
+        .as_deref()
+        .unwrap_or("source-documents")
+        .to_string();
+    let doc = resolve_source_documents(store, &src_docs_base)?
+        .into_iter()
+        .find(|e| e.document_id == input.document_id)
+        .ok_or_else(|| RepositoryError::InvalidInput {
+            message: format!(
+                "document '{}' not found in source-document index",
+                input.document_id
+            ),
+        })?;
+
+    if let Some(cp) = &input.content_path {
+        if let Some(message) = content_path_refusal(cp, &doc.sidecar_path) {
+            return Err(RepositoryError::InvalidInput { message });
+        }
+        let full = format!("{src_docs_base}/{cp}");
+        if store.load_binary_file(&full).is_err() {
+            return Err(RepositoryError::InvalidInput {
+                message: format!("contentPath '{cp}' names no file at {full}"),
+            });
+        }
+    }
+
+    let full_sidecar = format!("{src_docs_base}/{}", doc.sidecar_path);
+    let mut sidecar = store.load_instance_json(&full_sidecar)?;
+    let obj = sidecar
+        .as_object_mut()
+        .ok_or_else(|| RepositoryError::InvalidInput {
+            message: format!("sidecar {full_sidecar} is not a JSON object"),
+        })?;
+    let mut updated = Vec::new();
+    for (key, value) in [
+        ("contentPath", &input.content_path),
+        ("title", &input.title),
+        ("contentType", &input.content_type),
+    ] {
+        if let Some(v) = value {
+            obj.insert(key.to_string(), serde_json::Value::String(v.clone()));
+            updated.push(key.to_string());
+        }
+    }
+    let content_path = obj
+        .get("contentPath")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&doc.content_path)
+        .to_string();
+    let bytes = serde_json::to_vec_pretty(&sidecar).map_err(|e| RepositoryError::InvalidInput {
+        message: format!("failed to serialize sidecar: {e}"),
+    })?;
+    let text = String::from_utf8(bytes.clone()).map_err(|e| RepositoryError::InvalidInput {
+        message: format!("sidecar is not valid UTF-8: {e}"),
+    })?;
+    store.save_text_file(&full_sidecar, &text)?;
+
+    Ok(UpdateAttachmentResult {
+        document_id: input.document_id,
+        sidecar_path: doc.sidecar_path,
+        content_path,
+        updated,
+        sidecar_checksum: sha256_hex(&bytes),
+    })
+}
+
 // ── resolve_composition_attachments ──────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -2917,5 +3055,140 @@ mod tests {
             Some(9),
             "FileStore: size_bytes must equal file length (b\"pdf bytes\" = 9 bytes)"
         );
+    }
+
+    fn upd(document_id: &str) -> UpdateAttachmentInput {
+        UpdateAttachmentInput {
+            document_id: document_id.to_string(),
+            ..Default::default()
+        }
+    }
+
+    /// A sidecar in `d/` whose contentPath is the own-directory form (srs#1041's shape),
+    /// plus an unknown key that an update must carry unchanged.
+    fn drifted_sidecar_store() -> (MemoryStore, String) {
+        let store = empty_store();
+        let added = add_attachment(
+            &store,
+            AddAttachmentInput {
+                enforce_policy: false,
+                file_name: "a.txt".to_string(),
+                content: b"hello".to_vec(),
+                subdir: Some("d".to_string()),
+                title: Some("A".to_string()),
+                content_type: None,
+            },
+        )
+        .unwrap();
+        let path = "source-documents/d/a.txt.meta.json";
+        let mut sidecar: serde_json::Value =
+            serde_json::from_str(&store.load_text_file(path).unwrap()).unwrap();
+        sidecar["contentPath"] = serde_json::json!("a.txt");
+        sidecar["meta"] = serde_json::json!({"keep": [1, 2]});
+        store
+            .save_text_file(path, &serde_json::to_string_pretty(&sidecar).unwrap())
+            .unwrap();
+        (store, added.document_id)
+    }
+
+    #[test]
+    fn update_attachment_fixes_content_path_and_keeps_other_keys() {
+        let (store, id) = drifted_sidecar_store();
+        let before: serde_json::Value = serde_json::from_str(
+            &store
+                .load_text_file("source-documents/d/a.txt.meta.json")
+                .unwrap(),
+        )
+        .unwrap();
+        // Own-directory form: the bytes are not found.
+        assert!(get_attachment_bytes(
+            &store,
+            GetAttachmentBytesInput {
+                document_id: id.clone()
+            }
+        )
+        .is_err());
+
+        let r = update_attachment(
+            &store,
+            UpdateAttachmentInput {
+                content_path: Some("d/a.txt".to_string()),
+                ..upd(&id)
+            },
+        )
+        .unwrap();
+        assert_eq!(r.updated, vec!["contentPath"]);
+        assert_eq!(r.content_path, "d/a.txt");
+        assert_eq!(r.sidecar_path, "d/a.txt.meta.json");
+
+        let after: serde_json::Value = serde_json::from_str(
+            &store
+                .load_text_file("source-documents/d/a.txt.meta.json")
+                .unwrap(),
+        )
+        .unwrap();
+        let mut expected = before.clone();
+        expected["contentPath"] = serde_json::json!("d/a.txt");
+        assert_eq!(after, expected, "only contentPath changes");
+        assert_eq!(after["documentId"], serde_json::json!(id));
+        let bytes = get_attachment_bytes(&store, GetAttachmentBytesInput { document_id: id })
+            .unwrap()
+            .bytes;
+        assert_eq!(bytes, b"hello");
+    }
+
+    #[test]
+    fn update_attachment_rewrites_title_and_content_type() {
+        let (store, id) = drifted_sidecar_store();
+        let r = update_attachment(
+            &store,
+            UpdateAttachmentInput {
+                title: Some("New".to_string()),
+                content_type: Some("text/plain".to_string()),
+                ..upd(&id)
+            },
+        )
+        .unwrap();
+        assert_eq!(r.updated, vec!["title", "contentType"]);
+        let after: serde_json::Value = serde_json::from_str(
+            &store
+                .load_text_file("source-documents/d/a.txt.meta.json")
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(after["title"], "New");
+        assert_eq!(after["contentType"], "text/plain");
+        assert_eq!(after["contentPath"], "a.txt", "untouched key");
+    }
+
+    #[test]
+    fn update_attachment_refuses_and_writes_nothing() {
+        let (store, id) = drifted_sidecar_store();
+        let path = "source-documents/d/a.txt.meta.json";
+        let before = store.load_text_file(path).unwrap();
+        for bad in [
+            "../a.txt",
+            "d/../d/a.txt",
+            "/d/a.txt",
+            "x/a.txt",
+            "d/missing.txt",
+            "",
+        ] {
+            let e = update_attachment(
+                &store,
+                UpdateAttachmentInput {
+                    content_path: Some(bad.to_string()),
+                    ..upd(&id)
+                },
+            )
+            .unwrap_err();
+            assert_eq!(e.code(), "invalid-input", "{bad}");
+        }
+        assert!(
+            update_attachment(&store, upd(&id)).is_err(),
+            "nothing to update"
+        );
+        assert!(update_attachment(&store, upd("no-such-id")).is_err());
+        assert_eq!(store.load_text_file(path).unwrap(), before);
     }
 }

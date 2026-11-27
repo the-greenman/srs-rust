@@ -5,7 +5,7 @@ use srs_repository::agent_index_service;
 use srs_repository::attachment_service::{
     self as attachment_service, AddAttachmentInput, GetAttachmentBytesInput,
     GetRecordAttachmentsInput, LinkAttachmentInput, ListAttachmentsFilter, RemoveAttachmentInput,
-    ResolveCompositionAttachmentsInput, UnlinkAttachmentInput,
+    ResolveCompositionAttachmentsInput, UnlinkAttachmentInput, UpdateAttachmentInput,
 };
 use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
 use srs_repository::blueprint_service;
@@ -1151,6 +1151,7 @@ impl SrsRepository {
     /// `exclude_instance_ids` (JS `string[]`, optional) drops those instances from container-subset
     /// sections; an arranged section removes each by the RFC-043 promoting removal. Additive: the
     /// single-record `instance_id_filter` is unchanged.
+    /// `section` (JS `string`, optional) renders only that section: a 0-based position or a title.
     /// `containerId` is always present in the JSON but may be `null` when the view is
     /// not scoped to a container.
     /// `records[*].relations` is present when the document view defines a `relationsPresentation`;
@@ -1167,6 +1168,7 @@ impl SrsRepository {
         container_id: Option<String>,
         instance_id_filter: Option<String>,
         exclude_instance_ids: Option<Vec<String>>,
+        section: Option<String>,
     ) -> Result<JsValue, JsValue> {
         let exclude = exclude_instance_ids.unwrap_or_default();
         let result = render_service::render_composition(RenderCompositionOptions {
@@ -1177,6 +1179,7 @@ impl SrsRepository {
             container_id: container_id.as_deref(),
             instance_id_filter: instance_id_filter.as_deref(),
             exclude_instance_ids: &exclude,
+            section: section.as_deref(),
         })
         .map_err(|e| js_err(&e))?;
         to_js(&result)
@@ -2255,6 +2258,20 @@ impl SrsRepository {
             },
         )
         .map_err(|e| js_err(&e))?;
+        to_js(&result)
+    }
+
+    /// Rewrite a source document's sidecar `contentPath`, `title` or `contentType` in place.
+    ///
+    /// `input_json` is `{"documentId":"<uuid>","contentPath"?,"title"?,"contentType"?}`.
+    /// `documentId` and every other sidecar key stay unchanged; a `contentPath` that breaks
+    /// I-109 or I-110 is refused with code `invalid-input` and nothing is written. Returns
+    /// `{"documentId","sidecarPath","contentPath","updated","sidecarChecksum"}` as a JS value.
+    pub fn update_attachment(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: UpdateAttachmentInput = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
+        let result =
+            attachment_service::update_attachment(&self.store, input).map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 }

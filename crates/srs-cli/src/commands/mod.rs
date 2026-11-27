@@ -473,6 +473,22 @@ pub enum AttachmentCommand {
         #[arg(long)]
         force: bool,
     },
+    /// Rewrite a source document's sidecar `contentPath`, `title` or `contentType` in place,
+    /// keeping its documentId and every other key. A contentPath must resolve under
+    /// sourceDocumentsPath (I-109), in the sidecar's own directory (I-110), and name a file.
+    Update {
+        /// Document ID of the source document to update
+        document_id: String,
+        /// New contentPath, relative to sourceDocumentsPath
+        #[arg(long = "content-path")]
+        content_path: Option<String>,
+        /// New human-readable title
+        #[arg(long)]
+        title: Option<String>,
+        /// New MIME type
+        #[arg(long = "content-type")]
+        content_type: Option<String>,
+    },
     /// Resolve linked attachments for a list of record instance IDs (reads JSON from stdin).
     ///
     /// Input: `{"instanceIds": ["<uuid>", ...]}` (from a rendered composition projection).
@@ -1771,6 +1787,9 @@ pub enum RenderCommand {
         /// section its descendants move up one level (RFC-043 promoting removal)
         #[arg(long = "exclude")]
         exclude: Vec<String>,
+        /// Render only one section: a 0-based position or a section title (decision 83b841f1)
+        #[arg(long)]
+        section: Option<String>,
         /// Optional output file path for rendered content
         #[arg(long)]
         output: Option<PathBuf>,
