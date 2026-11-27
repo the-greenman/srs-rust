@@ -109,6 +109,7 @@ pub(crate) fn json_text<T: serde::Serialize + ?Sized>(
 }
 
 pub mod guard;
+pub mod guidance;
 pub mod routing;
 pub mod tools;
 pub mod uri;
@@ -683,10 +684,12 @@ impl<S: srs_repository::store::RepositoryStore> McpApplication for SrsMcpApplica
         // re-initializes the same session) over a store the writer edits live, so guidance
         // changed in the editor reaches the next connection. One repository; the catalog is
         // walked only when the guidance names entry points.
-        if let Some(note) = srs_repository::agent_index_service::orientation_note(&self.store) {
+        let guidance = guidance::single_repository_guidance(
+            srs_repository::agent_index_service::orientation_note(&self.store),
+        );
+        if !guidance.is_empty() {
             if let Some(Value::String(instructions)) = result.get_mut("instructions") {
-                instructions.push_str("\n\n");
-                instructions.push_str(&note);
+                instructions.push_str(&guidance);
             }
         }
         Ok(result)
