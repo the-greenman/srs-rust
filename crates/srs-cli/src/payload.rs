@@ -838,6 +838,8 @@ pub struct ContainerMembersMutatePayload {
 pub struct ContainerValidatePayload {
     pub ok: bool,
     pub errors: Vec<String>,
+    /// `errors` as structured findings, entry for entry (ADR-057, srs-rust#1339).
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 /// Payload for `container resolve-view` (issue #254, #256).
@@ -1252,6 +1254,8 @@ impl From<NeighbourSummary> for NeighbourSummaryPayload {
 pub struct RecordValidatePayload {
     pub ok: bool,
     pub errors: Vec<String>,
+    /// `errors` as structured findings, entry for entry (ADR-057, srs-rust#1339).
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 // ── Tag payloads ──────────────────────────────────────────────────────────────

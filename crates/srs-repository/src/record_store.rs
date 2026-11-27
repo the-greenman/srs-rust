@@ -650,12 +650,16 @@ pub fn validate_record_input(
     let record_type = match package.resolve_type(&input.type_id, input.type_version) {
         Some(t) => t,
         None => {
+            let mut found = crate::diagnostic::Diagnostics::new();
+            found.error(
+                "type-not-found",
+                format!("type not found: {}@{}", input.type_id, input.type_version),
+            );
+            let (errors, diagnostics_structured) = found.into_parts();
             return Ok(RecordValidateReport {
                 ok: false,
-                errors: vec![format!(
-                    "type not found: {}@{}",
-                    input.type_id, input.type_version
-                )],
+                errors,
+                diagnostics_structured,
             });
         }
     };
@@ -682,11 +686,10 @@ pub fn validate_record_input(
     let effective_fields = package.resolved_effective_fields(record_type)?;
     // Collect *all* diagnostics so a multi-record editor can show every problem
     // in one pass, not one-fix-revalidate at a time (#111).
-    let mut errors: Vec<String> =
-        validate_record_all(&record, record_type, &effective_fields, &package)
-            .iter()
-            .map(|e| e.to_string())
-            .collect();
+    let mut found = crate::diagnostic::Diagnostics::new();
+    for e in validate_record_all(&record, record_type, &effective_fields, &package) {
+        found.error("record-invalid", e.to_string());
+    }
 
     // ext:cross-field-validation — also collect CFR diagnostics for preflight consistency.
     // A passing preflight must guarantee a passing write.
@@ -694,13 +697,17 @@ pub fn validate_record_input(
         if !rules.is_empty() {
             let field_type_map = cross_field_type_map(&package.fields, record_type);
             let cfr_errors = validate_cross_field_rules(&record, rules, &field_type_map);
-            errors.extend(cfr_errors.iter().map(|e| e.to_string()));
+            for e in &cfr_errors {
+                found.error("cross-field-rule", e.to_string());
+            }
         }
     }
 
+    let (errors, diagnostics_structured) = found.into_parts();
     Ok(RecordValidateReport {
         ok: errors.is_empty(),
         errors,
+        diagnostics_structured,
     })
 }
 
@@ -918,6 +925,9 @@ pub struct ValidateRecordInput {
 pub struct RecordValidateReport {
     pub ok: bool,
     pub errors: Vec<String>,
+    /// `errors` as structured findings, entry for entry (ADR-057,
+    /// srs-rust#1339); the text list is unchanged until srs-rust#1496.
+    pub diagnostics_structured: Vec<crate::diagnostic::Diagnostic>,
 }
 
 /// Result for create_record_in_context

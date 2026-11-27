@@ -341,10 +341,24 @@ fn cmd_validate(ctx: CliContext, container_id: String) -> Result<String> {
             ContainerValidatePayload {
                 ok: true,
                 errors: vec![],
+                diagnostics_structured: vec![],
             },
         )
     } else {
-        // unclassified until validation diagnostics carry codes (#1264)
-        Ok(output::err("container validate", report.errors))
+        // The text list and the envelope's errors stay as they were (#1496); the
+        // payload now carries the same findings with codes (ADR-057, #1339).
+        let payload = ContainerValidatePayload {
+            ok: false,
+            diagnostics_structured: report
+                .diagnostics_structured
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            errors: report.errors.clone(),
+        };
+        Ok(output::err_with_payload(
+            output::OutputDTO::err("container validate", report.errors),
+            payload,
+        ))
     }
 }
