@@ -640,7 +640,7 @@ impl From<ListRecordTagsResult> for RecordTagListPayload {
 #[serde(rename_all = "camelCase")]
 pub struct RelationListPayload {
     /// Uses `RelationSummary` directly — its `serde(rename_all = "camelCase")` produces
-    /// `{ "relationId", "relationType", "sourceId", "targetId" }`, plus `sourceLabel`/
+    /// `{ "relationId", "relationType", "sourceInstanceId", "targetInstanceId" }`, plus `sourceLabel`/
     /// `targetLabel` when the endpoint resolves to a display label (srs-rust#1046;
     /// omitted, not null, when it doesn't).
     #[schemars(with = "Vec<serde_json::Value>")]
@@ -838,6 +838,8 @@ pub struct ContainerMembersMutatePayload {
 pub struct ContainerValidatePayload {
     pub ok: bool,
     pub errors: Vec<String>,
+    /// `errors` as structured findings, entry for entry (ADR-057, srs-rust#1339).
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 /// Payload for `container resolve-view` (issue #254, #256).
@@ -1141,6 +1143,9 @@ pub struct NeighboursResultPayload {
     pub instance_id: String,
     pub total: usize,
     pub neighbours: Vec<NeighbourEdgePayload>,
+    pub diagnostics: Vec<String>,
+    /// The same findings as structured entries (ADR-057).
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 impl From<NeighboursResult> for NeighboursResultPayload {
@@ -1149,11 +1154,15 @@ impl From<NeighboursResult> for NeighboursResultPayload {
             instance_id,
             total,
             neighbours,
+            diagnostics,
+            diagnostics_structured,
         } = r;
         Self {
             instance_id,
             total,
             neighbours: neighbours.into_iter().map(Into::into).collect(),
+            diagnostics,
+            diagnostics_structured: diagnostics_structured.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -1245,6 +1254,8 @@ impl From<NeighbourSummary> for NeighbourSummaryPayload {
 pub struct RecordValidatePayload {
     pub ok: bool,
     pub errors: Vec<String>,
+    /// `errors` as structured findings, entry for entry (ADR-057, srs-rust#1339).
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 // ── Tag payloads ──────────────────────────────────────────────────────────────
@@ -1510,6 +1521,8 @@ pub struct ProtocolFindByTargetTypePayload {
     pub protocol_name: String,
     pub stages: Vec<ProtocolStageEntry>,
     pub diagnostics: Vec<String>,
+    /// `diagnostics` as structured findings, entry for entry (ADR-057, srs-rust#1339).
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 // ── Protocol run payloads ─────────────────────────────────────────────────────
@@ -2458,6 +2471,50 @@ pub struct RepoPresentationMutatePayload {
     pub presentations: Vec<RepoPresentationEntry>,
 }
 
+/// `repo guidance get` / `repo guidance set` (srs-rust#1668).
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoGuidancePayload {
+    /// `manifest.aiGuidance`; `null` when the manifest has none.
+    pub ai_guidance: Option<RepoAiGuidance>,
+}
+
+/// Mirror of `srs_repository::agent_index_service::AiGuidance`. A field is absent or holds
+/// a value, never `null` (as the manifest schema), so each is schema'd as its value type.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoAiGuidance {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String")]
+    pub summary: Option<String>,
+    /// Instance file paths.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Vec<String>")]
+    pub suggested_entry_points: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String")]
+    pub navigation_hints: Option<String>,
+}
+
+impl From<Option<srs_repository::agent_index_service::AiGuidance>> for RepoGuidancePayload {
+    fn from(g: Option<srs_repository::agent_index_service::AiGuidance>) -> Self {
+        Self {
+            // Exhaustive: a field added to the core type fails to compile here.
+            ai_guidance: g.map(
+                |srs_repository::agent_index_service::AiGuidance {
+                     summary,
+                     suggested_entry_points,
+                     navigation_hints,
+                 }| RepoAiGuidance {
+                    summary,
+                    suggested_entry_points,
+                    navigation_hints,
+                },
+            ),
+        }
+    }
+}
+
 // ── Package payloads ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -2983,6 +3040,9 @@ pub struct PackageImportsPayload {
     pub relation_types: Vec<PackageImportRecordEntry>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skipped_definitions: Vec<String>,
+    /// `skippedDefinitions` as structured findings, entry for entry (ADR-057, srs-rust#1339).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 impl From<srs_core::extensions::import_tracking::ImportSummary> for PackageImportsPayload {
@@ -3018,6 +3078,13 @@ impl From<srs_core::extensions::import_tracking::ImportSummary> for PackageImpor
                 .relation_types
                 .into_iter()
                 .map(PackageImportRecordEntry::from)
+                .collect(),
+            diagnostics_structured:
+                srs_repository::package_service::skipped_definition_diagnostics(
+                    &s.skipped_definitions,
+                )
+                .into_iter()
+                .map(Into::into)
                 .collect(),
             skipped_definitions: s.skipped_definitions,
         }
@@ -3338,7 +3405,7 @@ pub struct ContextRecordPayload {
     #[schemars(with = "serde_json::Value")]
     pub field_values: srs_core::types::record::FieldValues,
     /// BEHAVIOUR CHANGE (#1134): formerly outbound only. Consumers that assumed
-    /// `sourceId == recordId` must check `direction`. Both directions; each entry is a RelationSummary plus `direction` (out|in), the
+    /// `sourceInstanceId == recordId` must check `direction`. Both directions; each entry is a RelationSummary plus `direction` (out|in), the
     /// other endpoint inline as `neighbour`, and the relation's own optional `createdAt` / `createdBy` (#1246).
     /// With `--projection card|label` (#1285) each `neighbour` is a `{kind: "card", instanceId, uri, label,
     /// typeNamespace?, typeName?, lifecycleState?, summary?}` card (no `summary` for `label`) and the edge
@@ -3437,6 +3504,8 @@ pub struct AttachmentLinkPayload {
     pub instance_id: String,
     pub document_id: String,
     pub source_refs_count: usize,
+    /// `true` when the pair was already linked and nothing was written.
+    pub already_linked: bool,
 }
 
 impl From<srs_repository::attachment_service::LinkAttachmentResult> for AttachmentLinkPayload {
@@ -3445,6 +3514,43 @@ impl From<srs_repository::attachment_service::LinkAttachmentResult> for Attachme
             instance_id: r.instance_id,
             document_id: r.document_id,
             source_refs_count: r.source_refs_count,
+            already_linked: r.already_linked,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentUnlinkPayload {
+    pub instance_id: String,
+    pub document_id: String,
+    pub refs_removed: usize,
+}
+
+impl From<srs_repository::attachment_service::UnlinkAttachmentResult> for AttachmentUnlinkPayload {
+    fn from(r: srs_repository::attachment_service::UnlinkAttachmentResult) -> Self {
+        Self {
+            instance_id: r.instance_id,
+            document_id: r.document_id,
+            refs_removed: r.refs_removed,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentRemovePayload {
+    pub document_id: String,
+    pub content_path: String,
+    pub refs_removed: usize,
+}
+
+impl From<srs_repository::attachment_service::RemoveAttachmentResult> for AttachmentRemovePayload {
+    fn from(r: srs_repository::attachment_service::RemoveAttachmentResult) -> Self {
+        Self {
+            document_id: r.document_id,
+            content_path: r.content_path,
+            refs_removed: r.refs_removed,
         }
     }
 }
@@ -3557,6 +3663,9 @@ impl From<srs_repository::attachment_service::GetRecordAttachmentsResult>
 #[serde(rename_all = "camelCase")]
 pub struct AttachmentPolicyPayload {
     pub policy_record_present: bool,
+    /// Present only when two or more `repo_settings` records exist (I-111: policy treated as absent).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duplicate_policy_records: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_mime_types: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -3573,6 +3682,8 @@ impl From<srs_repository::attachment_policy_service::ReadAttachmentPolicyResult>
     fn from(r: srs_repository::attachment_policy_service::ReadAttachmentPolicyResult) -> Self {
         Self {
             policy_record_present: r.policy_record_present,
+            duplicate_policy_records: (r.duplicate_policy_records > 0)
+                .then_some(r.duplicate_policy_records),
             allowed_mime_types: r.policy.allowed_mime_types,
             max_per_file_bytes: r.policy.max_per_file_bytes,
             max_doc_bytes: r.policy.max_doc_bytes,
@@ -3589,6 +3700,9 @@ pub struct ExportBundlePayload {
     pub output_path: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<String>,
+    /// `diagnostics` as structured findings, entry for entry (ADR-057, srs-rust#1339).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics_structured: Vec<DiagnosticPayload>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]

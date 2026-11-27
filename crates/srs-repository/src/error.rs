@@ -683,6 +683,16 @@ pub enum RepositoryError {
         message: String,
     },
 
+    /// A query's `fieldFilters` were refused and nothing was evaluated (RFC-056 [R7],
+    /// [R8]). `code` is `query-filter-malformed` or `query-filter-misfit`.
+    #[error("{message}")]
+    QueryFilterRefused {
+        #[serde(skip)]
+        code: &'static str,
+        #[serde(skip)]
+        message: String,
+    },
+
     /// An RFC-026 container slice export was refused (ADR-051). `code` is one of
     /// `slice-root-identity-invalid` (the boundary's identity entry is not a
     /// depth-0 entry without descendants), `slice-exported-at-invalid`,
@@ -1504,6 +1514,7 @@ impl RepositoryError {
             Self::ActorProvenance { code, .. } => code,
             Self::InvalidPackageBundle { code, .. } => code,
             Self::SliceRefused { code, .. } => code,
+            Self::QueryFilterRefused { code, .. } => code,
             Self::MergeRefused { code, .. } => code,
             Self::PackageMoveRefused { code, .. } => code,
             Self::BoundaryRefused { code, .. } => code,
@@ -1944,6 +1955,10 @@ mod tests {
                 code: "move-x",
                 message: "x".into(),
             },
+            R::QueryFilterRefused {
+                code: "query-filter-malformed",
+                message: "x".into(),
+            },
             R::SliceRefused {
                 code: "slice-y",
                 message: "x".into(),
@@ -1966,7 +1981,7 @@ mod tests {
         let all = all_variants();
         assert_eq!(
             all.len(),
-            112,
+            113,
             "all_variants() is out of step with the enum"
         );
         let mut seen = std::collections::HashSet::new();

@@ -2,7 +2,8 @@
   "mcpServers": {
     "srs-context": {
       "command": "../srs-context/hooks/srs-pinned",
-      "args": ["mcp", "serve", "--repo", "${SRS_CONTEXT_REPO:-../srs-context/context}"]
+      "args": ["mcp", "serve", "--repo", "${SRS_CONTEXT_REPO:-../srs-context/context}"],
+      "env": { "SRS_ACTOR": "{\"kind\":\"ai\",\"id\":\"claude-code\"}" }
     }
   }
 }

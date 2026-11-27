@@ -69,6 +69,21 @@ pub struct ForkResult {
     pub carried_relations: Vec<Relation>,
 }
 
+/// The record to fork. An id the repository does not hold is `instance-not-found`, as
+/// `record get` reports it (srs-rust#1683); only a held instance that is not a record is
+/// the tier complaint.
+fn require_forkable_record(
+    store: &dyn RepositoryStore,
+    id: &str,
+) -> Result<srs_core::types::record::Record, RepositoryError> {
+    if store.find_instance(id)?.is_none() {
+        return Err(RepositoryError::InstanceNotFound { id: id.to_string() });
+    }
+    record_store::get_record_by_id(store, id)?.ok_or_else(|| RepositoryError::InvalidInput {
+        message: format!("{id} is not a Tier 2 record; only records can be forked"),
+    })
+}
+
 /// THE fork core. Forks `ids` in order; on any failure every fork already created is
 /// removed again (best effort, ADR-024) and nothing is left behind.
 pub fn fork_records(
@@ -79,11 +94,7 @@ pub fn fork_records(
     let mut relations = Vec::new();
     for id in ids {
         let step = (|| {
-            let original = record_store::get_record_by_id(store, id)?.ok_or_else(|| {
-                RepositoryError::InvalidInput {
-                    message: format!("{id} is not a Tier 2 record; only records can be forked"),
-                }
-            })?;
+            let original = require_forkable_record(store, id)?;
             // `Record.extra` is flattened, so it can never hold one of `Record`'s own keys:
             // everything in it is an extra the successor core accepts.
             let mut made = record_store::create_record_successor(
@@ -265,13 +276,7 @@ pub fn fork_subtree(
             .flatten()
             .any(|e| e.instance_id == root_instance_id)
     {
-        if record_store::get_record_by_id(store, root_instance_id)?.is_none() {
-            return Err(RepositoryError::InvalidInput {
-                message: format!(
-                    "{root_instance_id} is not a Tier 2 record; only records can be forked"
-                ),
-            });
-        }
+        require_forkable_record(store, root_instance_id)?;
         container_service::add_member(store, container_id, root_instance_id, None, None)?;
         added = true;
         container = container_service::get_container(store, container_id)?;
@@ -378,7 +383,7 @@ mod tests {
             .unwrap()
             .into_iter()
             .filter(|r| r.relation_type == FORK_RELATION_TYPE)
-            .map(|r| (r.source_id, r.target_id))
+            .map(|r| (r.source_instance_id, r.target_instance_id))
             .collect()
     }
 
@@ -467,6 +472,16 @@ mod tests {
         // The original is untouched.
         let o = record_store::get_record_by_id(&store, &a).unwrap().unwrap();
         assert_eq!(o.tags.as_deref().map(<[String]>::len), Some(2));
+    }
+
+    // srs-rust#1683: an id that is not in this repository is instance-not-found, as
+    // `record get` reports it, not a complaint about the record's tier.
+    #[test]
+    fn fork_of_an_id_absent_from_the_repository_is_instance_not_found() {
+        let store = make_store_with_lifecycle();
+        let missing = "00000000-0000-4000-8000-000000000001".to_string();
+        let err = fork_records(&store, std::slice::from_ref(&missing)).unwrap_err();
+        assert_eq!(err.code(), "instance-not-found");
     }
 
     #[test]

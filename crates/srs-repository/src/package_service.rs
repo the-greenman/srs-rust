@@ -1032,6 +1032,10 @@ fn refuse_invalid_type_definition(
     reasons.extend(crate::validation::type_inline_lifecycle_messages(
         record_type,
     ));
+    reasons.extend(crate::validation::type_lifecycle_ref_messages(
+        &package,
+        record_type,
+    ));
     reasons.extend(crate::validation::type_cross_field_rule_scope_messages(
         &package,
         record_type,
@@ -1041,7 +1045,7 @@ fn refuse_invalid_type_definition(
     }
     Err(RepositoryError::InvalidInput {
         message: format!(
-            "type '{}/{}@{}' would fail repo validate (I-131, I-4/I-5, I-10, I-39): {}",
+            "type '{}/{}@{}' would fail repo validate (I-131, I-4/I-5, V8, I-10, I-39): {}",
             record_type.namespace,
             record_type.name,
             record_type.version,
@@ -2034,6 +2038,27 @@ pub fn list_package_imports(
     })
 }
 
+/// `ImportSummary.skippedDefinitions` as structured findings, entry for entry
+/// (ADR-057, srs-rust#1339). The list mixes two shapes: a message written by
+/// the import-record writer (`skipped <path>: load failed`, `skipped <path>:
+/// missing id`) and a bare path (a definition whose kind has no import
+/// record). The text list is unchanged. Every entry is a warning, because the
+/// import itself succeeded; the path is the `message`'s subject.
+pub fn skipped_definition_diagnostics(skipped: &[String]) -> Vec<crate::diagnostic::Diagnostic> {
+    let mut findings = crate::diagnostic::Diagnostics::new();
+    for entry in skipped {
+        let code = if entry.starts_with("skipped ") && entry.ends_with(": load failed") {
+            "import-definition-load-failed"
+        } else if entry.starts_with("skipped ") && entry.ends_with(": missing id") {
+            "import-definition-missing-id"
+        } else {
+            "import-definition-kind-untracked"
+        };
+        findings.warning(code, entry.clone());
+    }
+    findings.into_parts().1
+}
+
 /// Input for updating package boundary metadata.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -2072,6 +2097,28 @@ pub fn update_package_metadata(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn skipped_definition_diagnostics_parallel_the_text_list() {
+        let skipped = vec![
+            "skipped a/b.json: load failed".to_string(),
+            "skipped c.json: missing id".to_string(),
+            "composition/x.json".to_string(),
+        ];
+        let d = skipped_definition_diagnostics(&skipped);
+        let codes: Vec<&str> = d.iter().map(|x| x.code.as_str()).collect();
+        assert_eq!(
+            codes,
+            [
+                "import-definition-load-failed",
+                "import-definition-missing-id",
+                "import-definition-kind-untracked"
+            ]
+        );
+        let messages: Vec<&String> = d.iter().map(|x| &x.message).collect();
+        assert_eq!(messages, skipped.iter().collect::<Vec<_>>());
+        assert!(skipped_definition_diagnostics(&[]).is_empty());
+    }
     use super::*;
     use crate::package_types::DefinitionKind;
     use crate::store::memory::MemoryStore;
@@ -2368,6 +2415,16 @@ mod tests {
         );
         let result = create_type(&store, rt);
         assert_type_refused_and_unwritten(&store, result, "unknown to-state", "bad-lifecycle");
+    }
+
+    /// srs-rust#1691, V8: a `lifecycleRef` naming no installed Lifecycle is refused at create.
+    #[test]
+    fn type_create_refuses_unresolved_lifecycle_ref() {
+        let store = MemoryStore::default();
+        let mut rt = make_type("00000000-0000-0000-0000-000000000035", "dangling-lc");
+        rt.lifecycle_ref = Some("00000000-0000-0000-0000-0000000000bb".to_string());
+        let result = create_type(&store, rt);
+        assert_type_refused_and_unwritten(&store, result, "V8", "dangling-lc");
     }
 
     /// srs-rust#1543, I-39: `extendsTypeId` naming no Type is refused at create.

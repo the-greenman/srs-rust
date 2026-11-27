@@ -3529,7 +3529,16 @@ fn relation_list_filters_by_source_target_and_type() {
     let by_source = run_srs_in_dir(temp.path(), &["relation", "list", "--source", "note-1"]);
     let source_relations = by_source["payload"]["relations"].as_array().unwrap();
     assert_eq!(source_relations.len(), 2);
-    assert!(source_relations.iter().all(|r| r["sourceId"] == "note-1"));
+    assert!(source_relations
+        .iter()
+        .all(|r| r["sourceInstanceId"] == "note-1"));
+    // srs-rust#1697: endpoints carry the schema names, not sourceId/targetId.
+    assert!(source_relations
+        .iter()
+        .all(|r| r.get("sourceId").is_none() && r.get("targetId").is_none()));
+    assert!(source_relations
+        .iter()
+        .all(|r| r["targetInstanceId"].is_string()));
 
     let by_target = run_srs_in_dir(temp.path(), &["relation", "list", "--target", "note-2"]);
     let target_relations = by_target["payload"]["relations"].as_array().unwrap();
@@ -4234,6 +4243,32 @@ fn protocol_list_returns_protocols() {
 }
 
 #[test]
+fn protocol_find_by_target_type_carries_structured_diagnostics_list() {
+    let temp = create_temp_repo_with_protocol_package();
+    let stdin = minimal_protocol_json("com.test/find-test@1", "find-test");
+    let import = run_srs_stdin_in_dir(temp.path(), &["protocol", "import"], &stdin);
+    assert_eq!(import["ok"], true, "import failed: {:?}", import);
+
+    let result = run_srs_in_dir(
+        temp.path(),
+        &[
+            "protocol",
+            "find-by-target-type",
+            "--type-id",
+            "meta.extension",
+        ],
+    );
+    assert_eq!(result["ok"], true, "find failed: {:?}", result);
+    let payload = &result["payload"];
+    assert_eq!(payload["protocolId"], "com.test/find-test@1");
+    // The text list and the structured list agree entry for entry (ADR-057, #1339).
+    assert_eq!(
+        payload["diagnostics"].as_array().unwrap().len(),
+        payload["diagnosticsStructured"].as_array().unwrap().len()
+    );
+}
+
+#[test]
 fn protocol_get_returns_protocol_by_id() {
     let temp = create_temp_repo_with_protocol_package();
     let stdin = minimal_protocol_json("com.test/get-test@1", "get-test");
@@ -4618,6 +4653,63 @@ fn container_list_returns_empty_initially() {
     let result = run_srs_in_dir(temp.path(), &["container", "list"]);
     assert_eq!(result["ok"], true);
     assert_eq!(non_root_containers(&result), serde_json::json!([]));
+}
+
+/// Create a vocabulary of `mode` with one term `web`, a container tagged `tag`, and
+/// return the repo's `repo validate` diagnostics that mention the container tag rule.
+fn container_tag_diagnostics(modes: &[&str], tag: &str) -> Vec<String> {
+    let temp = TempDir::new().unwrap();
+    let repo = create_repo_with_package(&temp, "container-tag-resolution");
+    for (i, mode) in modes.iter().enumerate() {
+        let vocab = serde_json::json!({
+            "version": 1, "namespace": "com.test", "name": format!("tag-vocab-{i}"),
+            "mode": mode, "terms": [], "createdAt": "2026-01-01T00:00:00Z"
+        });
+        let v = run_srs_stdin_in_dir(&repo, &["vocabulary", "create"], &vocab.to_string());
+        assert_eq!(v["ok"], true, "{v:?}");
+        let vocab_id = v["payload"]["vocabulary"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let term = serde_json::json!({"version": 1, "namespace": "com.test", "key": "web"});
+        let t = run_srs_stdin_in_dir(
+            &repo,
+            &["vocabulary", "term-create", "--vocabulary-id", &vocab_id],
+            &term.to_string(),
+        );
+        assert_eq!(t["ok"], true, "{t:?}");
+    }
+    let c = run_srs_stdin_in_dir(
+        &repo,
+        &["container", "create"],
+        &serde_json::json!({"title": "Tagged", "tags": [tag]}).to_string(),
+    );
+    assert_eq!(c["ok"], true, "{c:?}");
+    let (_, report) = run_srs_any_status_in_dir(&repo, &["repo", "validate"]);
+    report["payload"]["diagnostics"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|d| d["message"].as_str())
+        .filter(|m| m.contains("on container"))
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn repo_validate_reports_unresolved_container_tag_under_closed_vocabulary() {
+    // srs-rust#1667 (I-65): Container tags resolve like Record tags.
+    let bad = container_tag_diagnostics(&["closed"], "nope");
+    assert_eq!(bad.len(), 1, "{bad:?}");
+    assert!(bad[0].contains("tag 'nope' on container"), "{bad:?}");
+}
+
+#[test]
+fn repo_validate_accepts_resolving_container_tag_and_open_vocabulary_exemption() {
+    assert!(container_tag_diagnostics(&["closed"], "web").is_empty());
+    // An open vocabulary anywhere in the package exempts unresolved tags (srs-rust#702).
+    assert!(container_tag_diagnostics(&["closed", "open"], "nope").is_empty());
 }
 
 #[test]
@@ -8469,6 +8561,17 @@ fn record_validate_rejects_invalid_input() {
         !result["diagnostics"].as_array().unwrap().is_empty(),
         "expected a diagnostic"
     );
+    // The same findings, with codes, in the payload (ADR-057, #1339).
+    let text = result["diagnostics"].as_array().unwrap();
+    let structured = result["payload"]["diagnosticsStructured"]
+        .as_array()
+        .unwrap();
+    assert_eq!(text.len(), structured.len());
+    for (t, d) in text.iter().zip(structured) {
+        assert_eq!(t, &d["message"]);
+        assert_eq!(d["severity"], "error");
+        assert!(!d["code"].as_str().unwrap().is_empty());
+    }
 }
 
 #[test]
@@ -9365,4 +9468,79 @@ fn ladder_pending(dir: &std::path::Path, args: &[&str]) {
             }
         }
     }
+}
+
+/// RFC-056: `find --field-filter` narrows by a record's own field value, and refusals
+/// carry their stable error codes (srs-rust#1240).
+#[test]
+fn find_field_filter_narrows_and_refuses_with_codes() {
+    let temp = create_temp_repo();
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(package_dir.join("types")).unwrap();
+    std::fs::create_dir_all(package_dir.join("fields")).unwrap();
+    let field_id = "eeeeeeee-0000-4000-8000-0000000000f1";
+    write_json(
+        &package_dir.join("fields/status.json"),
+        serde_json::json!({
+            "id": field_id, "namespace": "com.test", "name": "status", "version": 1,
+            "description": "status", "aiGuidance": {"purpose": "t"},
+            "fieldType": {"datatype": "string", "valueDomain": "closed", "allowedValues": ["draft", "published"]},
+            "createdAt": "2026-01-01T00:00:00Z"
+        }),
+    );
+    write_json(
+        &package_dir.join("types/item.json"),
+        serde_json::json!({
+            "id": "type-ff-001", "namespace": "com.test", "name": "item", "version": 1,
+            "description": "item", "fields": [{"fieldId": field_id, "order": 1, "required": false}]
+        }),
+    );
+    write_json(
+        &package_dir.join("package.json"),
+        serde_json::json!({
+            "id": "test-pkg", "namespace": "com.test", "name": "test", "version": "1.0.0",
+            "fields": ["fields/status.json"], "types": ["types/item.json"]
+        }),
+    );
+    std::fs::create_dir_all(temp.path().join("records/items")).unwrap();
+    for (id, status) in [
+        ("eeeeeeee-0000-4000-8000-000000000001", "draft"),
+        ("eeeeeeee-0000-4000-8000-000000000002", "published"),
+    ] {
+        write_json(
+            &temp.path().join(format!("records/items/{id}.json")),
+            serde_json::json!({
+                "instanceId": id, "typeId": "type-ff-001", "typeVersion": 1,
+                "typeNamespace": "com.test", "typeName": "item",
+                "fieldValues": {"status": status}, "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+    }
+    write_manifest_fixture(
+        temp.path(),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "srsVersion": "2.0-draft", "dataModelRevision": 2, "repositoryId": "test-repo"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let filter = format!(r#"{{"fieldId":"{field_id}","in":["published"]}}"#);
+    let hit = run_srs_in_dir(temp.path(), &["find", "--field-filter", &filter]);
+    assert_eq!(hit["ok"], true, "{hit:?}");
+    let hits = hit["payload"]["result"]["hits"].as_array().unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(
+        hits[0]["instanceId"],
+        "eeeeeeee-0000-4000-8000-000000000002"
+    );
+
+    let bad_json = run_srs_in_dir(temp.path(), &["find", "--field-filter", "{not json"]);
+    assert_eq!(bad_json["ok"], false);
+    assert_eq!(bad_json["errors"][0]["code"], "query-filter-malformed");
+
+    let misfit = format!(r#"{{"fieldId":"{field_id}","in":["publshed"]}}"#);
+    let refused = run_srs_in_dir(temp.path(), &["find", "--field-filter", &misfit]);
+    assert_eq!(refused["ok"], false);
+    assert_eq!(refused["errors"][0]["code"], "query-filter-misfit");
 }

@@ -24,6 +24,7 @@
 
 use crate::error::RepositoryError;
 use crate::store::RepositoryStore;
+use crate::validation::DiagnosticSeverity;
 use crate::writer::new_instance_id;
 use serde::{Deserialize, Deserializer, Serialize};
 use srs_core::arrangement;
@@ -43,33 +44,78 @@ pub struct ContainerSummary {
 
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[cfg_attr(feature = "mcp-schema", derive(schemars::JsonSchema))]
 pub struct ContainerPatch {
+    #[serde(default, deserialize_with = "non_null")]
+    #[cfg_attr(feature = "mcp-schema", schemars(with = "String"))]
     pub title: Option<String>,
+    #[serde(default, deserialize_with = "non_null")]
+    #[cfg_attr(feature = "mcp-schema", schemars(with = "String"))]
     pub namespace: Option<String>,
+    #[serde(default, deserialize_with = "non_null")]
+    #[cfg_attr(feature = "mcp-schema", schemars(with = "String"))]
     pub name: Option<String>,
+    #[serde(default, deserialize_with = "non_null")]
+    #[cfg_attr(feature = "mcp-schema", schemars(with = "String"))]
     pub description: Option<String>,
+    #[serde(default, deserialize_with = "non_null")]
+    #[cfg_attr(feature = "mcp-schema", schemars(with = "String"))]
     pub container_type: Option<String>,
+    #[serde(default, deserialize_with = "non_null")]
+    #[cfg_attr(feature = "mcp-schema", schemars(with = "Vec<String>"))]
     pub tags: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "non_null_object")]
+    #[cfg_attr(
+        feature = "mcp-schema",
+        schemars(with = "serde_json::Map<String, serde_json::Value>")
+    )]
     pub meta: Option<serde_json::Value>,
-    /// Double-`Option` (srs-rust#1293): `None` means the key was omitted — leave the field
-    /// untouched; `Some(None)` means the key was sent as JSON `null` — clear the field.
-    /// A single `Option<String>` cannot distinguish those two cases.
-    #[serde(default, deserialize_with = "deserialize_some")]
+    // Double-`Option` (srs-rust#1293): `None` = key omitted (keep); `Some(None)` = JSON `null`
+    // (clear). A single `Option<String>` cannot tell those apart.
+    #[serde(default, deserialize_with = "crate::serde_util::deserialize_some")]
+    #[cfg_attr(
+        feature = "mcp-schema",
+        schemars(
+            with = "Option<String>",
+            description = "Instance id of the identity entry (must be a member). Send null to clear; omit to keep."
+        )
+    )]
     pub identity_instance_id: Option<Option<String>>,
-    pub anchor_instance_id: Option<String>,
-    /// RFC-043: the whole ordered outline (replaces the arrangement; order is data, never sorted).
+    #[serde(default, deserialize_with = "crate::serde_util::deserialize_some")]
+    #[cfg_attr(
+        feature = "mcp-schema",
+        schemars(
+            with = "Option<String>",
+            description = "Instance id of the typing anchor (should be a member). Send null to clear; omit to keep."
+        )
+    )]
+    pub anchor_instance_id: Option<Option<String>>,
+    // RFC-043: the whole ordered outline (replaces the arrangement; order is data, never sorted).
+    #[serde(default, deserialize_with = "non_null")]
+    #[cfg_attr(feature = "mcp-schema", schemars(with = "Vec<ContainerEntryInput>"))]
     pub member_instance_ids: Option<Vec<ContainerEntry>>,
+    #[serde(default, deserialize_with = "non_null")]
+    #[cfg_attr(feature = "mcp-schema", schemars(with = "Vec<String>"))]
     pub child_container_ids: Option<Vec<String>>,
 }
 
-/// Deserializes a present field (including JSON `null`) as `Some(_)`, so the caller can tell
-/// "key omitted" (`None`, via `#[serde(default)]`) apart from "key sent as `null`" (`Some(None)`).
-fn deserialize_some<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+/// Deserializes a present field as `Some(_)` and refuses JSON `null`: on keys that cannot be
+/// cleared, `null` would otherwise read as "omitted" and silently do nothing.
+fn non_null<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
     T: Deserialize<'de>,
     D: Deserializer<'de>,
 {
-    Deserialize::deserialize(deserializer).map(Some)
+    T::deserialize(deserializer).map(Some)
+}
+
+/// [`non_null`] for `meta`: an object only (so `null` and non-objects are refused at parse time).
+fn non_null_object<'de, D>(deserializer: D) -> Result<Option<serde_json::Value>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    serde_json::Map::<String, serde_json::Value>::deserialize(deserializer)
+        .map(|m| Some(serde_json::Value::Object(m)))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,6 +123,9 @@ where
 pub struct ContainerValidationReport {
     pub ok: bool,
     pub errors: Vec<String>,
+    /// `errors` as structured findings, entry for entry (ADR-057,
+    /// srs-rust#1339); the text list is unchanged until srs-rust#1496.
+    pub diagnostics_structured: Vec<crate::diagnostic::Diagnostic>,
 }
 
 /// Filter parameters for [`list_containers`]. No serde — this is a service contract, not a wire shape.
@@ -359,6 +408,7 @@ pub fn update_container(
 ) -> Result<ContainerUpdateResult, RepositoryError> {
     let mut container = store.load_container(container_id)?;
     let before_members = container.member_ids();
+    let had_identity = container.identity_instance_id.is_some();
     let before_children = container.child_container_ids.clone().unwrap_or_default();
     if let Some(v) = patch.title {
         container.title = v;
@@ -384,8 +434,8 @@ pub fn update_container(
     if let Some(v) = patch.identity_instance_id {
         container.identity_instance_id = v;
     }
-    if let Some(ref v) = patch.anchor_instance_id {
-        container.anchor_instance_id = Some(v.clone());
+    if let Some(v) = patch.anchor_instance_id {
+        container.anchor_instance_id = v;
     }
     let mut diagnostics: Vec<String> = Vec::new();
     if let Some(v) = patch.member_instance_ids {
@@ -403,6 +453,22 @@ pub fn update_container(
             diagnostics.push(d);
         }
         container.child_container_ids = if v.is_empty() { None } else { Some(v) };
+    }
+
+    // RFC-013 / RFC-052: the root container is the repository's identity object; its identity
+    // record cannot be cleared and its outline cannot be emptied.
+    if store.load_manifest()?.root_container_id() == Some(container_id)
+        && ((had_identity && container.identity_instance_id.is_none())
+            || (!before_members.is_empty() && container.member_instance_ids.is_none()))
+    {
+        return Err(RepositoryError::ContainerValidation {
+            source: srs_core::error::CoreError::InvalidFieldValue {
+                key: "identityInstanceId".to_string(),
+                reason:
+                    "the root container's identity record and members cannot be cleared (RFC-013)"
+                        .to_string(),
+            },
+        });
     }
 
     // Schema validation at service boundary (after patch application)
@@ -1583,9 +1649,9 @@ pub fn validate_container_invariants(
             })
         }
     };
-    let mut errors = Vec::new();
+    let mut found = crate::diagnostic::Diagnostics::new();
     if let Err(err) = validate_container(&container) {
-        errors.push(err.to_string());
+        found.error("container-invalid", err.to_string());
     }
 
     // RFC-013 [R6]/[R9] as amended by RFC-038 [R25]: resolved against the
@@ -1595,25 +1661,40 @@ pub fn validate_container_invariants(
     if let Some(ref entries) = container.member_instance_ids {
         for e in entries {
             if e.instance_id == container.container_id {
-                errors.push("containerId must not appear in memberInstanceIds".to_string());
+                found.error(
+                    "container-id-as-member",
+                    "containerId must not appear in memberInstanceIds".to_string(),
+                );
             }
             if !known_ids.contains(&e.instance_id) {
-                errors.push(format!(
-                    "{}: memberInstanceId '{}' not found in the instance set",
+                found.push_for(
+                    DiagnosticSeverity::Error,
                     arrangement::CODE_UNRESOLVED,
-                    e.instance_id
-                ));
+                    format!(
+                        "{}: memberInstanceId '{}' not found in the instance set",
+                        arrangement::CODE_UNRESOLVED,
+                        e.instance_id
+                    ),
+                    Some(e.instance_id.clone()),
+                );
             }
         }
         for v in arrangement::check_entries(entries, root_identity(store, container_id, &container))
         {
-            errors.push(v.to_string());
+            found.push_for(
+                DiagnosticSeverity::Error,
+                v.code,
+                v.to_string(),
+                Some(v.instance_id.clone()),
+            );
         }
     }
 
+    let (errors, diagnostics_structured) = found.into_parts();
     Ok(ContainerValidationReport {
         ok: errors.is_empty(),
         errors,
+        diagnostics_structured,
     })
 }
 
@@ -2472,6 +2553,13 @@ mod tests {
         );
         let report = validate_container_invariants(&store, &created.container_id).unwrap();
         assert!(!report.ok);
+        crate::diagnostic::assert_parallel(&report.errors, &report.diagnostics_structured);
+        let d = &report.diagnostics_structured[0];
+        assert_eq!(d.code, arrangement::CODE_UNRESOLVED);
+        assert_eq!(
+            d.instance_id.as_deref(),
+            Some("dddddddd-dddd-4ddd-8ddd-dddddddddddd")
+        );
     }
 
     #[test]
@@ -2944,7 +3032,7 @@ mod tests {
             &store,
             &a.container_id,
             ContainerPatch {
-                anchor_instance_id: Some(id.to_string()),
+                anchor_instance_id: Some(Some(id.to_string())),
                 ..Default::default()
             },
         )
@@ -3203,6 +3291,28 @@ mod tests {
     }
 
     #[test]
+    fn root_container_identity_cannot_be_cleared() {
+        let store = make_store();
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        let mut root = minimal_container(id, "Root");
+        root.identity_instance_id = Some("11111111-1111-4111-8111-111111111111".to_string());
+        let mut manifest = store.load_manifest().unwrap();
+        set_root_container(&store, &mut manifest, &root).unwrap();
+        store.save_manifest(&manifest).unwrap();
+        let clear: ContainerPatch =
+            serde_json::from_str(r#"{"identityInstanceId": null}"#).unwrap();
+        assert!(matches!(
+            update_container(&store, id, clear),
+            Err(RepositoryError::ContainerValidation { .. })
+        ));
+        assert!(store
+            .load_container(id)
+            .unwrap()
+            .identity_instance_id
+            .is_some());
+    }
+
+    #[test]
     fn patch_identity_instance_id_on_root_container_syncs_manifest() {
         let store = make_store();
         let container_id = "550e8400-e29b-41d4-a716-446655440000";
@@ -3360,6 +3470,37 @@ mod tests {
         assert_eq!(updated.identity_instance_id, None);
     }
 
+    /// `{"anchorInstanceId": null}` clears the anchor (behaviour change: it was a no-op before
+    /// the double-`Option`); omitted keeps it; `null` on a non-clearable key is refused.
+    #[test]
+    fn update_container_null_anchor_clears_and_null_elsewhere_is_refused() {
+        let store = make_store();
+        let id = "550e8400-e29b-41d4-a716-446655440006";
+        let mut c = minimal_container(id, "Root");
+        c.anchor_instance_id = Some("11111111-1111-4111-8111-111111111111".to_string());
+        create_container(&store, c).unwrap();
+        let keep: ContainerPatch = serde_json::from_str(r#"{"title":"T"}"#).unwrap();
+        assert!(update_container(&store, id, keep)
+            .unwrap()
+            .container
+            .anchor_instance_id
+            .is_some());
+        let clear: ContainerPatch = serde_json::from_str(r#"{"anchorInstanceId": null}"#).unwrap();
+        assert_eq!(
+            update_container(&store, id, clear)
+                .unwrap()
+                .container
+                .anchor_instance_id,
+            None
+        );
+        for k in ["title", "description", "tags", "meta", "memberInstanceIds"] {
+            assert!(
+                serde_json::from_str::<ContainerPatch>(&format!(r#"{{"{k}": null}}"#)).is_err(),
+                "{k}"
+            );
+        }
+    }
+
     /// Sibling case: omitting the key entirely must still leave the field untouched — the two
     /// JSON shapes (`null` vs. absent) must deserialize to different `ContainerPatch` values.
     #[test]
@@ -3387,7 +3528,7 @@ mod tests {
         let id = "550e8400-e29b-41d4-a716-446655440000";
         create_container(&store, minimal_container(id, "Root")).unwrap();
         let patch = ContainerPatch {
-            anchor_instance_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
+            anchor_instance_id: Some(Some("11111111-1111-4111-8111-111111111111".to_string())),
             ..ContainerPatch::default()
         };
         let updated = update_container(&store, id, patch).unwrap().container;
@@ -3574,7 +3715,7 @@ mod tests {
 
         let patch = ContainerPatch {
             identity_instance_id: Some(Some("11111111-1111-4111-8111-111111111111".to_string())),
-            anchor_instance_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
+            anchor_instance_id: Some(Some("11111111-1111-4111-8111-111111111111".to_string())),
             member_instance_ids: Some(srs_core::types::container::entries(vec![
                 "22222222-2222-4222-8222-222222222222".to_string(),
             ])),

@@ -63,11 +63,11 @@ fn application_reads_repository_id_from_manifest() {
 }
 
 #[test]
-fn tool_catalogue_has_all_forty_one_tools_and_core_owns_the_schemas() {
+fn tool_catalogue_has_all_forty_four_tools_and_core_owns_the_schemas() {
     let (_dir, mut d) = setup();
     let listed = rpc(&mut d, "tools/list", json!({}));
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 41);
+    assert_eq!(tools.len(), 44);
     assert!(tools
         .iter()
         .all(|t| t["description"].is_string() && t["inputSchema"]["type"] == "object"));
@@ -574,6 +574,66 @@ fn container_create_accepts_the_complete_field_set_and_rejects_unknown_keys() {
     );
 }
 
+#[test]
+fn container_update_is_a_partial_patch_that_keeps_omitted_fields() {
+    let (_dir, mut d) = setup();
+    let c = tool(
+        &mut d,
+        "container_create",
+        json!({ "title": "Old", "description": "keep me" }),
+    );
+    let id = c["result"]["structuredContent"]["containerId"].clone();
+    let u = tool(
+        &mut d,
+        "container_update",
+        json!({ "containerId": id, "patch": { "title": "New" } }),
+    );
+    assert_eq!(u["result"]["isError"], false, "{u}");
+    let got = &u["result"]["structuredContent"]["container"];
+    assert_eq!(got["title"], "New");
+    assert_eq!(got["description"], "keep me");
+    for bad in [json!({ "bogus": 1 }), json!({ "description": null })] {
+        assert_eq!(
+            tool(
+                &mut d,
+                "container_update",
+                json!({ "containerId": id, "patch": bad })
+            )["error"]["code"],
+            -32602
+        );
+    }
+}
+
+#[test]
+fn container_update_null_clears_pointers_and_reports_dropped_members() {
+    let (_dir, mut d) = setup();
+    let n = tool(
+        &mut d,
+        "note_create",
+        json!({ "title": "n", "sections": [{ "name": "body", "content": "b" }] }),
+    );
+    let nid = n["result"]["structuredContent"]["instanceId"].clone();
+    let c = tool(
+        &mut d,
+        "container_create",
+        json!({ "title": "C", "memberInstanceIds": [{ "instanceId": nid }],
+                "anchorInstanceId": nid, "identityInstanceId": nid }),
+    );
+    assert_eq!(c["result"]["isError"], false, "{c}");
+    let id = c["result"]["structuredContent"]["containerId"].clone();
+    let u = tool(
+        &mut d,
+        "container_update",
+        json!({ "containerId": id, "patch": {
+            "identityInstanceId": null, "anchorInstanceId": null, "memberInstanceIds": [] } }),
+    );
+    assert_eq!(u["result"]["isError"], false, "{u}");
+    let r = &u["result"]["structuredContent"];
+    assert!(r["container"]["identityInstanceId"].is_null(), "{u}");
+    assert!(r["container"]["anchorInstanceId"].is_null(), "{u}");
+    assert_eq!(r["diagnostics"].as_array().unwrap().len(), 1, "{u}");
+}
+
 // ── Session write guard (srs-rust#1165) ──────────────────────────────────────
 
 mod write_guard {
@@ -755,6 +815,71 @@ mod write_guard {
     }
 
     #[test]
+    fn attachment_unlink_and_remove_round_trip() {
+        let (dir, mut d) = guarded();
+        let id = create(
+            &mut d,
+            "com.example.surface/para1",
+            json!({ "body": "t" }),
+            None,
+        );
+        let a = tool(
+            &mut d,
+            "attachment_add",
+            json!({ "fileName": "a.txt", "content": "hello" }),
+        );
+        let doc = a["result"]["structuredContent"]["documentId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let link = json!({ "instanceId": id, "documentId": doc });
+        let docs = dir.path().join("source-documents");
+        assert_ok(&mut d, "attachment_link", link.clone());
+        // In use: refused with the stable code, nothing deleted.
+        let r = tool(&mut d, "attachment_remove", json!({ "documentId": doc }));
+        assert_eq!(r["result"]["isError"], true, "{r}");
+        assert_eq!(
+            r["result"]["structuredContent"]["code"], "cannot-delete-in-use",
+            "{r}"
+        );
+        assert!(docs.join("a.txt").exists());
+        // Unlink keeps the file; a second unlink is a tool error.
+        assert_ok(&mut d, "attachment_unlink", link.clone());
+        assert!(docs.join("a.txt").exists());
+        let again = tool(&mut d, "attachment_unlink", link.clone());
+        assert_eq!(again["result"]["isError"], true, "{again}");
+        // Unreferenced: removed, content and sidecar.
+        assert_ok(&mut d, "attachment_remove", json!({ "documentId": doc }));
+        assert!(!docs.join("a.txt").exists());
+        assert!(!docs.join("a.txt.meta.json").exists());
+        let gone = tool(&mut d, "attachment_remove", json!({ "documentId": doc }));
+        assert_eq!(gone["result"]["isError"], true, "{gone}");
+        // Force removes the reference in the same call.
+        let b = tool(
+            &mut d,
+            "attachment_add",
+            json!({ "fileName": "b.txt", "content": "x" }),
+        );
+        let doc_b = b["result"]["structuredContent"]["documentId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_ok(
+            &mut d,
+            "attachment_link",
+            json!({ "instanceId": id, "documentId": doc_b }),
+        );
+        let f = tool(
+            &mut d,
+            "attachment_remove",
+            json!({ "documentId": doc_b, "force": true }),
+        );
+        assert_eq!(f["result"]["isError"], false, "{f}");
+        assert_eq!(f["result"]["structuredContent"]["refsRemoved"], 1, "{f}");
+        assert!(!docs.join("b.txt").exists());
+    }
+
+    #[test]
     fn attachment_add_and_link_round_trip_and_guard() {
         let (dir, mut d) = guarded();
         let id = create(
@@ -788,14 +913,15 @@ mod write_guard {
             assert!(tool(&mut d, "attachment_add", bad).get("error").is_some());
         }
         assert!(!docs.join("c.txt").exists());
-        // Link, then a duplicate and an unknown document are tool errors.
+        // Link, then a duplicate is a no-op and an unknown document is a tool error.
         let doc = a["result"]["structuredContent"]["documentId"]
             .as_str()
             .unwrap();
         let link = json!({ "instanceId": id, "documentId": doc });
         assert_ok(&mut d, "attachment_link", link.clone());
         let dup = tool(&mut d, "attachment_link", link.clone());
-        assert_eq!(dup["result"]["isError"], true, "{dup}");
+        assert_eq!(dup["result"]["isError"], false, "{dup}");
+        assert_eq!(dup["result"]["structuredContent"]["alreadyLinked"], true);
         let unknown = tool(
             &mut d,
             "attachment_link",
@@ -884,6 +1010,35 @@ mod write_guard {
             &mut d,
             "record_update",
             upd(json!({ "body": "text", "paragraph_title": "Other" })),
+        );
+    }
+
+    /// srs-rust#847: the guard judges a merge-mode update by its merged result.
+    #[test]
+    fn fill_only_field_writable_by_merge_update() {
+        let (_dir, mut d) = guarded();
+        let id = create(
+            &mut d,
+            "com.example.surface/para2",
+            json!({ "body": "text" }),
+            None,
+        );
+        guard(
+            &mut d,
+            json!({ "instanceIds": [id], "fillOnlyFields": ["paragraph_title"] }),
+        );
+        let merge =
+            |fv: Value| json!({ "instanceId": id, "fieldValuesMode": "merge", "fieldValues": fv });
+        assert_rejected(&mut d, "record_update", merge(json!({ "body": null })));
+        assert_ok(
+            &mut d,
+            "record_update",
+            merge(json!({ "paragraph_title": "Intro" })),
+        );
+        assert_rejected(
+            &mut d,
+            "record_update",
+            merge(json!({ "paragraph_title": "Other" })),
         );
     }
 
@@ -977,6 +1132,11 @@ mod write_guard {
         );
         // Container structure writes.
         let other = create(&mut d, ty, json!({ "body": "c" }), None);
+        assert_rejected(
+            &mut d,
+            "container_update",
+            json!({ "containerId": cid, "patch": { "title": "x" } }),
+        );
         assert_rejected(
             &mut d,
             "container_member_add",
@@ -1153,11 +1313,14 @@ mod write_guard {
         let ty = "com.example.surface/para2";
         let a = create(&mut d, ty, json!({ "body": "a" }), None);
         let b = create(&mut d, ty, json!({ "body": "b" }), None);
-        let rel = |d: &mut D| -> String {
+        // One distinct edge per relation: an existing edge is returned, not rewritten (#1680).
+        let c = create(&mut d, ty, json!({ "body": "c" }), None);
+        let e = create(&mut d, ty, json!({ "body": "e" }), None);
+        let rel = |d: &mut D, target: &String| -> String {
             let r = tool(
                 d,
                 "relation_create",
-                json!({ "relationType": "refines", "sourceInstanceId": a, "targetInstanceId": b, "createdAt": "2026-10-04T00:00:00Z" }),
+                json!({ "relationType": "refines", "sourceInstanceId": a, "targetInstanceId": target, "createdAt": "2026-10-04T00:00:00Z" }),
             );
             assert_eq!(r["result"]["isError"], false, "{r}");
             r["result"]["structuredContent"]["relationId"]
@@ -1169,8 +1332,8 @@ mod write_guard {
             d.application()
                 .set_session_actor(Some(json!({ "kind": "ai", "id": id })))
         };
-        let bare = rel(&mut d); // no session actor: no createdBy
-                                // createdAt is stamped when the caller omits it (#1246).
+        let bare = rel(&mut d, &b); // no session actor: no createdBy
+                                    // createdAt is stamped when the caller omits it (#1246).
         let r = tool(
             &mut d,
             "relation_create",
@@ -1185,9 +1348,9 @@ mod write_guard {
             .unwrap()
             .to_string();
         actor(&d, "agent-1");
-        let mine = rel(&mut d);
+        let mine = rel(&mut d, &c);
         actor(&d, "agent-2");
-        let theirs = rel(&mut d);
+        let theirs = rel(&mut d, &e);
         actor(&d, "agent-1");
         guard(&mut d, json!({ "instanceIds": [a] }));
 
@@ -1228,7 +1391,7 @@ mod write_guard {
         assert_eq!(e.id, mine);
         assert_eq!(e.kind, srs_repository::ChangeKind::Deleted);
         assert_eq!(e.source_instance_id.as_deref(), Some(a.as_str()));
-        assert_eq!(e.target_instance_id.as_deref(), Some(b.as_str()));
+        assert_eq!(e.target_instance_id.as_deref(), Some(c.as_str()));
 
         d.application_mut().set_write_guard(None);
         assert_ok(&mut d, "relation_delete", json!({ "relationId": theirs }));
@@ -1380,6 +1543,11 @@ mod write_guard {
         );
         let filed = create(&mut d, ty, json!({ "body": "c" }), Some(&cid));
         // Nothing else is.
+        assert_rejected(
+            &mut d,
+            "container_update",
+            json!({ "containerId": cid, "patch": { "title": "x" } }),
+        );
         assert_rejected(
             &mut d,
             "container_member_remove",
@@ -1720,5 +1888,42 @@ fn package_move_tool_uses_the_core_service() {
     assert_eq!(
         again["result"]["structuredContent"]["code"],
         "move-same-boundary"
+    );
+}
+
+/// srs-rust#1668: the browser dispatcher's `initialize` carries the repository's own
+/// aiGuidance too (the path a claude.ai connector reaches through the relay).
+#[test]
+fn initialize_instructions_carry_the_repositorys_ai_guidance() {
+    use srs_repository::agent_index_service::{set_ai_guidance, AiGuidance};
+    let (_dir, mut d) = setup();
+    let init = |d: &mut McpDispatcher<SrsMcpApplication<FileStore>>| {
+        rpc(
+            d,
+            "initialize",
+            json!({ "protocolVersion": MCP_PROTOCOL_VERSION }),
+        )["result"]["instructions"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let generic = srs_mcp_core::srs_metadata::initialize_result()["instructions"].clone();
+    assert_eq!(json!(init(&mut d)), generic);
+    set_ai_guidance(
+        d.application().store(),
+        AiGuidance {
+            summary: Some("Read the guide first.".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let instructions = init(&mut d);
+    assert!(
+        instructions.contains("## Repository guidance: \"Surface fixture\""),
+        "{instructions}"
+    );
+    assert!(
+        instructions.ends_with("Read the guide first."),
+        "{instructions}"
     );
 }

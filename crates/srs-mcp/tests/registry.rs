@@ -383,3 +383,136 @@ async fn a_write_the_target_refuses_is_write_refused() {
     assert_eq!(code(&result), "write-refused");
     client.cancel().await.unwrap();
 }
+
+/// srs-rust#1668: a repository's own `aiGuidance` reaches the `initialize` instructions,
+/// in single and registry mode; without it the instructions are unchanged.
+#[tokio::test]
+async fn instructions_carry_each_repositorys_ai_guidance() {
+    use srs_repository::agent_index_service::{set_ai_guidance, AiGuidance};
+    use srs_repository::store::RepositoryStore;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let guided = repo(root, "guided");
+    let plain = repo(root, "plain");
+    let generic = srs_mcp_core::srs_metadata::initialize_result()["instructions"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Without aiGuidance: byte-identical to the generic instructions.
+    let client = connect(SrsMcpServer::new(root.join("plain")).unwrap()).await;
+    assert_eq!(
+        client.peer_info().unwrap().instructions.clone().unwrap(),
+        generic
+    );
+
+    let store = FileStore::new(root.join("guided"));
+    let entry = store.catalog().unwrap().instances[0].id.clone();
+    set_ai_guidance(
+        &store,
+        AiGuidance {
+            summary: Some("Guided summary.".into()),
+            suggested_entry_points: Some(vec![entry.clone()]),
+            navigation_hints: Some("Guided hints.".into()),
+        },
+    )
+    .unwrap();
+    let expect = |instructions: &str| {
+        for part in [
+            "## Repository guidance: \"guided\"".to_string(),
+            "Guided summary.".to_string(),
+            "Guided hints.".to_string(),
+            format!("srs://{guided}/record/{entry}"),
+        ] {
+            assert!(
+                instructions.contains(&part),
+                "{part} missing: {instructions}"
+            );
+        }
+    };
+
+    // Single mode.
+    let client = connect(SrsMcpServer::new(root.join("guided")).unwrap()).await;
+    let single = client.peer_info().unwrap().instructions.clone().unwrap();
+    assert!(single.starts_with(&generic), "{single}");
+    expect(&single);
+
+    // Registry mode: one note per writable member (or the default) with guidance, after
+    // the member list; a read-only member's guidance is not lifted into the instructions.
+    let reference = repo(root, "reference");
+    set_ai_guidance(
+        &FileStore::new(root.join("reference")),
+        AiGuidance {
+            summary: Some("Reference summary.".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let registry = json!({
+        "registryRevision": 1,
+        "entries": [
+            { "kind": "repository", "id": plain, "locator": { "mode": "local", "path": "plain" } },
+            { "kind": "repository", "id": guided, "locator": { "mode": "local", "path": "guided" } },
+            { "kind": "repository", "id": reference, "locator": { "mode": "local", "path": "reference" }, "readOnly": true },
+        ]
+    });
+    let registry_path = root.join("registry.json");
+    std::fs::write(&registry_path, registry.to_string()).unwrap();
+    let client = connect(SrsMcpServer::from_registry(&registry_path, None).unwrap()).await;
+    let several = client.peer_info().unwrap().instructions.clone().unwrap();
+    expect(&several);
+    assert_eq!(
+        several.matches("## Repository guidance").count(),
+        1,
+        "{several}"
+    );
+    assert!(!several.contains("Reference summary."), "{several}");
+    assert!(
+        several.find("default repository is").unwrap()
+            < several.find("## Repository guidance").unwrap(),
+        "{several}"
+    );
+}
+
+/// srs-rust#1668: the guidance added across registry members is hard-capped in total; the
+/// members past the cap are counted in one closing line.
+#[tokio::test]
+async fn registry_guidance_is_capped_in_total() {
+    use srs_repository::agent_index_service::{set_ai_guidance, AiGuidance};
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let mut entries = Vec::new();
+    for n in 0..6 {
+        let name = format!("r{n}");
+        let id = repo(root, &name);
+        set_ai_guidance(
+            &FileStore::new(root.join(&name)),
+            AiGuidance {
+                summary: Some("x".repeat(3000)),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        entries.push(
+            json!({ "kind": "repository", "id": id, "locator": { "mode": "local", "path": name } }),
+        );
+    }
+    let registry_path = root.join("registry.json");
+    std::fs::write(
+        &registry_path,
+        json!({ "registryRevision": 1, "entries": entries }).to_string(),
+    )
+    .unwrap();
+    let client = connect(SrsMcpServer::from_registry(&registry_path, None).unwrap()).await;
+    let instructions = client.peer_info().unwrap().instructions.clone().unwrap();
+    let guidance = &instructions[instructions.find("\n\n## Repository guidance").unwrap()..];
+    assert!(guidance.len() <= 4 * 2048, "{}", guidance.len());
+    assert_eq!(
+        guidance
+            .matches("more repositories in this registry have guidance")
+            .count(),
+        1,
+        "{guidance}"
+    );
+    assert!(guidance.ends_with("for each."), "{guidance}");
+}

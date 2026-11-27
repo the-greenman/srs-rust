@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AttachmentRemovePayload",
+  "type": "object",
+  "required": [
+    "contentPath",
+    "documentId",
+    "refsRemoved"
+  ],
+  "properties": {
+    "contentPath": {
+      "type": "string"
+    },
+    "documentId": {
+      "type": "string"
+    },
+    "refsRemoved": {
+      "type": "integer",
+      "format": "uint",
+      "minimum": 0.0
+    }
+  }
+}

@@ -611,6 +611,11 @@ pub fn create_note(
     if note.instance_id.is_empty() {
         note.instance_id = new_instance_id();
     }
+    // srs-rust#1698: stamp creation time when the request omits it, as record
+    // creation does; an explicit value is kept.
+    if note.created_at.is_none() {
+        note.created_at = Some(chrono::Utc::now().to_rfc3339());
+    }
 
     // Schema validation before core validation
     let raw = serde_json::to_value(&note).map_err(|e| RepositoryError::Serialize {
@@ -733,18 +738,19 @@ pub fn update_note(
     Ok(UpdateNoteResult { note })
 }
 
-/// Authoring fields of a Note replaced by `update_note_content` (the whole
-/// authoring surface; provenance/lifecycle fields are service-managed).
-#[derive(Debug, Clone)]
+/// Authoring fields of a Note changed by `update_note_content`
+/// (provenance/lifecycle fields are service-managed). Each is a patch
+/// (srs-rust#847): `None` keeps the stored value. `title`: `Some(None)` clears.
+/// `tags`/`sections`: `Some([])` clears, `Some([...])` replaces the list.
+#[derive(Debug, Clone, Default)]
 pub struct UpdateNoteContentInput {
-    pub title: Option<String>,
+    pub title: Option<Option<String>>,
     pub tags: Option<Vec<String>>,
-    pub sections: Vec<NoteSection>,
+    pub sections: Option<Vec<NoteSection>>,
 }
 
-/// Service: replace a note's authoring fields (title, tags, sections) while
+/// Service: patch a note's authoring fields (title, tags, sections) while
 /// preserving its stored `createdBy`, `createdAt`, `sourceRefs`, `meta` etc.
-/// Whole-object semantics over the authoring surface, like `record_update`.
 pub fn update_note_content(
     store: &dyn RepositoryStore,
     id: &str,
@@ -757,9 +763,18 @@ pub fn update_note_content(
         });
     }
     let mut note = store.load_note_by_id(id)?;
-    note.title = input.title;
-    note.tags = input.tags;
-    note.sections = input.sections;
+    if input.title.is_none() && input.tags.is_none() && input.sections.is_none() {
+        return Ok(UpdateNoteResult { note }); // nothing to change: write nothing
+    }
+    if let Some(title) = input.title {
+        note.title = title;
+    }
+    if let Some(tags) = input.tags {
+        note.tags = (!tags.is_empty()).then_some(tags);
+    }
+    if let Some(sections) = input.sections {
+        note.sections = sections;
+    }
     update_note(store, note)
 }
 
@@ -1319,6 +1334,58 @@ mod tests {
             AddTagResult::NotFound => {}
             _ => panic!("Expected NotFound"),
         }
+    }
+
+    /// srs-rust#847: every authoring field is a patch — omitted keeps.
+    #[test]
+    fn update_note_content_keeps_what_is_omitted() {
+        let id = "11111111-1111-1111-8111-111111111111";
+        let note = make_note(id, "Test Note");
+        let store = store_with_note(&note, "records/notes/test-note.json");
+
+        let retitled = update_note_content(
+            &store,
+            id,
+            UpdateNoteContentInput {
+                title: Some(Some("Retitled".to_string())),
+                tags: Some(vec!["t".to_string()]),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .note;
+        assert_eq!(retitled.title.as_deref(), Some("Retitled"));
+        assert_eq!(retitled.sections, note.sections, "sections kept");
+
+        let cleared = update_note_content(
+            &store,
+            id,
+            UpdateNoteContentInput {
+                title: Some(None),
+                tags: Some(vec![]),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .note;
+        assert_eq!(cleared.title, None);
+        assert_eq!(cleared.tags, None);
+        assert_eq!(cleared.sections, note.sections);
+
+        // Nothing to change: the stored file is not rewritten.
+        let before = store
+            .load_instance_json("records/notes/test-note.json")
+            .unwrap();
+        let same = update_note_content(&store, id, UpdateNoteContentInput::default())
+            .unwrap()
+            .note;
+        assert_eq!(same, cleared);
+        assert_eq!(
+            store
+                .load_instance_json("records/notes/test-note.json")
+                .unwrap(),
+            before
+        );
     }
 
     #[test]
@@ -1999,6 +2066,38 @@ mod tests {
             after_delete_len, initial_len,
             "instance count must return to its original value after rollback delete"
         );
+    }
+
+    #[test]
+    fn create_note_stamps_created_at_when_omitted() {
+        // srs-rust#1698: a note created without createdAt (MCP note_create) was
+        // left null; records are stamped, notes must be too. An explicit value stays.
+        use srs_core::types::note::NoteSection;
+        let store = MemoryStore::default();
+        let mk = |created_at: Option<String>| Note {
+            created_by: None,
+            instance_id: String::new(),
+            title: None,
+            tags: None,
+            sections: vec![NoteSection {
+                name: "narrative".to_string(),
+                label: None,
+                content: "x".to_string(),
+                content_hint: None,
+                tags: None,
+            }],
+            graduated_at: None,
+            source_refs: None,
+            created_at,
+            updated_at: None,
+            meta: None,
+        };
+        let stamped = create_note(&store, mk(None)).unwrap().note;
+        assert!(stamped.created_at.is_some(), "createdAt must be stamped");
+        let kept = create_note(&store, mk(Some("2020-01-01T00:00:00Z".to_string())))
+            .unwrap()
+            .note;
+        assert_eq!(kept.created_at.as_deref(), Some("2020-01-01T00:00:00Z"));
     }
 
     #[test]

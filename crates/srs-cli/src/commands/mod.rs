@@ -457,6 +457,22 @@ pub enum AttachmentCommand {
         /// Document ID of the source document to link (must exist in source-documents/)
         document_id: String,
     },
+    /// Remove the sourceRole:attaches link from one record; the file stays
+    Unlink {
+        /// Instance ID of the record (or note) to unlink the document from
+        instance_id: String,
+        /// Document ID of the linked source document
+        document_id: String,
+    },
+    /// Delete a source document (content file and sidecar). Refuses while any
+    /// record still references it, unless --force removes those references too.
+    Remove {
+        /// Document ID of the source document to delete
+        document_id: String,
+        /// Also remove every reference to the document from records and notes
+        #[arg(long)]
+        force: bool,
+    },
     /// Resolve linked attachments for a list of record instance IDs (reads JSON from stdin).
     ///
     /// Input: `{"instanceIds": ["<uuid>", ...]}` (from a rendered composition projection).
@@ -844,6 +860,10 @@ pub enum RepoCommand {
     /// Declared-presentation management (manifest.renderedPresentations, RFC-015 [N+31])
     #[command(subcommand)]
     Presentation(RepoPresentationCommand),
+    /// The repository's own guidance for AI agents (manifest.aiGuidance), which MCP servers
+    /// append to their `initialize` instructions
+    #[command(subcommand)]
+    Guidance(RepoGuidanceCommand),
     /// Re-stamp a seed .srsj with a new repository identity.
     /// Modifies the file at --repo in place. Requires the seed to carry meta.upstreamPackage.
     #[command(name = "init-new")]
@@ -943,6 +963,17 @@ pub enum RepoPresentationCommand {
         #[arg(long = "composition-id")]
         composition_id: String,
     },
+}
+
+#[derive(Subcommand)]
+pub enum RepoGuidanceCommand {
+    /// Show manifest.aiGuidance (`null` when the manifest has none)
+    Get,
+    /// Replace manifest.aiGuidance, touching nothing else in the manifest (`{}` removes it). Stdin:
+    /// `{summary?, navigationHints?, suggestedEntryPoints?}`; an entry point is an instance
+    /// path or id and is stored as the instance's path. One that names no instance is
+    /// refused (`instance-not-found`) and nothing is written
+    Set,
 }
 
 #[derive(Subcommand)]
@@ -1379,7 +1410,9 @@ pub enum RecordCommand {
         #[arg(long, hide = true)]
         json: bool,
     },
-    /// Update a record by ID (reads JSON from stdin)
+    /// Update a record by ID (reads JSON from stdin). `fieldValues` replaces the
+    /// stored set unless `"fieldValuesMode": "merge"` (JSON Merge Patch: unsent fields
+    /// kept, null removes)
     Update {
         /// Record instance ID
         id: String,
@@ -2011,6 +2044,11 @@ pub struct FindArgs {
     /// Exclude records whose lifecycleState matches this value (repeatable; applied after --lifecycle-state)
     #[arg(long = "exclude-lifecycle-state", action = clap::ArgAction::Append)]
     pub exclude_lifecycle_state: Vec<String>,
+    /// RFC-056 field filter as JSON (repeatable; all must hold), e.g.
+    /// '{"fieldId":"<uuid>","range":{"from":"2026-08","to":"2026-08"}}'. One of in, notIn,
+    /// range or missing per filter.
+    #[arg(long = "field-filter", action = clap::ArgAction::Append)]
+    pub field_filter: Vec<String>,
     /// Instance tier filter (0=Note, 2=Record — Tier 1/TypedRecord is retired,
     /// srs#448/rfc-decision-53635966, srs-rust#888).
     #[arg(long = "tier")]

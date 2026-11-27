@@ -560,7 +560,7 @@ mod tests {
                     "00000000-0000-4000-8000-00000000a300".to_string(),
                     "00000000-0000-4000-8000-00000000a200".to_string(),
                 ])),
-                anchor_instance_id: Some("00000000-0000-4000-8000-00000000a100".to_string()),
+                anchor_instance_id: Some(Some("00000000-0000-4000-8000-00000000a100".to_string())),
                 ..Default::default()
             },
         )
@@ -971,7 +971,7 @@ mod tests {
                 member_instance_ids: Some(srs_core::types::container::entries(vec![
                     "00000000-0000-4000-8000-00000000a200".to_string(),
                 ])),
-                anchor_instance_id: Some("00000000-0000-4000-8000-00000000a200".to_string()),
+                anchor_instance_id: Some(Some("00000000-0000-4000-8000-00000000a200".to_string())),
                 ..Default::default()
             },
         )
@@ -985,7 +985,7 @@ mod tests {
                 member_instance_ids: Some(srs_core::types::container::entries(vec![
                     "00000000-0000-4000-8000-00000000a300".to_string(),
                 ])),
-                anchor_instance_id: Some("00000000-0000-4000-8000-00000000a300".to_string()),
+                anchor_instance_id: Some(Some("00000000-0000-4000-8000-00000000a300".to_string())),
                 ..Default::default()
             },
         )
@@ -1348,7 +1348,7 @@ mod tests {
             "00000000-0000-4000-8000-00000000c000",
             container_service::ContainerPatch {
                 title: Some("Article Two".to_string()),
-                anchor_instance_id: Some("00000000-0000-4000-8000-00000000a220".to_string()),
+                anchor_instance_id: Some(Some("00000000-0000-4000-8000-00000000a220".to_string())),
                 ..Default::default()
             },
         )

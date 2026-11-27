@@ -21,8 +21,10 @@ use srs_core::arrangement::RelativeMove;
 use srs_core::types::note::{Note, NoteSection};
 use srs_core::types::record::{FieldMeta, FieldValues};
 use srs_core::types::relation::Relation;
-use srs_repository::attachment_service::{self, AddAttachmentInput, LinkAttachmentInput};
-use srs_repository::container_service::{self, ContainerCreateInput};
+use srs_repository::attachment_service::{
+    self, AddAttachmentInput, LinkAttachmentInput, RemoveAttachmentInput, UnlinkAttachmentInput,
+};
+use srs_repository::container_service::{self, ContainerCreateInput, ContainerPatch};
 use srs_repository::context_query_service::{
     list_neighbours, EdgeDirection, NeighboursPage, NeighboursQuery,
 };
@@ -37,10 +39,11 @@ use srs_repository::protocol_run_service::{
     self, AdvanceStageInput, CreateRunInput, GetRunResult, RunListFilter, RunSummary,
 };
 use srs_repository::record_store::{
-    self, CreateRecordInput, CreateRecordSuccessorInput, FulfillmentNewRecord,
+    self, CreateRecordInput, CreateRecordSuccessorInput, FieldValuesMode, FulfillmentNewRecord,
     TransitionFulfillmentInput, TransitionLifecycleInput, UpdateRecordInput,
 };
 use srs_repository::relation_service;
+use srs_repository::serde_util::deserialize_some;
 use srs_repository::services::{self, CreateNoteInput, GraduateNoteInput, UpdateNoteContentInput};
 use srs_repository::store::RepositoryStore;
 use srs_repository::type_schema_service::{self, TypeSchemaInput};
@@ -71,6 +74,8 @@ pub const TOOL_CONTAINER_MEMBER_ADD: &str = "container_member_add";
 pub const TOOL_CONTAINER_MEMBER_REMOVE: &str = "container_member_remove";
 // Container creation (#1133) — one core service, `container_service::create_container`
 pub const TOOL_CONTAINER_CREATE: &str = "container_create";
+// Container update (#994) — one core service, `container_service::update_container`
+pub const TOOL_CONTAINER_UPDATE: &str = "container_update";
 // RFC-043 Change D: arrangement operations
 pub const TOOL_CONTAINER_MEMBER_MOVE: &str = "container_member_move";
 pub const TOOL_CONTAINER_MEMBER_REPAIR: &str = "container_member_repair";
@@ -101,6 +106,8 @@ pub const TOOL_ATTENTION_LIST: &str = "attention_list";
 pub const TOOL_CHANGES: &str = "changes";
 pub const TOOL_ATTACHMENT_ADD: &str = "attachment_add";
 pub const TOOL_ATTACHMENT_LINK: &str = "attachment_link";
+pub const TOOL_ATTACHMENT_UNLINK: &str = "attachment_unlink";
+pub const TOOL_ATTACHMENT_REMOVE: &str = "attachment_remove";
 /// Agent-facing replies are size-capped: omitted `limit` on `neighbours`, and its ceiling.
 const NEIGHBOURS_DEFAULT_LIMIT: usize = 25;
 const NEIGHBOURS_MAX_LIMIT: usize = 100;
@@ -275,7 +282,15 @@ pub const DESC_ATTACHMENT_ADD: &str = "Store a file as a source-document attachm
     with attachment_link to attach it to a record.";
 pub const DESC_ATTACHMENT_LINK: &str = "Attach a stored source document to a record (appends a \
     sourceRef with sourceRole 'attaches'). The document must already exist (attachment_add); \
-    linking the same pair twice is an error.";
+    linking an already-linked pair is a no-op that writes nothing and returns \
+    alreadyLinked: true, so retrying after a lost response is safe (unless a write guard was set on the \
+    record in between, which refuses the call before it runs).";
+pub const DESC_ATTACHMENT_UNLINK: &str = "Remove the 'attaches' sourceRef between a record and a \
+    source document (the inverse of attachment_link). The file stays in the repository; an \
+    unlinked pair is an error.";
+pub const DESC_ATTACHMENT_REMOVE: &str = "Delete a stored source document (content file and \
+    sidecar). Refused with code cannot-delete-in-use while any record or note still references \
+    it, unless `force` is true, which removes those references in the same call.";
 pub const DESC_NEIGHBOURS: &str = "Bounded read of one instance's relation neighbours (Record or \
 Note). Returns total (every matching edge, before paging) and a page of edges, each with direction \
 (out = the instance is the source, in = it is the target), relationId, relationType and the \
@@ -343,9 +358,9 @@ binding). Each section has a name, content, and optional label. Optional contain
 note to a container atomically. Notes are the capture tier — graduate one to a typed Record \
 later when its structure stabilises.";
 
-pub const DESC_NOTE_UPDATE: &str = "Update a Tier-0 Note by instanceId. Whole-object over the \
-authoring fields: title, tags and sections are replaced by what you send (omit title/tags to \
-clear them); createdBy, createdAt and other provenance are preserved. To read a note first, use \
+pub const DESC_NOTE_UPDATE: &str = "Update a Tier-0 Note by instanceId. Send only what \
+changes: an omitted title, tags or sections is kept as stored; null clears any of them (so does \
+[] for tags and sections); a value replaces (a list replaces the whole list). createdBy, createdAt and other provenance are preserved. To read a note first, use \
 find or the read tool on its record URI.";
 
 pub const DESC_TYPE_SCHEMA: &str = "Get the authoring schema for a type by its UUID \
@@ -357,10 +372,15 @@ this before creating records of an unfamiliar type — discover typeIds from the
 resources in resources/list.";
 
 // Second-wave write tool descriptions (#680)
-pub const DESC_RECORD_UPDATE: &str = "Replace the fieldValues of an existing Tier-2 Record \
-(full replace, not a patch). Provide the complete set of field values you want stored. \
-Optional typeVersion migrates the record to a different type version; omit to keep the \
-stored version. Tag semantics: omit=preserve, []=clear, [...]=replace. Returns the updated \
+pub const DESC_RECORD_UPDATE: &str = "Update the fieldValues of an existing Tier-2 Record. \
+fieldValuesMode decides how: 'replace' (the default) stores exactly the fieldValues you send, so \
+any field you omit is REMOVED; 'merge' changes only the fields you send and keeps the rest, a \
+null value removes that field, an object merges into a stored composite value key by key, and \
+an array replaces the stored list whole; fieldMeta entries you send overlay the stored ones by \
+key, and a field you remove loses its fieldMeta. To change one field or only the tags, send \
+fieldValuesMode 'merge' with just that field (or fieldValues {}). In 'replace' mode fieldMeta, \
+when sent, replaces the whole map. Optional typeVersion migrates the record to a different type \
+version (replace mode only; merge refuses a typeVersion change); omit to keep the stored version. Tag semantics: omit=preserve, []=clear, [...]=replace. Returns the updated \
 Record. Run repo_validate after to confirm consistency.";
 
 pub const DESC_RECORD_TRANSITION: &str = "Transition a record's lifecycle state as defined \
@@ -396,6 +416,17 @@ typing anchor) and `identityInstanceId` (the container's identity/purpose record
 name an entry (an anchor outside the members is reported by repo_validate, I-145). Invalid input \
 is rejected whole with the validation message. \
 Returns the created container.";
+
+pub const DESC_CONTAINER_UPDATE: &str = "Update an existing container: the same PARTIAL patch \
+as `srs container update`. `containerId` names the container; `patch` carries only the properties \
+to change. Omitted keys are KEPT; a present key replaces that property (`title`, `description`, \
+`namespace`, `name`, `containerType`, `tags`, `meta` (an object), `anchorInstanceId`, \
+`identityInstanceId`, `memberInstanceIds`, `childContainerIds`). `null` is accepted only on \
+`identityInstanceId` and `anchorInstanceId`, where it CLEARS the pointer; `null` on any other key is \
+refused. `memberInstanceIds` replaces the whole ordered `{instanceId, depth?}` outline (ids dropped \
+are reported in `diagnostics`); `childContainerIds` replaces the whole list and is stored sorted and \
+deduplicated, not in the order sent. To add or remove one member use container_member_add / \
+container_member_remove. Invalid input is rejected whole. Returns `{container, diagnostics}`.";
 
 pub const DESC_CONTAINER_MEMBER_ADD: &str = "Add an instance to a container's ordered \
 memberInstanceIds outline (RFC-043). With no position it appends at depth 0; `position` (0-based) \
@@ -573,6 +604,55 @@ pub struct FindToolInput {
     /// projection. A name no Field defines is a `find-field-unknown` warning in `diagnostics`.
     #[serde(default)]
     pub fields: Option<Vec<String>>,
+    /// RFC-056 field filters, all of which must hold: each names a Field by `fieldId` and carries
+    /// exactly one of `in` / `notIn` (string, integer, boolean Fields), `range` {from?, to?}
+    /// (date, integer, number Fields; both bounds included, `2026-08` = all of August) or
+    /// `missing` (true = no value). Notes never match. A malformed or misfitting filter refuses
+    /// the query (`query-filter-malformed` / `query-filter-misfit`).
+    #[serde(default)]
+    pub field_filters: Vec<FieldFilterInput>,
+}
+
+/// Mirrors `srs_core::types::discovery::FieldFilter` (RFC-056).
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FieldFilterInput {
+    /// The Field tested, by its UUID.
+    pub field_id: Option<String>,
+    /// Holds when the value (any element of a list) equals a listed value.
+    #[serde(rename = "in")]
+    pub in_values: Option<Vec<serde_json::Value>>,
+    /// Holds when the field has a value and no element equals a listed value.
+    pub not_in: Option<Vec<serde_json::Value>>,
+    /// Inclusive bounds: numbers, or dates written YYYY, YYYY-MM or YYYY-MM-DD.
+    pub range: Option<FieldFilterRangeInput>,
+    /// true: the field has no value (absent, "", [], {}); false: it has one.
+    pub missing: Option<bool>,
+}
+
+/// Mirrors `srs_core::types::discovery::FieldFilterRange`.
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FieldFilterRangeInput {
+    pub from: Option<serde_json::Value>,
+    pub to: Option<serde_json::Value>,
+}
+
+impl From<FieldFilterInput> for srs_core::types::discovery::FieldFilter {
+    fn from(i: FieldFilterInput) -> Self {
+        Self {
+            field_id: i.field_id,
+            in_values: i.in_values,
+            not_in: i.not_in,
+            range: i
+                .range
+                .map(|r| srs_core::types::discovery::FieldFilterRange {
+                    from: r.from,
+                    to: r.to,
+                }),
+            missing: i.missing,
+        }
+    }
 }
 
 /// Input of the `similar` tool: the source `instanceId` plus find's structured filters
@@ -604,6 +684,13 @@ pub struct SimilarToolInput {
     pub projection: Option<Projection>,
     /// Include facets over the similar set, as in find (default: only when limit is 0).
     pub facets: Option<bool>,
+    /// RFC-056 field filters, all of which must hold: each names a Field by `fieldId` and carries
+    /// exactly one of `in` / `notIn` (string, integer, boolean Fields), `range` {from?, to?}
+    /// (date, integer, number Fields; both bounds included, `2026-08` = all of August) or
+    /// `missing` (true = no value). Notes never match. A malformed or misfitting filter refuses
+    /// the query (`query-filter-malformed` / `query-filter-misfit`).
+    #[serde(default)]
+    pub field_filters: Vec<FieldFilterInput>,
 }
 
 impl SimilarToolInput {
@@ -627,6 +714,7 @@ impl SimilarToolInput {
             exclude_lifecycle_states: self.exclude_lifecycle_states,
             tier: self.tier,
             content_match: None,
+            field_filters: self.field_filters.into_iter().map(Into::into).collect(),
         };
         (self.instance_id, query, page)
     }
@@ -645,6 +733,7 @@ impl From<FindToolInput> for DiscoveryQuery {
             exclude_lifecycle_states: input.exclude_lifecycle_states,
             tier: input.tier,
             content_match: input.content_match,
+            field_filters: input.field_filters.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -830,17 +919,25 @@ impl From<NoteCreateToolInput> for CreateNoteInput {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NoteUpdateToolInput {
     pub instance_id: String,
-    pub title: Option<String>,
-    pub tags: Option<Vec<String>>,
-    pub sections: Vec<NoteSectionInput>,
+    /// Omit = keep, null = clear, a string = replace.
+    #[serde(default, deserialize_with = "deserialize_some")]
+    pub title: Option<Option<String>>,
+    /// Omit = keep, null or [] = clear, a list = replace.
+    #[serde(default, deserialize_with = "deserialize_some")]
+    pub tags: Option<Option<Vec<String>>>,
+    /// Omit = keep, null or [] = clear, a list = replace the whole list.
+    #[serde(default, deserialize_with = "deserialize_some")]
+    pub sections: Option<Option<Vec<NoteSectionInput>>>,
 }
 
 impl From<NoteUpdateToolInput> for UpdateNoteContentInput {
     fn from(input: NoteUpdateToolInput) -> Self {
         UpdateNoteContentInput {
             title: input.title,
-            tags: input.tags,
-            sections: input.sections.into_iter().map(Into::into).collect(),
+            tags: input.tags.map(Option::unwrap_or_default),
+            sections: input
+                .sections
+                .map(|s| s.unwrap_or_default().into_iter().map(Into::into).collect()),
         }
     }
 }
@@ -882,7 +979,15 @@ pub struct RecordUpdateToolInput {
     pub instance_id: String,
     /// RFC-039 carrier: an object keyed by `Field.name` verbatim.
     pub field_values: serde_json::Map<String, Value>,
-    /// Per-field provenance: omit = preserve stored, {} = clear, {...} = replace.
+    /// `replace` (default): fieldValues becomes the stored set; a field you omit is REMOVED.
+    /// `merge`: only the fields you send change; omitted fields are kept, `null` removes a
+    /// field (and its fieldMeta), an object merges into a stored composite key by key, an
+    /// array replaces whole; sent fieldMeta overlays by key. Cannot change typeVersion.
+    #[serde(default)]
+    pub field_values_mode: FieldValuesMode,
+    /// Per-field provenance. Omit = keep stored. Replace mode: {} = clear, {...} = replace
+    /// the whole map. Merge mode: entries overlay the stored ones by key ({} changes nothing);
+    /// a field removed by the merge loses its entry; an entry for a field with no value is refused.
     #[serde(default)]
     pub field_meta: Option<std::collections::BTreeMap<String, FieldMetaInput>>,
     #[serde(default)]
@@ -899,6 +1004,7 @@ impl From<RecordUpdateToolInput> for UpdateRecordInput {
     fn from(input: RecordUpdateToolInput) -> Self {
         UpdateRecordInput {
             field_values: FieldValues(input.field_values),
+            field_values_mode: input.field_values_mode,
             field_meta: field_meta_map(input.field_meta),
             tags: input.tags,
             type_version: input.type_version,
@@ -1046,6 +1152,14 @@ impl From<NoteGraduateToolInput> for GraduateNoteInput {
 pub struct ContainerMemberToolInput {
     pub container_id: String,
     pub instance_id: String,
+}
+
+/// `container_update`: the container id plus the CLI's `ContainerPatch` (partial; omitted keys kept).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ContainerUpdateToolInput {
+    pub container_id: String,
+    pub patch: ContainerPatch,
 }
 
 /// `container_member_add`: `position` (0-based; default append) and `depth` (default 0) per
@@ -1436,6 +1550,11 @@ fn all_tools() -> Vec<Value> {
             input_schema::<ContainerCreateInput>(),
         ),
         tool(
+            TOOL_CONTAINER_UPDATE,
+            DESC_CONTAINER_UPDATE,
+            input_schema::<ContainerUpdateToolInput>(),
+        ),
+        tool(
             TOOL_CONTAINER_MEMBER_ADD,
             DESC_CONTAINER_MEMBER_ADD,
             input_schema::<ContainerMemberAddToolInput>(),
@@ -1562,6 +1681,16 @@ fn all_tools() -> Vec<Value> {
             DESC_ATTACHMENT_LINK,
             input_schema::<AttachmentLinkToolInput>(),
         ),
+        tool(
+            TOOL_ATTACHMENT_UNLINK,
+            DESC_ATTACHMENT_UNLINK,
+            input_schema::<AttachmentLinkToolInput>(),
+        ),
+        tool(
+            TOOL_ATTACHMENT_REMOVE,
+            DESC_ATTACHMENT_REMOVE,
+            input_schema::<AttachmentRemoveToolInput>(),
+        ),
     ]
 }
 
@@ -1624,6 +1753,25 @@ impl From<AttachmentLinkToolInput> for LinkAttachmentInput {
         LinkAttachmentInput {
             instance_id: input.instance_id,
             document_id: input.document_id,
+        }
+    }
+}
+
+/// Mirrors `attachment_service::RemoveAttachmentInput`.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AttachmentRemoveToolInput {
+    pub document_id: String,
+    /// Also remove every reference to the document from records and notes.
+    #[serde(default)]
+    pub force: bool,
+}
+
+impl From<AttachmentRemoveToolInput> for RemoveAttachmentInput {
+    fn from(input: AttachmentRemoveToolInput) -> Self {
+        RemoveAttachmentInput {
+            document_id: input.document_id,
+            force: input.force,
         }
     }
 }
@@ -1836,6 +1984,26 @@ pub fn call_tool(
                 Err(e) => Ok(tool_err(e.report())),
             }
         }
+        TOOL_ATTACHMENT_UNLINK => {
+            let input: AttachmentLinkToolInput = parse_args(arguments)?;
+            match attachment_service::unlink_attachment(
+                store,
+                UnlinkAttachmentInput {
+                    instance_id: input.instance_id,
+                    document_id: input.document_id,
+                },
+            ) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.report())),
+            }
+        }
+        TOOL_ATTACHMENT_REMOVE => {
+            let input: AttachmentRemoveToolInput = parse_args(arguments)?;
+            match attachment_service::remove_attachment(store, input.into()) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.report())),
+            }
+        }
         TOOL_SIMILAR => {
             let (id, query, page) = parse_args::<SimilarToolInput>(arguments)?.into_parts();
             match discovery_service::similar(store, &id, query, page) {
@@ -1946,6 +2114,15 @@ pub fn call_tool(
             let input: ContainerCreateInput = parse_args(arguments)?;
             match container_service::create_container(store, input.into()) {
                 Ok(container) => tool_ok(&container),
+                Err(e) => Ok(tool_err(e.report())),
+            }
+        }
+        TOOL_CONTAINER_UPDATE => {
+            let input: ContainerUpdateToolInput = parse_args(arguments)?;
+            match container_service::update_container(store, &input.container_id, input.patch) {
+                Ok(r) => {
+                    tool_ok(&json!({ "container": r.container, "diagnostics": r.diagnostics }))
+                }
                 Err(e) => Ok(tool_err(e.report())),
             }
         }
@@ -2282,8 +2459,25 @@ mod tests {
             facets: Some(true),
             projection: Some(Projection::Card),
             fields: None,
+            field_filters: vec![FieldFilterInput {
+                field_id: Some("fid".into()),
+                range: Some(FieldFilterRangeInput {
+                    from: Some(serde_json::json!("2026-08")),
+                    to: None,
+                }),
+                ..Default::default()
+            }],
         };
         let q: DiscoveryQuery = find.into();
+        assert_eq!(q.field_filters.len(), 1);
+        assert_eq!(q.field_filters[0].field_id.as_deref(), Some("fid"));
+        assert_eq!(
+            q.field_filters[0]
+                .range
+                .as_ref()
+                .and_then(|r| r.from.clone()),
+            Some(serde_json::json!("2026-08"))
+        );
         assert_eq!(q.type_id.as_deref(), Some("tid"));
         assert_eq!(q.type_namespace.as_deref(), Some("ns"));
         assert_eq!(q.type_name.as_deref(), Some("nm"));
@@ -2523,6 +2717,7 @@ mod tests {
                 TOOL_RECORD_SUCCESSOR,
                 TOOL_NOTE_GRADUATE,
                 TOOL_CONTAINER_CREATE,
+                TOOL_CONTAINER_UPDATE,
                 TOOL_CONTAINER_MEMBER_ADD,
                 TOOL_CONTAINER_MEMBER_REMOVE,
                 TOOL_CONTAINER_MEMBER_MOVE,
@@ -2548,6 +2743,8 @@ mod tests {
                 TOOL_CHANGES,
                 TOOL_ATTACHMENT_ADD,
                 TOOL_ATTACHMENT_LINK,
+                TOOL_ATTACHMENT_UNLINK,
+                TOOL_ATTACHMENT_REMOVE,
             ]
         );
         for tool in &tools {
@@ -2586,6 +2783,24 @@ mod tests {
         assert!(description(TOOL_CONTAINER_MEMBER_REPAIR).contains("Idempotent"));
     }
 
+    /// srs-rust#847: note_update omit keeps; null or [] clears, title included.
+    #[test]
+    fn note_update_input_omit_keeps_null_clears() {
+        let parse = |v: Value| -> UpdateNoteContentInput {
+            serde_json::from_value::<NoteUpdateToolInput>(v)
+                .unwrap()
+                .into()
+        };
+        let kept = parse(serde_json::json!({ "instanceId": "x" }));
+        assert!(kept.title.is_none() && kept.tags.is_none() && kept.sections.is_none());
+        let cleared = parse(serde_json::json!({
+            "instanceId": "x", "title": null, "tags": null, "sections": null
+        }));
+        assert_eq!(cleared.title, Some(None));
+        assert_eq!(cleared.tags, Some(vec![]));
+        assert_eq!(cleared.sections, Some(vec![]));
+    }
+
     #[test]
     fn tool_input_conversion_second_wave_exercises_every_field() {
         // RecordUpdateToolInput → UpdateRecordInput
@@ -2594,6 +2809,7 @@ mod tests {
             field_values: [("title".to_string(), serde_json::json!("v1"))]
                 .into_iter()
                 .collect(),
+            field_values_mode: FieldValuesMode::Merge,
             field_meta: Some(
                 [(
                     "title".to_string(),
@@ -2618,6 +2834,7 @@ mod tests {
         assert_eq!(meta.edited_at.as_deref(), Some("t"));
         assert_eq!(ui.tags, Some(vec!["tag1".to_string()]));
         assert_eq!(ui.type_version, Some(2));
+        assert_eq!(ui.field_values_mode, FieldValuesMode::Merge);
         assert_eq!(
             ui.extra.get("meta"),
             Some(&serde_json::json!({"derivedFrom": "src-id"}))

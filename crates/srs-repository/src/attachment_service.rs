@@ -387,8 +387,10 @@ pub struct LinkAttachmentInput {
 pub struct LinkAttachmentResult {
     pub instance_id: String,
     pub document_id: String,
-    /// Total number of sourceRefs on the record after the link was added.
+    /// Total number of sourceRefs on the record after the call (unchanged when `already_linked`).
     pub source_refs_count: usize,
+    /// `true` when the pair was already linked: nothing was written (a retry is a no-op).
+    pub already_linked: bool,
 }
 
 /// Append `sourceType:"repository-document"`, `sourceId:<documentId>`,
@@ -397,7 +399,8 @@ pub struct LinkAttachmentResult {
 /// Validation:
 /// - `document_id` MUST resolve in the catalog's source-document set (RFC-038 [R25]) →
 ///   `InvalidInput` if absent.
-/// - Duplicate link (same record + doc with `sourceRole: Attaches`) → `InvalidInput`.
+/// - Duplicate link (same record + doc with `sourceRole: Attaches`) → `Ok`, nothing written,
+///   `already_linked: true`.
 /// - Record with `instance_id` not found → `NotFound`.
 ///
 /// Write order: only the record body is written (sourceRefs are embedded there);
@@ -423,8 +426,8 @@ pub fn link_attachment(
     }
 
     // 2. Append the new SourceReference (path-encapsulated via record_store).
-    // InstanceNotFound if neither a record nor a note exists with this id; duplicate
-    // check (same source_type + source_id + source_role) is handled atomically inside
+    // InstanceNotFound if neither a record nor a note exists with this id; the duplicate
+    // no-op (same source_type + source_id + source_role) is decided atomically inside
     // append_source_ref to avoid TOCTOU (ADR-034). Tier-0 notes carry a typed
     // `sourceRefs` field already (ADR-034), so linking works the same for both tiers.
     let new_ref = SourceReference {
@@ -436,13 +439,169 @@ pub fn link_attachment(
         confidence: None,
         note: None,
     };
-    let source_refs_count =
-        record_store::append_source_ref(store, &input.instance_id, new_ref, true)?;
+    let (source_refs_count, appended) =
+        record_store::append_source_ref(store, &input.instance_id, new_ref)?;
 
     Ok(LinkAttachmentResult {
         instance_id: input.instance_id,
         document_id: input.document_id,
         source_refs_count,
+        already_linked: !appended,
+    })
+}
+
+// ── unlink_attachment ────────────────────────────────────────────────────────
+
+/// Input for `unlink_attachment`.
+pub struct UnlinkAttachmentInput {
+    pub instance_id: String,
+    pub document_id: String,
+}
+
+/// Result for `unlink_attachment`.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnlinkAttachmentResult {
+    pub instance_id: String,
+    pub document_id: String,
+    /// Number of `attaches` refs removed from the record (always at least 1).
+    pub refs_removed: usize,
+}
+
+/// Remove the `sourceRole: attaches` ref to `document_id` from one record or note,
+/// leaving the file and its sidecar in place (the inverse of [`link_attachment`]).
+///
+/// `InstanceNotFound` if the instance is absent; `InvalidInput` if it carries no
+/// such link.
+pub fn unlink_attachment(
+    store: &dyn RepositoryStore,
+    input: UnlinkAttachmentInput,
+) -> Result<UnlinkAttachmentResult, RepositoryError> {
+    let refs_removed = record_store::remove_document_refs(
+        store,
+        &input.instance_id,
+        &input.document_id,
+        record_store::DocRefScope::AttachesOnly,
+        false,
+    )?;
+    if refs_removed == 0 {
+        return Err(RepositoryError::InvalidInput {
+            message: format!(
+                "document '{}' is not linked to '{}'",
+                input.document_id, input.instance_id
+            ),
+        });
+    }
+    Ok(UnlinkAttachmentResult {
+        instance_id: input.instance_id,
+        document_id: input.document_id,
+        refs_removed,
+    })
+}
+
+// ── remove_attachment ────────────────────────────────────────────────────────
+
+/// Input for `remove_attachment`.
+pub struct RemoveAttachmentInput {
+    pub document_id: String,
+    /// `true`: also remove every `repository-document` ref to the document, on all
+    /// records and notes. `false`: refuse with `CannotDeleteInUse`
+    /// (`cannot-delete-in-use`) while any instance still references it.
+    pub force: bool,
+}
+
+/// Result for `remove_attachment`.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoveAttachmentResult {
+    pub document_id: String,
+    /// Path of the deleted content file relative to `source-documents/`.
+    pub content_path: String,
+    /// Number of sourceRefs removed from instances (0 unless `force`).
+    pub refs_removed: usize,
+}
+
+/// Ids of every record and note holding a `repository-document` ref (any role) to
+/// `document_id`. Read-only; used by [`remove_attachment`] and by the MCP write guard.
+pub fn referencing_instances(
+    store: &dyn RepositoryStore,
+    document_id: &str,
+) -> Result<Vec<String>, RepositoryError> {
+    let mut holders = Vec::new();
+    for r in store.list_instances(&crate::index::InstanceQuery {
+        tier: None,
+        tag: None,
+    })? {
+        let n = record_store::remove_document_refs(
+            store,
+            &r.instance_id,
+            document_id,
+            record_store::DocRefScope::AnyRole,
+            true,
+        )?;
+        if n > 0 {
+            holders.push(r.instance_id);
+        }
+    }
+    Ok(holders)
+}
+
+/// Delete a source document: its content file and its `.meta.json` sidecar.
+///
+/// Without `force`, refuses (`CannotDeleteInUse`, code `cannot-delete-in-use`,
+/// ADR-053) while any record or note still holds a ref to it. With `force`, the refs
+/// are removed first, in the same operation. `InvalidInput` when `document_id` does
+/// not resolve in the catalog's source-document set.
+pub fn remove_attachment(
+    store: &dyn RepositoryStore,
+    input: RemoveAttachmentInput,
+) -> Result<RemoveAttachmentResult, RepositoryError> {
+    let manifest = store.load_manifest()?;
+    let src_docs_base = manifest
+        .source_documents_path
+        .as_deref()
+        .unwrap_or("source-documents")
+        .to_string();
+    let doc = resolve_source_documents(store, &src_docs_base)?
+        .into_iter()
+        .find(|e| e.document_id == input.document_id)
+        .ok_or_else(|| RepositoryError::InvalidInput {
+            message: format!(
+                "document '{}' not found in source-document index",
+                input.document_id
+            ),
+        })?;
+
+    // Count references first (dry run), so a refusal writes nothing.
+    let holders = referencing_instances(store, &input.document_id)?;
+    if !holders.is_empty() && !input.force {
+        return Err(RepositoryError::CannotDeleteInUse {
+            entity_type: "attachment".to_string(),
+            id: input.document_id,
+            used_by: holders,
+        });
+    }
+
+    let mut refs_removed = 0;
+    for id in &holders {
+        refs_removed += record_store::remove_document_refs(
+            store,
+            id,
+            &input.document_id,
+            record_store::DocRefScope::AnyRole,
+            false,
+        )?;
+    }
+
+    // Sidecar first: a half-done delete then leaves a content file with no identity
+    // (discoverable, re-addable) rather than a sidecar pointing at nothing.
+    store.delete_source_file(&format!("{src_docs_base}/{}", doc.sidecar_path))?;
+    store.delete_source_file(&format!("{src_docs_base}/{}", doc.content_path))?;
+
+    Ok(RemoveAttachmentResult {
+        document_id: input.document_id,
+        content_path: doc.content_path,
+        refs_removed,
     })
 }
 
@@ -1381,11 +1540,12 @@ mod tests {
     }
 
     #[test]
-    fn link_attachment_duplicate_rejected() {
+    fn link_attachment_duplicate_is_noop() {
         let doc_id = "doc-bbb-222";
         let record_id = "bbbbcccc-0000-4000-8000-000000000002";
         let store = store_with_doc_and_record(doc_id, record_id);
 
+        let path = format!("records/tier-2/test-record-{}.json", &record_id[..8]);
         link_attachment(
             &store,
             LinkAttachmentInput {
@@ -1395,17 +1555,22 @@ mod tests {
         )
         .unwrap();
 
-        let err = link_attachment(
+        let before = store.load_instance_json(&path).unwrap();
+
+        let again = link_attachment(
             &store,
             LinkAttachmentInput {
                 instance_id: record_id.to_string(),
                 document_id: doc_id.to_string(),
             },
         )
-        .unwrap_err();
-        assert!(
-            matches!(err, RepositoryError::InvalidInput { .. }),
-            "expected InvalidInput for duplicate, got: {err:?}"
+        .unwrap();
+        assert!(again.already_linked);
+        assert_eq!(again.source_refs_count, 1);
+        assert_eq!(
+            store.load_instance_json(&path).unwrap(),
+            before,
+            "duplicate link must not write"
         );
     }
 
@@ -1487,6 +1652,139 @@ mod tests {
     }
 
     #[test]
+    fn unlink_attachment_removes_link_and_keeps_file() {
+        let (doc_id, record_id) = ("doc-unlink-1", "aaaabbbb-0000-4000-8000-0000000000a1");
+        let store = store_with_doc_and_record(doc_id, record_id);
+        store
+            .save_binary_file("source-documents/brief.pdf", b"pdf")
+            .unwrap();
+        let link = || LinkAttachmentInput {
+            instance_id: record_id.to_string(),
+            document_id: doc_id.to_string(),
+        };
+        link_attachment(&store, link()).unwrap();
+        let r = unlink_attachment(
+            &store,
+            UnlinkAttachmentInput {
+                instance_id: record_id.to_string(),
+                document_id: doc_id.to_string(),
+            },
+        )
+        .unwrap();
+        assert_eq!(r.refs_removed, 1);
+        let record_path = format!("records/tier-2/test-record-{}.json", &record_id[..8]);
+        let val = store.load_instance_json(&record_path).unwrap();
+        assert!(val.get("sourceRefs").is_none());
+        // The document is still listed.
+        let listed = list_attachments(&store, ListAttachmentsFilter::default()).unwrap();
+        assert!(listed
+            .entries
+            .iter()
+            .any(|e| e.document_id.as_deref() == Some(doc_id)));
+        // Not linked any more: InvalidInput. Unknown instance: InstanceNotFound.
+        let again = unlink_attachment(
+            &store,
+            UnlinkAttachmentInput {
+                instance_id: record_id.to_string(),
+                document_id: doc_id.to_string(),
+            },
+        );
+        assert!(matches!(again, Err(RepositoryError::InvalidInput { .. })));
+        let missing = unlink_attachment(
+            &store,
+            UnlinkAttachmentInput {
+                instance_id: "00000000-0000-4000-8000-00000000ffff".to_string(),
+                document_id: doc_id.to_string(),
+            },
+        );
+        assert!(matches!(
+            missing,
+            Err(RepositoryError::InstanceNotFound { .. })
+        ));
+    }
+
+    #[test]
+    fn remove_attachment_refuses_while_referenced_then_force_removes() {
+        let (doc_id, record_id) = ("doc-remove-1", "aaaabbbb-0000-4000-8000-0000000000b1");
+        let store = store_with_doc_and_record(doc_id, record_id);
+        store
+            .save_binary_file("source-documents/brief.pdf", b"pdf")
+            .unwrap();
+        link_attachment(
+            &store,
+            LinkAttachmentInput {
+                instance_id: record_id.to_string(),
+                document_id: doc_id.to_string(),
+            },
+        )
+        .unwrap();
+        let refused = remove_attachment(
+            &store,
+            RemoveAttachmentInput {
+                document_id: doc_id.to_string(),
+                force: false,
+            },
+        )
+        .unwrap_err();
+        assert_eq!(refused.code(), "cannot-delete-in-use");
+        // Refusal wrote nothing: still listed and still linked.
+        assert_eq!(
+            list_attachments(&store, ListAttachmentsFilter::default())
+                .unwrap()
+                .entries
+                .len(),
+            1
+        );
+        assert_eq!(referencing_instances(&store, doc_id).unwrap().len(), 1);
+
+        let done = remove_attachment(
+            &store,
+            RemoveAttachmentInput {
+                document_id: doc_id.to_string(),
+                force: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(done.refs_removed, 1);
+        assert!(list_attachments(&store, ListAttachmentsFilter::default())
+            .unwrap()
+            .entries
+            .is_empty());
+        let record_path = format!("records/tier-2/test-record-{}.json", &record_id[..8]);
+        assert!(store
+            .load_instance_json(&record_path)
+            .unwrap()
+            .get("sourceRefs")
+            .is_none());
+    }
+
+    #[test]
+    fn remove_attachment_unreferenced_and_missing_id() {
+        let (doc_id, record_id) = ("doc-remove-2", "aaaabbbb-0000-4000-8000-0000000000b2");
+        let store = store_with_doc_and_record(doc_id, record_id);
+        store
+            .save_binary_file("source-documents/brief.pdf", b"pdf")
+            .unwrap();
+        let done = remove_attachment(
+            &store,
+            RemoveAttachmentInput {
+                document_id: doc_id.to_string(),
+                force: false,
+            },
+        )
+        .unwrap();
+        assert_eq!(done.refs_removed, 0);
+        let missing = remove_attachment(
+            &store,
+            RemoveAttachmentInput {
+                document_id: doc_id.to_string(),
+                force: false,
+            },
+        );
+        assert!(matches!(missing, Err(RepositoryError::InvalidInput { .. })));
+    }
+
+    #[test]
     fn link_attachment_on_note_succeeds() {
         // Reproduces srs-rust#1334: linking an attachment to a Tier-0 note must
         // succeed (Note already carries a typed sourceRefs field, ADR-034) rather
@@ -1518,11 +1816,12 @@ mod tests {
     }
 
     #[test]
-    fn link_attachment_on_note_duplicate_rejected() {
+    fn link_attachment_on_note_duplicate_is_noop() {
         let doc_id = "doc-note-222";
         let note_id = "eeeeffff-0000-4000-8000-000000000006";
         let store = store_with_doc_and_note(doc_id, note_id);
 
+        let path = format!("records/notes/test-note-{}.json", &note_id[..8]);
         link_attachment(
             &store,
             LinkAttachmentInput {
@@ -1532,17 +1831,22 @@ mod tests {
         )
         .unwrap();
 
-        let err = link_attachment(
+        let before = store.load_instance_json(&path).unwrap();
+
+        let again = link_attachment(
             &store,
             LinkAttachmentInput {
                 instance_id: note_id.to_string(),
                 document_id: doc_id.to_string(),
             },
         )
-        .unwrap_err();
-        assert!(
-            matches!(err, RepositoryError::InvalidInput { .. }),
-            "expected InvalidInput for duplicate, got: {err:?}"
+        .unwrap();
+        assert!(again.already_linked);
+        assert_eq!(again.source_refs_count, 1);
+        assert_eq!(
+            store.load_instance_json(&path).unwrap(),
+            before,
+            "duplicate link must not write"
         );
     }
 
@@ -1689,6 +1993,24 @@ mod tests {
             parsed["sourceRefs"][0]["sourceRole"],
             serde_json::json!("attaches")
         );
+
+        // #1669: a duplicate link is a no-op and must not touch the file at all
+        // (mtime, not only bytes: a same-content rewrite would also change mtime).
+        let path = root.join("records/tier-2/test-type-ffffffff.json");
+        let mtime = std::fs::metadata(&path).unwrap().modified().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let again = link_attachment(
+            &store,
+            LinkAttachmentInput {
+                instance_id: record_id.to_string(),
+                document_id: doc_id.to_string(),
+            },
+        )
+        .unwrap();
+        assert!(again.already_linked);
+        assert_eq!(again.source_refs_count, 1);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), val);
+        assert_eq!(std::fs::metadata(&path).unwrap().modified().unwrap(), mtime);
         assert_eq!(
             parsed["sourceRefs"][0]["sourceId"],
             serde_json::json!(doc_id)

@@ -74,8 +74,8 @@ fn tree_binding_flow_single_edit_single_diff() {
             ),
             field_meta: None,
             tags: None,
-            type_version: None,
             extra: std::collections::BTreeMap::new(),
+            ..Default::default()
         },
     )
     .expect("update_record");

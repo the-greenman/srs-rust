@@ -1,10 +1,11 @@
 use serde::{Deserialize, Serialize};
 use srs_core::arrangement::RelativeMove;
 use srs_core::types::record::{FieldMeta, FieldValues};
+use srs_repository::agent_index_service;
 use srs_repository::attachment_service::{
     self as attachment_service, AddAttachmentInput, GetAttachmentBytesInput,
-    GetRecordAttachmentsInput, LinkAttachmentInput, ListAttachmentsFilter,
-    ResolveCompositionAttachmentsInput,
+    GetRecordAttachmentsInput, LinkAttachmentInput, ListAttachmentsFilter, RemoveAttachmentInput,
+    ResolveCompositionAttachmentsInput, UnlinkAttachmentInput,
 };
 use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
 use srs_repository::blueprint_service;
@@ -498,6 +499,22 @@ impl SrsRepository {
         to_js(&report)
     }
 
+    /// `manifest.aiGuidance` (`{summary?, navigationHints?, suggestedEntryPoints?}`), or
+    /// `null` when the manifest has none — the CLI `repo guidance get` (srs-rust#1668).
+    pub fn ai_guidance(&self) -> Result<JsValue, JsValue> {
+        to_js(&agent_index_service::get_ai_guidance(&self.store).map_err(|e| js_err(&e))?)
+    }
+
+    /// Replace `manifest.aiGuidance` and touch nothing else — the CLI `repo guidance set`
+    /// (srs-rust#1668); `{}` removes it. `guidance_json` is `{summary?, navigationHints?,
+    /// suggestedEntryPoints?}`; an entry point is an instance path or id and is stored as the
+    /// path; one naming no instance throws `instance-not-found`. Returns the stored guidance.
+    pub fn set_ai_guidance(&self, guidance_json: &str) -> Result<JsValue, JsValue> {
+        let guidance: agent_index_service::AiGuidance = serde_json::from_str(guidance_json)
+            .map_err(|e| js_invalid_input(format!("invalid aiGuidance: {e}")))?;
+        to_js(&agent_index_service::set_ai_guidance(&self.store, guidance).map_err(|e| js_err(&e))?)
+    }
+
     /// List records. `filter_json` is a JSON string matching `RecordListFilter`
     /// (`{"typeNamespace":"...","typeName":"...","containerId":"..."}`); pass `"{}"` for all records.
     /// Returns a JS array of `RecordSummary` objects — each `{ instanceId, displayLabel, record }`,
@@ -789,6 +806,7 @@ impl SrsRepository {
 
     /// Update a record. `input_json` is a JSON object with fields:
     /// `fieldValues` (an object keyed by `Field.name`, RFC-039 carrier),
+    /// `fieldValuesMode` (optional `"replace"` default | `"merge"`, srs-rust#847),
     /// `fieldMeta` (optional), `tags` (optional),
     /// `typeVersion` (optional u32 — omit to keep the stored version).
     /// Returns the updated `Record` as a JS value.
@@ -956,7 +974,7 @@ impl SrsRepository {
     /// then `n-1` new `precedes` edges connect `instanceIds[0]→[1]→…→[n-1]`.
     ///
     /// Returns `{ "created": [<RelationSummary>, ...] }` as a JS value where each
-    /// `RelationSummary` is `{ "relationId", "relationType", "sourceId", "targetId" }`.
+    /// `RelationSummary` is `{ "relationId", "relationType", "sourceInstanceId", "targetInstanceId" }`.
     pub fn rebuild_precedes_chain(&self, input_json: &str) -> Result<JsValue, JsValue> {
         #[derive(serde::Deserialize)]
         #[serde(rename_all = "camelCase")]
@@ -1225,8 +1243,9 @@ impl SrsRepository {
     /// Patch a container (srs-rust#1199; same service as `srs container update`). `patch_json` is
     /// the CLI's `ContainerPatch`: any of `{ title, namespace, name, description, containerType,
     /// tags, meta, identityInstanceId, anchorInstanceId, memberInstanceIds, childContainerIds }`;
-    /// omitted keys are untouched, unknown keys are rejected. `identityInstanceId: null` clears it
-    /// (srs-rust#1293) — the one key here that distinguishes omitted from explicit `null`.
+    /// omitted keys are untouched, unknown keys are rejected. `identityInstanceId: null` and
+    /// `anchorInstanceId: null` clear the pointer (srs-rust#1293); `null` on any other key is
+    /// rejected, not ignored.
     /// Returns `{ container, diagnostics }`.
     pub fn update_container(
         &self,
@@ -2188,7 +2207,8 @@ impl SrsRepository {
     /// Link an existing source document to a record instance.
     ///
     /// `input_json` is `{"instanceId":"<uuid>","documentId":"<uuid>"}`.
-    /// Returns `{"instanceId","documentId","sourceRefsCount"}` as a JS value.
+    /// Returns `{"instanceId","documentId","sourceRefsCount","alreadyLinked"}` as a JS value.
+    /// Linking an already-linked pair is a no-op reporting `alreadyLinked: true`.
     pub fn link_attachment(&self, input_json: &str) -> Result<JsValue, JsValue> {
         let input: LinkAttachmentBindingInput = serde_json::from_str(input_json)
             .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
@@ -2197,6 +2217,44 @@ impl SrsRepository {
             LinkAttachmentInput {
                 instance_id: input.instance_id,
                 document_id: input.document_id,
+            },
+        )
+        .map_err(|e| js_err(&e))?;
+        to_js(&result)
+    }
+
+    /// Remove the `attaches` link between a record and a source document; the file stays.
+    ///
+    /// `input_json` is `{"instanceId":"<uuid>","documentId":"<uuid>"}`.
+    /// Returns `{"instanceId","documentId","refsRemoved"}` as a JS value.
+    pub fn unlink_attachment(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: LinkAttachmentBindingInput = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
+        let result = attachment_service::unlink_attachment(
+            &self.store,
+            UnlinkAttachmentInput {
+                instance_id: input.instance_id,
+                document_id: input.document_id,
+            },
+        )
+        .map_err(|e| js_err(&e))?;
+        to_js(&result)
+    }
+
+    /// Delete a source document (content file and sidecar).
+    ///
+    /// `input_json` is `{"documentId":"<uuid>","force":false}` (`force` defaults to false).
+    /// Without `force`, refuses with code `cannot-delete-in-use` while any record still
+    /// references the document; with `force`, those references are removed in the same
+    /// call. Returns `{"documentId","contentPath","refsRemoved"}` as a JS value.
+    pub fn remove_attachment(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: RemoveAttachmentBindingInput = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
+        let result = attachment_service::remove_attachment(
+            &self.store,
+            RemoveAttachmentInput {
+                document_id: input.document_id,
+                force: input.force,
             },
         )
         .map_err(|e| js_err(&e))?;
@@ -2430,6 +2488,14 @@ struct LinkAttachmentBindingInput {
     document_id: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoveAttachmentBindingInput {
+    document_id: String,
+    #[serde(default)]
+    force: bool,
+}
+
 #[cfg(test)]
 mod tests {
     /// Fixtures authored below revision 10 are brought to it through the registry ladder
@@ -2476,6 +2542,7 @@ mod tests {
                 max_total_bytes: Some(3),
             },
             policy_record_present: true,
+            duplicate_policy_records: 0,
         };
         assert_eq!(
             serde_json::to_value(set).unwrap(),
@@ -3454,10 +3521,10 @@ mod tests {
         .expect("rebuild_precedes_chain should succeed");
 
         assert_eq!(result.created.len(), 2);
-        assert_eq!(result.created[0].source_id, "id-a");
-        assert_eq!(result.created[0].target_id, "id-b");
-        assert_eq!(result.created[1].source_id, "id-b");
-        assert_eq!(result.created[1].target_id, "id-c");
+        assert_eq!(result.created[0].source_instance_id, "id-a");
+        assert_eq!(result.created[0].target_instance_id, "id-b");
+        assert_eq!(result.created[1].source_instance_id, "id-b");
+        assert_eq!(result.created[1].target_instance_id, "id-c");
     }
 
     fn precedes_chain_splice_test_srsj() -> String {
@@ -3790,11 +3857,13 @@ mod tests {
             instance_id: "inst-001".to_string(),
             document_id: "doc-001".to_string(),
             source_refs_count: 3,
+            already_linked: true,
         };
         let json = serde_json::to_value(&result).expect("LinkAttachmentResult must serialize");
         assert_eq!(json["instanceId"].as_str(), Some("inst-001"));
         assert_eq!(json["documentId"].as_str(), Some("doc-001"));
         assert_eq!(json["sourceRefsCount"].as_u64(), Some(3));
+        assert_eq!(json["alreadyLinked"].as_bool(), Some(true));
     }
 
     /// Verify that `ProjectedRecord.relations` serialises with camelCase keys matching the

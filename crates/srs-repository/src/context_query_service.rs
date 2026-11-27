@@ -212,18 +212,18 @@ pub fn get_record_context(
     // Category filtering needs it; a compact projection only improves with it (labels and
     // summaries), so — like `list_neighbours` — it tolerates a package that will not load.
     let package = if !query.exclude_relation_categories.is_empty() {
-        Some(store.load_package()?)
+        Some(crate::store::package_snapshot(store)?)
     } else if compact {
-        store.load_package().ok()
+        crate::store::package_snapshot(store).ok()
     } else {
         None
     };
     let card_ctx = if compact {
         let manifest = store.load_manifest()?;
         Some(CardContext {
-            package: package.as_ref(),
+            package: package.as_deref(),
             labels: package
-                .as_ref()
+                .as_deref()
                 .map(crate::record_label::build_label_indexes_from_package),
             repo_id: crate::resource_uri::repository_id(&manifest)
                 .unwrap_or_default()
@@ -233,8 +233,9 @@ pub fn get_record_context(
     } else {
         None
     };
-    // ponytail: two full relation scans and a neighbour load per edge; add a per-id cache /
-    // single pass if hub records measure slow. A self-relation appears once as out, once as in.
+    // ponytail: two in-memory scans of the memoized relation set (srs-rust#1649) and a
+    // neighbour load per edge; add a by-endpoint index if hub records measure slow. A
+    // self-relation appears once as out, once as in.
     let mut relations = Vec::new();
     for (direction, filter) in [
         (
@@ -262,8 +263,8 @@ pub fn get_record_context(
                 }
             }
             let other = match direction {
-                EdgeDirection::Out => &relation.target_id,
-                EdgeDirection::In => &relation.source_id,
+                EdgeDirection::Out => &relation.target_instance_id,
+                EdgeDirection::In => &relation.source_instance_id,
             };
             let neighbour = record_store::get_instance_by_id(store, other)?;
             let created = neighbour
@@ -423,8 +424,8 @@ fn context_markdown(ctx: &RecordContextResult, field_rows: &str) -> String {
             group = Some(key);
         }
         let other = match rel.direction {
-            EdgeDirection::Out => &rel.relation.target_id,
-            EdgeDirection::In => &rel.relation.source_id,
+            EdgeDirection::Out => &rel.relation.target_instance_id,
+            EdgeDirection::In => &rel.relation.source_instance_id,
         };
         match &rel.neighbour {
             Some(ContextInstance::Card(c)) => {
@@ -467,7 +468,7 @@ struct CardContext<'a> {
     with_summary: bool,
 }
 
-type LabelIndexes = (
+pub(crate) type LabelIndexes = (
     crate::record_label::FieldNameIndex,
     crate::record_label::IdentityFieldIndex,
 );
@@ -502,7 +503,7 @@ impl CardContext<'_> {
 /// `list_neighbours` and the context `card`/`label` projection: label via
 /// `record_display_label` (Tier 2, when the label indexes loaded) or the note title,
 /// type for records, and the `srs://` uri. `lifecycle_state`/`summary` are left `None`.
-fn neighbour_summary(
+pub(crate) fn neighbour_summary(
     id: &str,
     instance: Option<&record_store::LoadedInstance>,
     labels: Option<&LabelIndexes>,
@@ -618,7 +619,18 @@ pub struct NeighboursResult {
     /// Every matching edge, before paging.
     pub total: usize,
     pub neighbours: Vec<NeighbourEdge>,
+    /// Non-fatal findings: a `relationType` filter naming no installed relation type
+    /// (`neighbours-relation-type-unknown`), so an empty page is not read as "no edges".
+    #[serde(default)]
+    pub diagnostics: Vec<String>,
+    /// The same findings as structured entries (ADR-057).
+    #[serde(default)]
+    pub diagnostics_structured: Vec<crate::diagnostic::Diagnostic>,
 }
+
+/// Stable code of the warning for a `relationType` filter that no installed relation type has
+/// as its key (srs-rust#1682).
+pub const NEIGHBOURS_RELATION_TYPE_UNKNOWN: &str = "neighbours-relation-type-unknown";
 
 /// Bounded read of an instance's relation neighbours. Edges are filtered, sorted by
 /// `(relationType, createdAt none-last, relationId)` and paged first; only the returned page
@@ -633,6 +645,28 @@ pub fn list_neighbours(
         return Err(RepositoryError::NotFound {
             path: std::path::PathBuf::from(id),
         });
+    }
+    let mut diagnostics = crate::diagnostic::Diagnostics::new();
+    // The filter is an exact key match, so a namespaced spelling of a core key matches nothing.
+    // Say so rather than answering a bare zero. A package that will not load is not a finding.
+    if let (Some(wanted), Ok(package)) = (query.relation_type.as_deref(), store.load_package()) {
+        let mut keys: Vec<&str> = package
+            .relation_type_definitions
+            .iter()
+            .map(|d| d.key.as_str())
+            .collect();
+        if !keys.contains(&wanted) {
+            keys.sort_unstable();
+            diagnostics.warning(
+                NEIGHBOURS_RELATION_TYPE_UNKNOWN,
+                format!(
+                    "warning: {NEIGHBOURS_RELATION_TYPE_UNKNOWN}: no relation type with key \
+                     '{wanted}' is installed; the filter is an exact key, so no edge can match \
+                     (installed keys: {}; see srs://<repositoryId>/relation-types)",
+                    keys.join(", ")
+                ),
+            );
+        }
     }
     let wants = |d| query.direction.is_none_or(|q| q == d);
     let mut edges = Vec::new();
@@ -688,10 +722,13 @@ pub fn list_neighbours(
             }
         })
         .collect();
+    let (diagnostics, diagnostics_structured) = diagnostics.into_parts();
     Ok(NeighboursResult {
         instance_id: query.instance_id,
         total,
         neighbours,
+        diagnostics,
+        diagnostics_structured,
     })
 }
 
@@ -1096,8 +1133,8 @@ mod tests {
             .iter()
             .find(|r| r.direction == EdgeDirection::Out)
             .unwrap();
-        assert_eq!(out.relation.source_id, src.instance_id);
-        assert_eq!(out.relation.target_id, tgt.instance_id);
+        assert_eq!(out.relation.source_instance_id, src.instance_id);
+        assert_eq!(out.relation.target_instance_id, tgt.instance_id);
         assert!(
             matches!(&out.neighbour, Some(ContextInstance::Record(r)) if r.instance_id == tgt.instance_id)
         );
@@ -1106,7 +1143,7 @@ mod tests {
             .iter()
             .find(|r| r.direction == EdgeDirection::In)
             .unwrap();
-        assert_eq!(inn.relation.source_id, unrelated.instance_id);
+        assert_eq!(inn.relation.source_instance_id, unrelated.instance_id);
         assert!(
             matches!(&inn.neighbour, Some(ContextInstance::Record(r)) if r.instance_id == unrelated.instance_id)
         );
@@ -1194,7 +1231,7 @@ mod tests {
             let rel = r
                 .relations
                 .iter()
-                .find(|e| e.relation.target_id == id)
+                .find(|e| e.relation.target_instance_id == id)
                 .expect("edge");
             assert!(rel.relation.source_label.is_none() && rel.relation.target_label.is_none());
             match rel.neighbour.clone().expect("neighbour") {
@@ -1218,7 +1255,7 @@ mod tests {
         let full_label = |id: &str| {
             full.relations
                 .iter()
-                .find(|e| e.relation.target_id == id)
+                .find(|e| e.relation.target_instance_id == id)
                 .and_then(|e| e.relation.target_label.clone())
         };
         let c = card_of(&card, &spoke.instance_id);
@@ -1534,13 +1571,13 @@ mod tests {
         let ids: Vec<_> = r
             .relations
             .iter()
-            .map(|e| e.relation.source_id.clone())
+            .map(|e| e.relation.source_instance_id.clone())
             .collect();
         assert_eq!(ids.len(), 2);
         let created = |id: &str| {
             r.relations
                 .iter()
-                .find(|e| e.relation.source_id == id)
+                .find(|e| e.relation.source_instance_id == id)
                 .and_then(|e| match &e.neighbour {
                     Some(ContextInstance::Record(rec)) => rec.created_at.clone(),
                     _ => None,
@@ -1828,6 +1865,37 @@ mod tests {
             .neighbours
             .iter()
             .all(|e| e.direction == EdgeDirection::In));
+    }
+
+    #[test]
+    fn neighbours_unknown_relation_type_warns_srs_rust_1682() {
+        let (store, hub, _) = neighbours_fixture(2);
+        let run = |t: &str| {
+            list_neighbours(
+                &store,
+                NeighboursQuery {
+                    relation_type: Some(t.into()),
+                    ..nq(&hub)
+                },
+                NeighboursPage::default(),
+            )
+            .unwrap()
+        };
+        let bad = run("com.semanticops.srs/depends-on");
+        assert_eq!(bad.total, 0);
+        assert_eq!(bad.diagnostics.len(), 1);
+        assert!(bad.diagnostics[0].contains(NEIGHBOURS_RELATION_TYPE_UNKNOWN));
+        assert!(bad.diagnostics[0].contains("'com.semanticops.srs/depends-on'"));
+        assert_eq!(bad.diagnostics_structured.len(), 1);
+        assert_eq!(
+            bad.diagnostics_structured[0].code,
+            NEIGHBOURS_RELATION_TYPE_UNKNOWN
+        );
+        // No filter, no warning.
+        assert!(list_neighbours(&store, nq(&hub), NeighboursPage::default())
+            .unwrap()
+            .diagnostics
+            .is_empty());
     }
 
     #[test]

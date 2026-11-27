@@ -3,11 +3,16 @@
   "title": "AttachmentLinkPayload",
   "type": "object",
   "required": [
+    "alreadyLinked",
     "documentId",
     "instanceId",
     "sourceRefsCount"
   ],
   "properties": {
+    "alreadyLinked": {
+      "description": "`true` when the pair was already linked and nothing was written.",
+      "type": "boolean"
+    },
     "documentId": {
       "type": "string"
     },

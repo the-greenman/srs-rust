@@ -135,7 +135,7 @@ fn context_resource_native_matches_browser_session() {
         .unwrap();
     let ctx: Value = serde_json::from_str(text).unwrap();
     assert_eq!(ctx["relations"][0]["direction"], "in");
-    assert_eq!(ctx["relations"][0]["sourceId"], OTHER_ID);
+    assert_eq!(ctx["relations"][0]["sourceInstanceId"], OTHER_ID);
     assert_eq!(ctx["relations"][0]["neighbour"]["kind"], "record");
     assert_eq!(ctx["relations"][0]["neighbour"]["instanceId"], OTHER_ID);
 }

@@ -266,6 +266,11 @@ fn cmd_protocol_find_by_target_type(ctx: CliContext, type_id: String) -> Result<
                     protocol_name: result.protocol_name,
                     stages,
                     diagnostics: result.diagnostics,
+                    diagnostics_structured: result
+                        .diagnostics_structured
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
                 },
             )
         }

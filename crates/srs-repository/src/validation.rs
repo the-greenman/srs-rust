@@ -223,6 +223,32 @@ fn data_model_revision_diagnostics(manifest_value: &Value) -> Vec<ValidationDiag
     }]
 }
 
+/// The tags that fail RFC-006 vocabulary resolution (RFC-009 C4, I-65): the one rule
+/// for Record and Container tags. Runs only when the package declares at least one
+/// Vocabulary; an open-mode vocabulary accepts any tag key (srs-usage.md), so an
+/// unresolved tag under one is legal data, not a diagnostic (srs-rust#702).
+fn unresolved_tags<'a>(package: &crate::package::Package, tags: &'a [String]) -> Vec<&'a str> {
+    if package.vocabularies.is_empty() {
+        return Vec::new();
+    }
+    let any_open = package
+        .vocabularies
+        .iter()
+        .any(|v| matches!(v.mode, srs_core::types::vocabulary::VocabularyMode::Open));
+    if any_open {
+        return Vec::new();
+    }
+    tags.iter()
+        .filter(|tag| {
+            !package
+                .vocabularies
+                .iter()
+                .any(|v| v.resolve_term_by_key(tag).is_some())
+        })
+        .map(String::as_str)
+        .collect()
+}
+
 /// Best-effort load of a Container from a `cat.containers` catalog entry at its locator
 /// path (the root included, RFC-052).
 /// Silent-skip (`None`) on any load/parse failure: both callers (the I-145 and
@@ -801,37 +827,20 @@ pub fn validate_repository(
                         }
 
                         // Tier-graduated tag resolution enforcement (C4):
-                        // Only runs when at least one Vocabulary is declared in the package.
                         // Notes (tier 0) are exempt — only tier-2 Records enforce this.
-                        if !package.vocabularies.is_empty() {
-                            if let Some(tags) = &record.tags {
-                                let any_open = package.vocabularies.iter().any(|v| {
-                                    matches!(
-                                        v.mode,
-                                        srs_core::types::vocabulary::VocabularyMode::Open
-                                    )
+                        // The rule lives in `unresolved_tags`, shared with Containers (I-65).
+                        if let Some(tags) = &record.tags {
+                            for tag in unresolved_tags(package, tags) {
+                                diagnostics.push(ValidationDiagnostic {
+                                    code: None,
+                                    severity: DiagnosticSeverity::Error,
+                                    relative_path: rel_path.clone(),
+                                    schema_id: None,
+                                    message: format!(
+                                        "tag '{}' on record '{}' does not resolve to any Term key or alias in the declared vocabularies",
+                                        tag, record.instance_id
+                                    ),
                                 });
-                                for tag in tags {
-                                    let resolved = package
-                                        .vocabularies
-                                        .iter()
-                                        .any(|v| v.resolve_term_by_key(tag).is_some());
-                                    // An open-mode vocabulary accepts any tag key
-                                    // (srs-usage.md) — an unresolved tag under one is
-                                    // legal data, not a diagnostic (srs-rust#702).
-                                    if !resolved && !any_open {
-                                        diagnostics.push(ValidationDiagnostic {
- code: None,
-                                            severity: DiagnosticSeverity::Error,
-                                            relative_path: rel_path.clone(),
-                                            schema_id: None,
-                                            message: format!(
-                                                "tag '{}' on record '{}' does not resolve to any Term key or alias in the declared vocabularies",
-                                                tag, record.instance_id
-                                            ),
-                                        });
-                                    }
-                                }
                             }
                         }
 
@@ -889,10 +898,10 @@ pub fn validate_repository(
                                             let satisfied = rels.iter().any(|r| {
                                                 let anchored = match direction {
                                                     RelationDirection::Incoming => {
-                                                        r.target_id == record.instance_id
+                                                        r.target_instance_id == record.instance_id
                                                     }
                                                     RelationDirection::Outgoing => {
-                                                        r.source_id == record.instance_id
+                                                        r.source_instance_id == record.instance_id
                                                     }
                                                 };
                                                 anchored && declared.contains(&r.relation_type)
@@ -1369,6 +1378,41 @@ pub fn validate_repository(
         // was emitted during the main loop; skip the policy check silently.
     }
 
+    // --- svg-unsafe at rest (decision 866167c1, srs-rust#1617) ---
+    // Attach refuses an unsafe SVG; import and merge copy files as they are, so the
+    // same check reports one already stored (warning: imports stay lossless, and
+    // clients show images only through <img>).
+    let src_docs_base = manifest
+        .source_documents_path
+        .as_deref()
+        .unwrap_or("source-documents");
+    for entry in &cat.source_documents {
+        let Some(meta) = entry
+            .locator
+            .as_deref()
+            .and_then(|l| store.load_instance_json(l).ok())
+            .and_then(|v| serde_json::from_value::<SourceDocumentMeta>(v).ok())
+        else {
+            continue;
+        };
+        let content_repo_rel = format!("{}/{}", src_docs_base, meta.content_path);
+        // Tombstone (content absent) or unreadable: nothing to check.
+        // ponytail: reads every document's bytes on each validate (attach sniffs
+        // undeclared XML too); skip non-XML content types if large corpora make it slow.
+        let Ok(bytes) = store.load_binary_file(&content_repo_rel) else {
+            continue;
+        };
+        if let Err(e) = crate::svg_safety::check_svg(&bytes, &meta.content_type) {
+            diagnostics.push(ValidationDiagnostic {
+                code: Some(e.code().to_string()),
+                severity: DiagnosticSeverity::Warning,
+                relative_path: content_repo_rel,
+                schema_id: None,
+                message: e.to_string(),
+            });
+        }
+    }
+
     // --- Inv 43: cross-package base type references ---
     // RFC-044 [R7]/[R10] (srs-rust#1173): this check used to approximate coverage by
     // matching a `packageDependencies` entry's `namespace` against the specializing
@@ -1735,6 +1779,31 @@ pub fn validate_repository(
                     relative_path: format!("container {}", container.container_id),
                     schema_id: None,
                     message,
+                });
+            }
+        }
+    }
+
+    // --- I-65: Container tags resolve against the package Vocabularies, by the same
+    // rule as Record tags (`unresolved_tags`). Needs the package; skipped without one.
+    if let Ok(package) = store.load_package() {
+        for centry in &cat.containers {
+            let Some(container) = load_container_for_diagnostics(store, centry) else {
+                continue;
+            };
+            let Some(tags) = &container.tags else {
+                continue;
+            };
+            for tag in unresolved_tags(&package, tags) {
+                diagnostics.push(ValidationDiagnostic {
+                    code: None,
+                    severity: DiagnosticSeverity::Error,
+                    relative_path: format!("container {}", container.container_id),
+                    schema_id: None,
+                    message: format!(
+                        "tag '{}' on container '{}' does not resolve to any Term key or alias in the declared vocabularies",
+                        tag, container.container_id
+                    ),
                 });
             }
         }
@@ -2371,7 +2440,39 @@ pub(crate) fn composition_render_view_messages(
     .collect()
 }
 
-/// I-12 and I-35 over every View and Composition of the package.
+/// I-44 for one Composition: every `navigationLinks[].fromSectionId` and `toSectionId` names a
+/// `sectionId` declared in the Composition's own `sections[]`. It needs only the Composition,
+/// not the package. Shared by `repo validate` and the pre-write refusal in `view_service`
+/// (srs-rust#1666, ADR-048 rule 3).
+pub(crate) fn composition_navigation_link_messages(
+    composition: &srs_core::types::view::Composition,
+) -> Vec<String> {
+    let Some(links) = composition.navigation_links.as_ref() else {
+        return Vec::new();
+    };
+    let declared: std::collections::HashSet<&str> = composition
+        .sections
+        .iter()
+        .map(|s| s.section_id.as_str())
+        .collect();
+    let mut messages = Vec::new();
+    for (i, link) in links.iter().enumerate() {
+        for (field, id) in [
+            ("fromSectionId", &link.from_section_id),
+            ("toSectionId", &link.to_section_id),
+        ] {
+            if !declared.contains(id.as_str()) {
+                messages.push(format!(
+                    "composition '{}' ({}): I-44 navigationLinks/{i}/{field} '{id}' names no sectionId declared in sections[]",
+                    composition.name, composition.id
+                ));
+            }
+        }
+    }
+    messages
+}
+
+/// I-12, I-35 and I-44 over every View and Composition of the package.
 fn validate_definition_references(
     pkg: &crate::package::Package,
     diagnostics: &mut Vec<ValidationDiagnostic>,
@@ -2391,6 +2492,15 @@ fn validate_definition_references(
         for message in composition_render_view_messages(pkg, composition) {
             diagnostics.push(ValidationDiagnostic {
                 code: Some("composition-render-view-unresolved".to_string()),
+                severity: DiagnosticSeverity::Error,
+                relative_path: "package/package.json".to_string(),
+                schema_id: None,
+                message,
+            });
+        }
+        for message in composition_navigation_link_messages(composition) {
+            diagnostics.push(ValidationDiagnostic {
+                code: Some("composition-navigation-link-unresolved".to_string()),
                 severity: DiagnosticSeverity::Error,
                 relative_path: "package/package.json".to_string(),
                 schema_id: None,
@@ -2471,6 +2581,25 @@ pub(crate) fn type_cross_field_rule_scope_messages(
         }
     }
     messages
+}
+
+/// V8 for one Type: a `lifecycleRef` must name an installed Lifecycle. Shared by
+/// `repo validate` and the `type create` / `type update` pre-write refusal (srs-rust#1691).
+pub(crate) fn type_lifecycle_ref_messages(
+    pkg: &crate::package::Package,
+    rt: &srs_core::types::record_type::RecordType,
+) -> Vec<String> {
+    match &rt.lifecycle_ref {
+        Some(ref_id)
+            if rt.lifecycle.is_none() && !pkg.lifecycles.iter().any(|lc| &lc.id == ref_id) =>
+        {
+            vec![format!(
+                "V8: type '{}' lifecycleRef '{}' does not resolve to an installed Lifecycle",
+                rt.name, ref_id
+            )]
+        }
+        _ => Vec::new(),
+    }
 }
 
 /// V9 / I-4 / I-5 for one Type's inline lifecycle: structural integrity, and
@@ -2626,19 +2755,14 @@ fn validate_vocabulary_invariants(
         }
 
         // V8: lifecycleRef must resolve
-        if let Some(ref_id) = &rt.lifecycle_ref {
-            if !pkg.lifecycles.iter().any(|lc| &lc.id == ref_id) {
-                diagnostics.push(ValidationDiagnostic {
- code: None,
-                    severity: DiagnosticSeverity::Error,
-                    relative_path: "package/package.json".to_string(),
-                    schema_id: None,
-                    message: format!(
-                        "V8: type '{}' lifecycleRef '{}' does not resolve to an installed Lifecycle",
-                        rt.name, ref_id
-                    ),
-                });
-            }
+        for message in type_lifecycle_ref_messages(pkg, rt) {
+            diagnostics.push(ValidationDiagnostic {
+                code: None,
+                severity: DiagnosticSeverity::Error,
+                relative_path: "package/package.json".to_string(),
+                schema_id: None,
+                message,
+            });
         }
 
         // V9: structural checks on inline TypeLifecycle

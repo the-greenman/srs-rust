@@ -31,6 +31,7 @@ pub mod doctor_service;
 pub mod duplicate_service;
 pub mod error;
 pub mod export_service;
+pub mod field_filter;
 pub(crate) mod field_json;
 #[cfg(test)]
 mod field_json_parity_tests;
@@ -78,6 +79,7 @@ pub mod rfc051_container_entries_migration_service;
 pub mod rfc052_root_container_migration_service;
 #[cfg(test)]
 mod selector_parity_tests;
+pub mod serde_util;
 pub mod services;
 pub mod slice_service;
 pub mod source_document_service;

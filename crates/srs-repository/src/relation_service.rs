@@ -38,16 +38,16 @@ use std::collections::{HashMap, HashSet};
 pub struct RelationSummary {
     pub relation_id: String,
     pub relation_type: String,
-    pub source_id: String,
-    pub target_id: String,
-    /// Display label for `source_id`, resolved via `record_label` (RFC-020 Rule
+    pub source_instance_id: String,
+    pub target_instance_id: String,
+    /// Display label for `source_instance_id`, resolved via `record_label` (RFC-020 Rule
     /// [N+36] for Tier-2, `Note.title` for Tier-0) — srs-rust#1046. `None` when
     /// the endpoint isn't an instance the label helper can resolve (a Container,
     /// a dangling reference, or an I/O error loading it) — a client falls back
     /// to `source_id` in that case, same as today.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_label: Option<String>,
-    /// Display label for `target_id` — see `source_label`.
+    /// Display label for `target_instance_id` — see `source_label`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_label: Option<String>,
     /// RFC-046 creator of the stored relation (who asserted it), carried
@@ -125,7 +125,7 @@ pub fn list_relations(
         None
     };
 
-    let relations = load_relations(store)?;
+    let relations = relations_snapshot(store)?;
 
     // One package load for both label indexes, and a per-id cache so a busy
     // endpoint (e.g. a hub record with many relations) is resolved once, not
@@ -146,7 +146,7 @@ pub fn list_relations(
     };
 
     let filtered: Vec<_> = relations
-        .into_iter()
+        .iter()
         .filter(|r| {
             // Container filter: both source AND target must be members
             if let Some(ref member_set) = member_ids {
@@ -178,8 +178,8 @@ pub fn list_relations(
             relation_type: r.relation_type.clone(),
             source_label: label_for(&r.source_instance_id),
             target_label: label_for(&r.target_instance_id),
-            source_id: r.source_instance_id.clone(),
-            target_id: r.target_instance_id.clone(),
+            source_instance_id: r.source_instance_id.clone(),
+            target_instance_id: r.target_instance_id.clone(),
             created_by: r.created_by.clone(),
         })
         .collect();
@@ -327,6 +327,19 @@ pub fn create_relation(
         });
     }
 
+    // srs-rust#1680: an edge (source, type, target) that already exists is not written
+    // twice. `repo validate` warns on a duplicate edge (srs-rust#557), so the write path
+    // agrees: the create is idempotent and returns the stored relation unchanged.
+    if let Some(existing) = load_relations_with_locators(store)?.into_iter().find(|lr| {
+        lr.relation.relation_type == relation.relation_type
+            && lr.relation.source_instance_id == relation.source_instance_id
+            && lr.relation.target_instance_id == relation.target_instance_id
+    }) {
+        return Ok(CreateRelationResult {
+            relation: existing.relation,
+        });
+    }
+
     // JSON-schema gate preserved from the collection era: validate the relation
     // shape against the relations-collection schema's item definition. The
     // standalone relation.json mirror schema is registered in srs-schema
@@ -453,10 +466,29 @@ pub(crate) fn load_relations_with_locators(
 pub(crate) fn load_relations(
     store: &dyn RepositoryStore,
 ) -> Result<Vec<Relation>, RepositoryError> {
-    Ok(load_relations_with_locators(store)?
-        .into_iter()
-        .map(|lr| lr.relation)
-        .collect())
+    // A store with no memo (one-shot paths) takes the parsed Vec without a second copy.
+    let snapshot = relations_snapshot(store)?;
+    Ok(std::rc::Rc::try_unwrap(snapshot).unwrap_or_else(|shared| (*shared).clone()))
+}
+
+/// [`load_relations`] as the store's shared snapshot (srs-rust#1649): parsed and
+/// duplicate-checked once per write epoch, so a filtered read clones only its matches.
+pub(crate) fn relations_snapshot(
+    store: &dyn RepositoryStore,
+) -> Result<std::rc::Rc<Vec<Relation>>, RepositoryError> {
+    if let Some(hit) = store.read_memo().and_then(|m| m.borrow().relations.clone()) {
+        return Ok(hit);
+    }
+    let all: std::rc::Rc<Vec<Relation>> = std::rc::Rc::new(
+        load_relations_with_locators(store)?
+            .into_iter()
+            .map(|lr| lr.relation)
+            .collect(),
+    );
+    if let Some(memo) = store.read_memo() {
+        memo.borrow_mut().relations = Some(all.clone());
+    }
+    Ok(all)
 }
 
 /// Remove every relation matching `pred`, across both storage forms.
@@ -524,8 +556,8 @@ impl From<Relation> for RelationSummary {
         Self {
             relation_id: r.relation_id,
             relation_type: r.relation_type,
-            source_id: r.source_instance_id,
-            target_id: r.target_instance_id,
+            source_instance_id: r.source_instance_id,
+            target_instance_id: r.target_instance_id,
             source_label: None,
             target_label: None,
             created_by: r.created_by,
@@ -895,8 +927,8 @@ pub fn rebuild_precedes_chain(
             target_label: label_indexes.as_ref().and_then(|(fni, ifi)| {
                 resolve_endpoint_label(store, &r.target_instance_id, fni, ifi)
             }),
-            source_id: r.source_instance_id.clone(),
-            target_id: r.target_instance_id.clone(),
+            source_instance_id: r.source_instance_id.clone(),
+            target_instance_id: r.target_instance_id.clone(),
             created_by: r.created_by.clone(),
         })
         .collect();
@@ -1159,8 +1191,8 @@ fn apply_precedes_splice(
         target_label: label_indexes
             .as_ref()
             .and_then(|(fni, ifi)| resolve_endpoint_label(store, target, fni, ifi)),
-        source_id: source.to_string(),
-        target_id: target.to_string(),
+        source_instance_id: source.to_string(),
+        target_instance_id: target.to_string(),
         created_by: None,
     };
 
@@ -1495,7 +1527,7 @@ mod tests {
         };
         let result = list_relations(&store, filter).unwrap();
         assert_eq!(result.len(), 2);
-        assert!(result.iter().all(|r| r.source_id == "note-1"));
+        assert!(result.iter().all(|r| r.source_instance_id == "note-1"));
     }
 
     #[test]
@@ -2002,6 +2034,51 @@ mod tests {
             "normal reader is denied at the collection: {err}"
         );
     }
+    /// srs-rust#1680: creating an edge that already exists is idempotent. The second
+    /// create returns the stored relation unchanged and writes nothing, so the write
+    /// path agrees with `repo validate`'s duplicate-edge check (srs-rust#557).
+    #[test]
+    fn create_relation_is_idempotent_for_an_existing_edge() {
+        let store = make_store_with_relations();
+        let def = links_def(None);
+        let first = create_relation(
+            &store,
+            make_relation(
+                "da000004-0000-4000-a000-000000000004",
+                "note-3",
+                "note-4",
+                "com.test/links",
+            ),
+            std::slice::from_ref(&def),
+        )
+        .unwrap();
+        let before = load_relations(&store).unwrap().len();
+        // Same edge, a different relationId (and a blank one, as a re-run writer sends).
+        for id in ["da000005-0000-4000-a000-000000000005", ""] {
+            let again = create_relation(
+                &store,
+                make_relation(id, "note-3", "note-4", "com.test/links"),
+                std::slice::from_ref(&def),
+            )
+            .unwrap();
+            assert_eq!(
+                again.relation, first.relation,
+                "returns the existing relation"
+            );
+        }
+        let after = load_relations(&store).unwrap();
+        assert_eq!(after.len(), before, "nothing written");
+        let edge_count = after
+            .iter()
+            .filter(|r| {
+                r.source_instance_id == "note-3"
+                    && r.target_instance_id == "note-4"
+                    && r.relation_type == "com.test/links"
+            })
+            .count();
+        assert_eq!(edge_count, 1);
+    }
+
     #[test]
     fn create_relation_refuses_duplicate_id() {
         let store = make_store_with_relations();
@@ -2350,6 +2427,9 @@ mod tests {
             fn save_binary_file(&self, _: &str, _: &[u8]) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
+            fn delete_source_file(&self, _: &str) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
             fn validate_package_ref_path(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
@@ -2547,10 +2627,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.created.len(), 2, "3 ids → 2 edges");
-        assert_eq!(result.created[0].source_id, "id-a");
-        assert_eq!(result.created[0].target_id, "id-b");
-        assert_eq!(result.created[1].source_id, "id-b");
-        assert_eq!(result.created[1].target_id, "id-c");
+        assert_eq!(result.created[0].source_instance_id, "id-a");
+        assert_eq!(result.created[0].target_instance_id, "id-b");
+        assert_eq!(result.created[1].source_instance_id, "id-b");
+        assert_eq!(result.created[1].target_instance_id, "id-c");
         let all = list_relations(&store, ListRelationsFilter::default()).unwrap();
         assert_eq!(
             all.iter().filter(|r| r.relation_type == "precedes").count(),
@@ -2610,10 +2690,10 @@ mod tests {
                 .any(|r| r.relation_id == "eeeeeeee-0000-4000-8000-00000000ff02"),
             "old-2 must be removed"
         );
-        assert_eq!(result.created[0].source_id, "id-a");
-        assert_eq!(result.created[0].target_id, "id-b");
-        assert_eq!(result.created[1].source_id, "id-b");
-        assert_eq!(result.created[1].target_id, "id-c");
+        assert_eq!(result.created[0].source_instance_id, "id-a");
+        assert_eq!(result.created[0].target_instance_id, "id-b");
+        assert_eq!(result.created[1].source_instance_id, "id-b");
+        assert_eq!(result.created[1].target_instance_id, "id-c");
     }
 
     #[test]
@@ -2753,10 +2833,10 @@ mod tests {
         // Enumeration order carries no meaning (RFC-038); assert the edge set.
         assert!(precedes
             .iter()
-            .any(|r| r.source_id == "id-a" && r.target_id == "id-b"));
+            .any(|r| r.source_instance_id == "id-a" && r.target_instance_id == "id-b"));
         assert!(precedes
             .iter()
-            .any(|r| r.source_id == "id-b" && r.target_id == "id-c"));
+            .any(|r| r.source_instance_id == "id-b" && r.target_instance_id == "id-c"));
     }
 
     // ── Chain-local splice (srs-rust#1124, Gap 2) ─────────────────────────────
@@ -2922,8 +3002,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.removed.len(), 1);
-        assert_eq!(result.removed[0].source_id, "b");
-        assert_eq!(result.removed[0].target_id, "c");
+        assert_eq!(result.removed[0].source_instance_id, "b");
+        assert_eq!(result.removed[0].target_instance_id, "c");
         assert_eq!(result.created.len(), 2);
 
         let edges = precedes_edges(&store);
@@ -2976,8 +3056,8 @@ mod tests {
 
         assert_eq!(result.removed.len(), 2, "both incident edges removed");
         assert_eq!(result.created.len(), 1, "reconnect edge created");
-        assert_eq!(result.created[0].source_id, "a");
-        assert_eq!(result.created[0].target_id, "c");
+        assert_eq!(result.created[0].source_instance_id, "a");
+        assert_eq!(result.created[0].target_instance_id, "c");
 
         assert_eq!(
             precedes_edges(&store),

@@ -210,6 +210,8 @@ fn main() {
     write_schema!("repo-presentation-list", RepoPresentationsPayload);
     write_schema!("repo-presentation-add", RepoPresentationMutatePayload);
     write_schema!("repo-presentation-remove", RepoPresentationMutatePayload);
+    write_schema!("repo-guidance-get", RepoGuidancePayload);
+    write_schema!("repo-guidance-set", RepoGuidancePayload);
     write_schema!("repo-upgrade", RepoUpgradePayload);
     write_schema!("repo-migrate-identity", RepoMigrateIdentityPayload);
     write_schema!("repo-migrations", RepoMigrationsPayload);
@@ -221,6 +223,8 @@ fn main() {
     write_schema!("attachment-list", AttachmentListPayload);
     write_schema!("attachment-add", AttachmentAddPayload);
     write_schema!("attachment-link", AttachmentLinkPayload);
+    write_schema!("attachment-unlink", AttachmentUnlinkPayload);
+    write_schema!("attachment-remove", AttachmentRemovePayload);
     write_schema!(
         "attachment-resolve-view-attachments",
         ResolveViewAttachmentsPayload

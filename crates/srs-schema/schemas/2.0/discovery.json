@@ -53,8 +53,58 @@
         "contentMatch": {
           "type": "string",
           "description": "Free-text recall-floor predicate. The implementation MUST include every instance whose Text Projection contains at least one segment whose normalized text contains the normalized form of this string as a substring (NFC + Unicode simple lowercasing)."
+        },
+        "fieldFilters": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/FieldFilter" },
+          "description": "RFC-056 [R1]: filters on a Tier 2 Record's own field values, all of which must hold (AND), in conjunction with every other predicate. An absent or empty list does not change the selection. Which tests a filter may carry, and how values compare, depend on the resolved Field's datatype (RFC-056 Change B, [R2]-[R8])."
         }
       }
+    },
+    "FieldFilter": {
+      "type": "object",
+      "description": "RFC-056: one test on one Field's value. Names the Field by fieldId (resolved by the rule that resolves a Type FieldAssignment's fieldId) and carries exactly one test. Whether a test, value type or bound kind fits the Field, and whether a date bound names a real date, cannot be expressed here; implementations check them (RFC-056 [R7], [R8]).",
+      "required": ["fieldId"],
+      "additionalProperties": false,
+      "properties": {
+        "fieldId": { "type": "string", "format": "uuid", "description": "The Field whose value is tested, by its bare UUID." },
+        "in": { "$ref": "#/$defs/FieldFilterValues", "description": "Holds when the field has a value and the value (for a list-valued field, any element) equals a listed value (RFC-056 [R3])." },
+        "notIn": { "$ref": "#/$defs/FieldFilterValues", "description": "Holds when the field has a value and no value (for a list-valued field, no element) equals a listed value. A field with no value never matches (RFC-056 [R3])." },
+        "range": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "description": "Holds when the field has a value (for a list-valued field, any element) within the bounds, both included. On a date Field the bounds are dates, a year or month bound covering its whole period; on an integer or number Field they are numbers, compared exactly by decimal value (RFC-056 [R4]).",
+          "properties": {
+            "from": { "$ref": "#/$defs/FieldFilterBound" },
+            "to": { "$ref": "#/$defs/FieldFilterBound" }
+          }
+        },
+        "missing": { "type": "boolean", "description": "true holds when the field has no value (absent, empty string, empty list or empty object); false when it has one (RFC-056 [R5])." }
+      },
+      "oneOf": [
+        { "required": ["in"] },
+        { "required": ["notIn"] },
+        { "required": ["range"] },
+        { "required": ["missing"] }
+      ]
+    },
+    "FieldFilterValues": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          { "type": "integer" },
+          { "type": "boolean" },
+          { "type": "string", "minLength": 1 }
+        ]
+      }
+    },
+    "FieldFilterBound": {
+      "oneOf": [
+        { "type": "number" },
+        { "type": "string", "pattern": "^[0-9]{4}(-(0[1-9]|1[0-2])(-(0[1-9]|[12][0-9]|3[01]))?)?$" }
+      ]
     },
     "TextSegment": {
       "type": "object",

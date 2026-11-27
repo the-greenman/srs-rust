@@ -13,11 +13,62 @@ use rmcp::ErrorData as McpError;
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use srs_mcp_core::{srs_metadata, McpApplication as _, McpApplicationError, SrsMcpApplication};
+use srs_repository::agent_index_service::{orientation_note, ORIENTATION_NOTE_MAX_BYTES};
 use srs_repository::boundary_service::{Access, Boundary};
 use srs_repository::error::RepositoryError;
 use srs_repository::store::FileStore;
 
 pub(crate) type App = SrsMcpApplication<FileStore>;
+
+/// Hard combined cap (bytes) on the repository guidance appended to the instructions
+/// (srs-rust#1668), the closing "more repositories" line included.
+const REGISTRY_GUIDANCE_MAX_BYTES: usize = 4 * ORIENTATION_NOTE_MAX_BYTES;
+/// Room kept inside the cap for that closing line.
+const MORE_LINE_MAX_BYTES: usize = 160;
+
+/// The served repositories' own aiGuidance (srs-rust#1668), as text to append to the
+/// instructions (empty when none has guidance). Computed once when the server is built: the
+/// instructions are fixed for the server's lifetime. In a registry only the default and the
+/// writable members contribute (a read-only member is reference material, not the session's
+/// workspace); the notes stop at [`REGISTRY_GUIDANCE_MAX_BYTES`], and the members past it are
+/// counted in one closing line.
+pub(crate) fn repository_guidance(boundary: &Boundary) -> String {
+    let ids: Vec<Option<&str>> = if boundary.is_registry() {
+        boundary
+            .members()
+            .iter()
+            .filter(|m| !m.read_only || m.id.eq_ignore_ascii_case(boundary.default_id()))
+            .map(|m| Some(m.id.as_str()))
+            .collect()
+    } else {
+        vec![None]
+    };
+    let mut out = String::new();
+    let mut more = 0;
+    for id in ids {
+        let Ok(target) = boundary.resolve(id, Access::Read) else {
+            continue;
+        };
+        let Some(note) = orientation_note(&FileStore::new(&target.path)) else {
+            continue;
+        };
+        if more > 0
+            || out.len() + 2 + note.len() > REGISTRY_GUIDANCE_MAX_BYTES - MORE_LINE_MAX_BYTES
+        {
+            more += 1;
+            continue;
+        }
+        out.push_str("\n\n");
+        out.push_str(&note);
+    }
+    if more > 0 {
+        out.push_str(&format!(
+            "\n\n{more} more repositories in this registry have guidance that does not fit \
+             here: read srs://<repositoryId>/agent-index for each."
+        ));
+    }
+    out
+}
 
 fn mcp_error(error: McpApplicationError) -> McpError {
     McpError::new(
@@ -40,10 +91,11 @@ fn call<T: DeserializeOwned>(
 /// The stdio server's `initialize` result: the one definition lives in
 /// `srs_metadata::initialize_result_for()` (shared with the browser dispatcher), parsed here.
 /// Serving several repositories, the instructions also name the default repository
-/// and the boundary (RFC-049 [R13]).
+/// and the boundary (RFC-049 [R13]). `guidance` is [`repository_guidance`], appended as is.
 pub(crate) fn server_info(
     profile: srs_mcp_core::tools::ToolProfile,
     boundary: &Boundary,
+    guidance: &str,
 ) -> ServerInfo {
     let mut info: ServerInfo = serde_json::from_value(srs_metadata::initialize_result_for(profile))
         .expect("srs_metadata::initialize_result_for() is a valid rmcp InitializeResult");
@@ -89,6 +141,10 @@ pub(crate) fn server_info(
             1,
         );
         info.instructions = Some(base + &note);
+    }
+    if !guidance.is_empty() {
+        let instructions = info.instructions.get_or_insert_with(String::new);
+        instructions.push_str(guidance);
     }
     info
 }

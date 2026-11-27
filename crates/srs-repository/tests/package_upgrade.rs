@@ -949,3 +949,45 @@ fn prior_version_sanity_checks() {
     // `invalid-input` is shared by several refusals; the message token is the only discriminator.
     assert!(e.to_string().contains("newer than the installed"), "{e}");
 }
+
+const V: &str = "9a1b0c60-0006-4aaa-8bbb-000000007001";
+
+fn view(version: u64, visible: bool) -> Value {
+    json!({"$schema": "https://srs.semanticops.com/schema/2.0/view.json",
+        "id": V, "namespace": NS, "name": "essay-view", "version": version,
+        "description": "Essay view.", "createdAt": "2026-01-01T00:00:00Z",
+        "fieldViews": [{"fieldId": F, "order": 0, "required": true, "visible": visible}]})
+}
+
+/// srs-rust#1648: an upgrade that adds View v2 beside v1 loads both, and the id-only reference
+/// resolves to v2. The package-directory merge used to key views by id alone and drop v2.
+#[test]
+fn upgrade_adding_a_view_version_loads_it_and_resolves_to_it() {
+    let (_t, store) = repo();
+    let old = bundle_with(
+        "1.3.0",
+        vec![field(F, "title")],
+        vec![ty(1, "Old.", &[F])],
+        json!({"views": [view(1, false)]}),
+    );
+    install_package_bundle_bytes(&store, &old, Default::default()).unwrap();
+    let new = bundle_with(
+        "1.5.0",
+        vec![field(F, "title")],
+        vec![ty(1, "Old.", &[F])],
+        json!({"views": [view(1, false), view(2, true)]}),
+    );
+    let r = upgrade(&store, &new, false);
+    assert_eq!(names(&r.new_versions), vec!["view:essay-view@2"]);
+
+    let package = store.load_package().unwrap();
+    let versions: Vec<u32> = package
+        .views
+        .iter()
+        .filter(|v| v.id == V)
+        .map(|v| v.version)
+        .collect();
+    assert_eq!(versions.len(), 2, "both versions load: {versions:?}");
+    assert_eq!(package.resolve_view(V).unwrap().version, 2);
+    assert_valid(&store);
+}

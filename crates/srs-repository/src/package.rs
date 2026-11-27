@@ -107,19 +107,30 @@ impl Package {
         &self.relation_type_definitions
     }
 
-    /// Resolve a view by its UUID id.
+    /// Resolve a view by its UUID id. An id-only (LINEAGE) reference names the
+    /// definition, not a version, so when several versions are installed the
+    /// highest one wins (srs-rust#1648).
     pub fn resolve_view(&self, id: &str) -> Option<&View> {
-        self.views.iter().find(|v| v.id == id)
+        self.views
+            .iter()
+            .filter(|v| v.id == id)
+            .max_by_key(|v| v.version)
     }
 
     /// Resolve a document view by its UUID id.
     pub fn resolve_composition(&self, id: &str) -> Option<&Composition> {
-        self.compositions.iter().find(|v| v.id == id)
+        self.compositions
+            .iter()
+            .filter(|v| v.id == id)
+            .max_by_key(|v| v.version)
     }
 
     /// Resolve a theme by its UUID id.
     pub fn resolve_theme(&self, theme_id: &str) -> Option<&Theme> {
-        self.themes.iter().find(|theme| theme.id == theme_id)
+        self.themes
+            .iter()
+            .filter(|theme| theme.id == theme_id)
+            .max_by_key(|theme| theme.version)
     }
 
     /// Get all themes as a slice.
@@ -450,6 +461,29 @@ impl Package {
             .find(|lc| lc.namespace == namespace && lc.name == name)
     }
 
+    /// RFC-006 effective entry set of a Vocabulary: its non-retired terms, then (following
+    /// `extendsVocabularyId`) each ancestor's non-retired terms whose key no nearer
+    /// Vocabulary defines. `None` when the Vocabulary does not resolve.
+    pub fn effective_vocabulary_terms(&self, id: &str) -> Option<Vec<&Term>> {
+        let mut terms: Vec<&Term> = Vec::new();
+        let mut keys = std::collections::HashSet::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut next = Some(self.resolve_vocabulary(id)?);
+        while let Some(v) = next.filter(|v| seen.insert(v.id.as_str())) {
+            terms.extend(
+                v.terms
+                    .iter()
+                    .filter(|t| !keys.contains(t.key.as_str()) && !t.is_retired()),
+            );
+            keys.extend(v.terms.iter().map(|t| t.key.as_str()));
+            next = v
+                .extends_vocabulary_id
+                .as_deref()
+                .and_then(|p| self.resolve_vocabulary(p));
+        }
+        Some(terms)
+    }
+
     /// Resolve a Term by vocabulary id and key (or alias).
     pub fn resolve_term_by_key(&self, vocabulary_id: &str, key: &str) -> Option<&Term> {
         self.resolve_vocabulary(vocabulary_id)
@@ -508,11 +542,12 @@ impl srs_core::validation::value_shape::RangeResolver for Package {
             return None;
         }
         Some(
-            vocab
-                .terms
-                .iter()
-                .filter(|t| t.resolves_for_reads())
-                .map(|t| t.key.clone())
+            self.effective_vocabulary_terms(vocabulary_id)?
+                .into_iter()
+                // RFC-006 key-or-alias resolution: an alias names its term, so a closed
+                // Field's domain is the keys and aliases of its non-retired terms (RFC-056).
+                .flat_map(|t| std::iter::once(&t.key).chain(t.aliases.iter().flatten()))
+                .cloned()
                 .collect(),
         )
     }
@@ -1206,6 +1241,30 @@ mod tests {
                 "deprecated/tombstone types should still resolve"
             );
         }
+    }
+
+    #[test]
+    fn id_only_reference_resolves_to_highest_installed_version() {
+        let mut package = make_package_with_types(vec![]);
+        let comp = |v: u32| -> Composition {
+            serde_json::from_value(serde_json::json!({
+                "id": "c-1", "namespace": "com.test", "name": "c", "version": v,
+                "description": "d", "sections": [], "createdAt": "2026-01-01T00:00:00Z"
+            }))
+            .unwrap()
+        };
+        let theme = |v: u32| -> Theme {
+            serde_json::from_value(serde_json::json!({
+                "id": "t-1", "namespace": "com.test", "name": "t", "version": v,
+                "description": "d", "targets": [], "createdAt": "2026-01-01T00:00:00Z"
+            }))
+            .unwrap()
+        };
+        // Older version first, as an upgrade leaves them.
+        package.compositions = vec![comp(1), comp(2)];
+        package.themes = vec![theme(1), theme(2)];
+        assert_eq!(package.resolve_composition("c-1").unwrap().version, 2);
+        assert_eq!(package.resolve_theme("t-1").unwrap().version, 2);
     }
 
     // ── effective_fields tests ────────────────────────────────────────────────

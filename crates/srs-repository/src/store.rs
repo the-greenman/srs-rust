@@ -1121,8 +1121,18 @@ pub trait RepositoryStore {
         &self,
         container_id: &str,
     ) -> Result<srs_core::types::container::Container, RepositoryError> {
+        let memo = self.read_memo();
+        if let Some(hit) = memo.and_then(|m| m.borrow().containers.get(container_id).cloned()) {
+            return Ok(hit);
+        }
         let locator = catalog_file_container_locator(self, container_id)?;
-        load_container_at(self, container_id, locator)
+        let container = load_container_at(self, container_id, locator)?;
+        if let Some(memo) = memo {
+            memo.borrow_mut()
+                .containers
+                .insert(container_id.to_string(), container.clone());
+        }
+        Ok(container)
     }
 
     /// [`load_container`] with the locator resolved from the **unchecked**
@@ -1322,6 +1332,10 @@ pub trait RepositoryStore {
     /// Write raw bytes to `relative_path`, creating parent directories as needed.
     fn save_binary_file(&self, relative_path: &str, content: &[u8]) -> Result<(), RepositoryError>;
 
+    /// Delete the file at `relative_path` (content or text). `NotFound` when absent.
+    /// Used by `attachment_service::remove_attachment` for the content file and sidecar.
+    fn delete_source_file(&self, relative_path: &str) -> Result<(), RepositoryError>;
+
     /// A verbatim snapshot of the store's file tree, when the backend is an
     /// in-memory tree session (ADR-038/038). `None` for every other store.
     fn as_tree_snapshot(&self) -> Option<std::collections::BTreeMap<String, Vec<u8>>> {
@@ -1404,10 +1418,57 @@ pub trait RepositoryStore {
     fn discovery_index_cache(&self) -> Option<&DiscoveryIndexCache> {
         None
     }
+
+    /// Store-scoped memo of parsed relations, containers, the package and its label index
+    /// (srs-rust#1649), emptied whenever the store's write epoch moves. `None` (the
+    /// default) means the store cannot memoize and every read parses again.
+    fn read_memo(&self) -> Option<&ReadMemoCell> {
+        None
+    }
 }
 
 /// See [`RepositoryStore::discovery_index_cache`].
 pub type DiscoveryIndexCache = RefCell<Option<Rc<dyn crate::discovery_index::DiscoveryIndex>>>;
+
+/// Parsed-object memos for the per-call readers (srs-rust#1649): each filtered read
+/// (`list_relations`, `containers_for_instance`, `context_record`, a record's label)
+/// re-parsed every relation file, every container or the whole package on every call,
+/// ~9-17 ms each on a 4,500-relation corpus. `package` serves [`package_snapshot`];
+/// `labels` is the package-derived label index (`record_label::build_label_indexes`).
+/// Emptied with the catalog memo whenever the store's write epoch moves, so a hit is
+/// always current.
+#[derive(Debug, Default)]
+pub struct ReadMemo {
+    package: Option<Rc<Package>>,
+    pub(crate) labels: Option<
+        Rc<(
+            crate::record_label::FieldNameIndex,
+            crate::record_label::IdentityFieldIndex,
+        )>,
+    >,
+    /// Every relation, dual-read and duplicate-checked (`relation_service::load_relations`).
+    pub(crate) relations: Option<Rc<Vec<srs_core::types::relation::Relation>>>,
+    containers: HashMap<String, srs_core::types::container::Container>,
+}
+
+/// See [`RepositoryStore::read_memo`].
+pub type ReadMemoCell = RefCell<ReadMemo>;
+
+/// [`RepositoryStore::load_package`] through the store's read memo (srs-rust#1649): a
+/// per-call reader shares one parsed package per write epoch instead of re-reading every
+/// package file (~1.3 ms on muSrs).
+pub(crate) fn package_snapshot(
+    store: &dyn RepositoryStore,
+) -> Result<Rc<Package>, RepositoryError> {
+    if let Some(hit) = store.read_memo().and_then(|m| m.borrow().package.clone()) {
+        return Ok(hit);
+    }
+    let package = Rc::new(store.load_package()?);
+    if let Some(memo) = store.read_memo() {
+        memo.borrow_mut().package = Some(package.clone());
+    }
+    Ok(package)
+}
 
 // ---------------------------------------------------------------------------
 // FileStore — file-backed implementation
@@ -1463,6 +1524,8 @@ pub struct FileStore {
     catalog_state: RefCell<Option<crate::catalog::CatalogState>>,
     /// Discovery index memo (srs-rust#1228); dropped with the catalogs on a write.
     discovery_index_cache: DiscoveryIndexCache,
+    /// Parsed relations, containers, package and label index (srs-rust#1649); dropped with the catalogs on a write.
+    read_memo: ReadMemoCell,
     /// Write generation shared by every clone of this store (they share one
     /// `Rc<dyn Vfs>`): a write through any clone bumps it, and each handle drops
     /// its memoized catalogs when its own `cache_epoch` is behind (srs-rust#1057:
@@ -1503,6 +1566,7 @@ impl Clone for FileStore {
             catalog_unchecked_cache: RefCell::new(None),
             catalog_state: RefCell::new(None),
             discovery_index_cache: RefCell::new(None),
+            read_memo: RefCell::default(),
             epoch: self.epoch.clone(),
             cache_epoch: Cell::new(self.epoch.get()),
             session_actor: RefCell::new(self.session_actor.borrow().clone()),
@@ -1527,6 +1591,7 @@ impl FileStore {
             catalog_unchecked_cache: RefCell::new(None),
             catalog_state: RefCell::new(None),
             discovery_index_cache: RefCell::new(None),
+            read_memo: RefCell::default(),
             epoch: Rc::new(Cell::new(0)),
             cache_epoch: Cell::new(0),
             session_actor: RefCell::new(None),
@@ -1549,6 +1614,7 @@ impl FileStore {
             catalog_unchecked_cache: RefCell::new(None),
             catalog_state: RefCell::new(None),
             discovery_index_cache: RefCell::new(None),
+            read_memo: RefCell::default(),
             epoch: Rc::new(Cell::new(0)),
             cache_epoch: Cell::new(0),
             session_actor: RefCell::new(None),
@@ -1715,6 +1781,7 @@ impl FileStore {
             self.catalog_unchecked_cache.borrow_mut().take();
             self.catalog_state.borrow_mut().take();
             self.discovery_index_cache.borrow_mut().take();
+            self.read_memo.take();
         }
     }
 
@@ -2329,9 +2396,12 @@ impl RepositoryStore for FileStore {
         if !pkg_refs.is_empty() {
             let mut field_sources: HashMap<String, PathBuf> = HashMap::new();
             let mut type_sources: HashMap<(String, u32), PathBuf> = HashMap::new();
-            let mut view_sources: HashMap<String, PathBuf> = HashMap::new();
-            let mut doc_view_sources: HashMap<String, PathBuf> = HashMap::new();
-            let mut theme_sources: HashMap<String, PathBuf> = HashMap::new();
+            // Views, Compositions and Themes are keyed by (id, version), as types and vocabularies
+            // are: a package upgrade installs a new version beside the old one, and both must load so
+            // an id-only reference resolves to the newest (srs-rust#1648).
+            let mut view_sources: HashMap<(String, u32), PathBuf> = HashMap::new();
+            let mut doc_view_sources: HashMap<(String, u32), PathBuf> = HashMap::new();
+            let mut theme_sources: HashMap<(String, u32), PathBuf> = HashMap::new();
             let mut blueprint_sources: HashMap<String, PathBuf> = HashMap::new();
             let mut protocol_sources: HashMap<String, PathBuf> = HashMap::new();
             let mut vocab_sources: HashMap<(String, u32), PathBuf> = HashMap::new();
@@ -2342,13 +2412,13 @@ impl RepositoryStore for FileStore {
                 type_sources.insert((rt.id.clone(), rt.version), package_dir.clone());
             }
             for v in &views {
-                view_sources.insert(v.id.clone(), package_dir.clone());
+                view_sources.insert((v.id.clone(), v.version), package_dir.clone());
             }
             for dv in &compositions {
-                doc_view_sources.insert(dv.id.clone(), package_dir.clone());
+                doc_view_sources.insert((dv.id.clone(), dv.version), package_dir.clone());
             }
             for theme in &themes {
-                theme_sources.insert(theme.id.clone(), package_dir.clone());
+                theme_sources.insert((theme.id.clone(), theme.version), package_dir.clone());
             }
             for lb in &blueprints {
                 blueprint_sources.insert(lb.blueprint.id.clone(), package_dir.clone());
@@ -2439,8 +2509,12 @@ impl RepositoryStore for FileStore {
                     }
                 }
                 for view in sub_views {
-                    if let Some(first_path) = view_sources.get(&view.id) {
-                        let existing = views.iter().find(|v| v.id == view.id).unwrap();
+                    let key = (view.id.clone(), view.version);
+                    if let Some(first_path) = view_sources.get(&key) {
+                        let existing = views
+                            .iter()
+                            .find(|v| v.id == view.id && v.version == view.version)
+                            .unwrap();
                         if existing.name != view.name {
                             return Err(RepositoryError::PackageRefConflict {
                                 path: rel_path.to_string(),
@@ -2451,13 +2525,17 @@ impl RepositoryStore for FileStore {
                             });
                         }
                     } else {
-                        view_sources.insert(view.id.clone(), sub_dir.clone());
+                        view_sources.insert(key, sub_dir.clone());
                         views.push(view);
                     }
                 }
                 for dv in sub_doc_views {
-                    if let Some(first_path) = doc_view_sources.get(&dv.id) {
-                        let existing = compositions.iter().find(|d| d.id == dv.id).unwrap();
+                    let key = (dv.id.clone(), dv.version);
+                    if let Some(first_path) = doc_view_sources.get(&key) {
+                        let existing = compositions
+                            .iter()
+                            .find(|d| d.id == dv.id && d.version == dv.version)
+                            .unwrap();
                         if existing.name != dv.name {
                             return Err(RepositoryError::PackageRefConflict {
                                 path: rel_path.to_string(),
@@ -2468,17 +2546,18 @@ impl RepositoryStore for FileStore {
                             });
                         }
                     } else {
-                        doc_view_sources.insert(dv.id.clone(), sub_dir.clone());
+                        doc_view_sources.insert(key, sub_dir.clone());
                         compositions.push(dv);
                     }
                 }
                 for theme in sub_themes {
-                    if let Some(first_path) = theme_sources.get(&theme.id) {
-                        let existing = themes.iter().find(|t| t.id == theme.id).unwrap();
-                        if existing.namespace != theme.namespace
-                            || existing.name != theme.name
-                            || existing.version != theme.version
-                        {
+                    let key = (theme.id.clone(), theme.version);
+                    if let Some(first_path) = theme_sources.get(&key) {
+                        let existing = themes
+                            .iter()
+                            .find(|t| t.id == theme.id && t.version == theme.version)
+                            .unwrap();
+                        if existing.namespace != theme.namespace || existing.name != theme.name {
                             return Err(RepositoryError::PackageRefConflict {
                                 path: rel_path.to_string(),
                                 kind: "theme".to_string(),
@@ -2488,7 +2567,7 @@ impl RepositoryStore for FileStore {
                             });
                         }
                     } else {
-                        theme_sources.insert(theme.id.clone(), sub_dir.clone());
+                        theme_sources.insert(key, sub_dir.clone());
                         themes.push(theme);
                     }
                 }
@@ -2696,6 +2775,11 @@ impl RepositoryStore for FileStore {
     fn discovery_index_cache(&self) -> Option<&DiscoveryIndexCache> {
         self.sync_cache_epoch();
         Some(&self.discovery_index_cache)
+    }
+
+    fn read_memo(&self) -> Option<&ReadMemoCell> {
+        self.sync_cache_epoch();
+        Some(&self.read_memo)
     }
 
     fn catalog_unchecked(&self) -> Result<Rc<crate::catalog::RepositoryCatalog>, RepositoryError> {
@@ -3013,6 +3097,10 @@ impl RepositoryStore for FileStore {
             self.vfs_create_dir_all(parent)?;
         }
         self.vfs_write(relative_path, content)
+    }
+
+    fn delete_source_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
+        self.vfs_remove(relative_path)
     }
 
     // --- Sub-package path validation ---
@@ -4735,6 +4823,20 @@ pub mod memory {
                 .borrow_mut()
                 .insert(relative_path.to_string(), content.to_vec());
             Ok(())
+        }
+
+        fn delete_source_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
+            let a = self.data.borrow_mut().remove(relative_path).is_some();
+            let b = self
+                .binary_data
+                .borrow_mut()
+                .remove(relative_path)
+                .is_some();
+            if a || b {
+                Ok(())
+            } else {
+                Err(not_found(relative_path))
+            }
         }
 
         fn validate_package_ref_path(&self, _relative_path: &str) -> Result<(), RepositoryError> {
@@ -7107,6 +7209,48 @@ mod tests {
              on how many paths (or times) the walk reaches a shared node — \
              a plain chain visits 4 times, the sharing DAG visits 5 times \
              (the shared node twice), but both must cost the same reads"
+        );
+    }
+
+    /// srs-rust#1649: the package memo (and the label index built from it) is never served
+    /// after a package write through another clone of the store.
+    #[test]
+    fn package_memo_follows_a_write_through_another_clone() {
+        use crate::repository_lifecycle::{
+            create_repository, InitializeRepositoryInput, PrimaryPackageMetadata,
+            RepositoryMetadata,
+        };
+        let ui = FileStore::from_vfs(Rc::new(MemVfs::new()));
+        create_repository(
+            &ui,
+            &InitializeRepositoryInput {
+                repository: RepositoryMetadata {
+                    repository_id: "16490000-0000-4000-8000-000000000101".to_string(),
+                    namespace: "com.test.memo".to_string(),
+                    srs_version: "2.0-draft".to_string(),
+                    title: None,
+                    description: None,
+                },
+                primary_package: PrimaryPackageMetadata {
+                    id: "16490000-0000-4000-8000-000000000102".to_string(),
+                    namespace: "com.test.memo".to_string(),
+                    name: "primary".to_string(),
+                    version: "1.0.0".to_string(),
+                },
+            },
+        )
+        .unwrap();
+        let agent = ui.clone();
+        assert_eq!(package_snapshot(&ui).unwrap().version, "1.0.0"); // warms the memo
+        let mut json: serde_json::Value =
+            serde_json::from_str(&agent.vfs.read_to_string("package/package.json").unwrap())
+                .unwrap();
+        json["version"] = "1.1.0".into();
+        agent.save_package_json(&json).unwrap();
+        assert_eq!(
+            package_snapshot(&ui).unwrap().version,
+            "1.1.0",
+            "the memo served a package from before another clone's write"
         );
     }
 }

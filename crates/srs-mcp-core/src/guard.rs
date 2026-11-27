@@ -108,6 +108,9 @@ impl WriteGuard {
             tools::TOOL_CONTAINER_MEMBER_REMOVE => {
                 parse::<ContainerMemberToolInput>(args).map(|i| i.container_id)
             }
+            tools::TOOL_CONTAINER_UPDATE => {
+                parse::<tools::ContainerUpdateToolInput>(args).map(|i| i.container_id)
+            }
             tools::TOOL_CONTAINER_MEMBER_MOVE => {
                 parse::<ContainerMemberMoveToolInput>(args).map(|i| i.container_id)
             }
@@ -203,8 +206,27 @@ impl WriteGuard {
             tools::TOOL_RECORD_SUCCESSOR => {
                 parse::<RecordSuccessorToolInput>(args).map(|i| i.predecessor_id)
             }
-            tools::TOOL_ATTACHMENT_LINK => {
+            tools::TOOL_ATTACHMENT_LINK | tools::TOOL_ATTACHMENT_UNLINK => {
                 parse::<tools::AttachmentLinkToolInput>(args).map(|i| i.instance_id)
+            }
+            // A forced remove edits every record that references the file.
+            tools::TOOL_ATTACHMENT_REMOVE => {
+                if let Some(i) = parse::<tools::AttachmentRemoveToolInput>(args).filter(|i| i.force)
+                {
+                    let holders = srs_repository::attachment_service::referencing_instances(
+                        store,
+                        &i.document_id,
+                    )
+                    .map_err(|e| e.to_string())?;
+                    for h in holders {
+                        if self.record_guarded(store, &h)? {
+                            return Err(self.deny(&format!(
+                                "record '{h}' is protected; {name} with force would edit it"
+                            )));
+                        }
+                    }
+                }
+                None
             }
             _ => None,
         };
@@ -244,8 +266,8 @@ impl WriteGuard {
         }
     }
 
-    /// `record_update` replaces the whole `fieldValues` and `fieldMeta`, so
-    /// compare against the stored record: only a fill-only field that is
+    /// `record_update` replaces the whole `fieldValues` (or, in merge mode, the
+    /// merged result) and `fieldMeta`, so compare against the stored record: only a fill-only field that is
     /// currently unset may differ.
     fn check_update(
         &self,
@@ -261,8 +283,14 @@ impl WriteGuard {
         let Ok(Some(record)) = record_store::get_record_by_id(store, id) else {
             return Ok(()); // the service reports a missing / unloadable record
         };
-        let new = &input.field_values;
-        let old = &record.field_values.0;
+        let (new, new_meta) = record_store::resolve_field_update(
+            input.field_values_mode,
+            &record.field_values,
+            record.field_meta.as_ref(),
+            srs_core::types::record::FieldValues(input.field_values),
+            tools::field_meta_map(input.field_meta),
+        );
+        let (new, old) = (&new.0, &record.field_values.0);
         let changed = new
             .keys()
             .chain(old.keys())
@@ -279,20 +307,18 @@ impl WriteGuard {
                 )));
             }
         }
-        // Provenance of every non-fill field must survive a whole-map replace.
-        if let Some(meta) = tools::field_meta_map(input.field_meta) {
-            let stored = serde_json::to_value(&record.field_meta).unwrap_or(Value::Null);
-            let sent = serde_json::to_value(&meta).unwrap_or(Value::Null);
-            let keep = |v: &Value| {
-                let mut m = v.as_object().cloned().unwrap_or_default();
-                m.retain(|k, _| !self.fill_only_fields.contains(k));
-                m
-            };
-            if keep(&stored) != keep(&sent) {
-                return Err(self.deny(&format!(
-                    "record '{id}' is protected; fieldMeta of non-fill fields cannot be changed"
-                )));
-            }
+        // Provenance of every non-fill field must survive the update.
+        let stored = serde_json::to_value(&record.field_meta).unwrap_or(Value::Null);
+        let resolved = serde_json::to_value(&new_meta).unwrap_or(Value::Null);
+        let keep = |v: &Value| {
+            let mut m = v.as_object().cloned().unwrap_or_default();
+            m.retain(|k, _| !self.fill_only_fields.contains(k));
+            m
+        };
+        if keep(&stored) != keep(&resolved) {
+            return Err(self.deny(&format!(
+                "record '{id}' is protected; fieldMeta of non-fill fields cannot be changed"
+            )));
         }
         Ok(())
     }
