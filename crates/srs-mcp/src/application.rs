@@ -12,62 +12,37 @@ use rmcp::model::{
 use rmcp::ErrorData as McpError;
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
+use srs_mcp_core::guidance::{self, GuidanceMember};
 use srs_mcp_core::{srs_metadata, McpApplication as _, McpApplicationError, SrsMcpApplication};
-use srs_repository::agent_index_service::{orientation_note, ORIENTATION_NOTE_MAX_BYTES};
+use srs_repository::agent_index_service::orientation_note;
 use srs_repository::boundary_service::{Access, Boundary};
 use srs_repository::error::RepositoryError;
 use srs_repository::store::FileStore;
 
 pub(crate) type App = SrsMcpApplication<FileStore>;
 
-/// Hard combined cap (bytes) on the repository guidance appended to the instructions
-/// (srs-rust#1668), the closing "more repositories" line included.
-const REGISTRY_GUIDANCE_MAX_BYTES: usize = 4 * ORIENTATION_NOTE_MAX_BYTES;
-/// Room kept inside the cap for that closing line.
-const MORE_LINE_MAX_BYTES: usize = 160;
-
 /// The served repositories' own aiGuidance (srs-rust#1668), as text to append to the
 /// instructions (empty when none has guidance). Computed once when the server is built: the
-/// instructions are fixed for the server's lifetime. In a registry only the default and the
-/// writable members contribute (a read-only member is reference material, not the session's
-/// workspace); the notes stop at [`REGISTRY_GUIDANCE_MAX_BYTES`], and the members past it are
-/// counted in one closing line.
+/// instructions are fixed for the server's lifetime. The selection rule, the byte budget and
+/// the closing line are `srs_mcp_core::guidance` (srs-rust#1677); this only opens each
+/// contributing store and passes its orientation note in.
 pub(crate) fn repository_guidance(boundary: &Boundary) -> String {
-    let ids: Vec<Option<&str>> = if boundary.is_registry() {
-        boundary
-            .members()
-            .iter()
-            .filter(|m| !m.read_only || m.id.eq_ignore_ascii_case(boundary.default_id()))
-            .map(|m| Some(m.id.as_str()))
-            .collect()
-    } else {
-        vec![None]
+    let note_of = |id: Option<&str>| {
+        let target = boundary.resolve(id, Access::Read).ok()?;
+        orientation_note(&FileStore::new(&target.path))
     };
-    let mut out = String::new();
-    let mut more = 0;
-    for id in ids {
-        let Ok(target) = boundary.resolve(id, Access::Read) else {
-            continue;
-        };
-        let Some(note) = orientation_note(&FileStore::new(&target.path)) else {
-            continue;
-        };
-        if more > 0
-            || out.len() + 2 + note.len() > REGISTRY_GUIDANCE_MAX_BYTES - MORE_LINE_MAX_BYTES
-        {
-            more += 1;
-            continue;
-        }
-        out.push_str("\n\n");
-        out.push_str(&note);
+    if boundary.is_registry() {
+        guidance::registry_guidance(
+            boundary.members().iter().map(|m| GuidanceMember {
+                id: m.id.as_str(),
+                read_only: m.read_only,
+            }),
+            boundary.default_id(),
+            |id| note_of(Some(id)),
+        )
+    } else {
+        guidance::single_repository_guidance(note_of(None))
     }
-    if more > 0 {
-        out.push_str(&format!(
-            "\n\n{more} more repositories in this registry have guidance that does not fit \
-             here: read srs://<repositoryId>/agent-index for each."
-        ));
-    }
-    out
 }
 
 fn mcp_error(error: McpApplicationError) -> McpError {
