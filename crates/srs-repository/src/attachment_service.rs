@@ -3084,7 +3084,7 @@ mod tests {
         let mut sidecar: serde_json::Value =
             serde_json::from_str(&store.load_text_file(path).unwrap()).unwrap();
         sidecar["contentPath"] = serde_json::json!("a.txt");
-        sidecar["extra"] = serde_json::json!({"keep": [1, 2]});
+        sidecar["meta"] = serde_json::json!({"keep": [1, 2]});
         store
             .save_text_file(path, &serde_json::to_string_pretty(&sidecar).unwrap())
             .unwrap();
