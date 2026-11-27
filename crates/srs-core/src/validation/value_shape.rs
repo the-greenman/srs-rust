@@ -154,6 +154,25 @@ fn validate_single(
                 value,
                 diagnostics,
             );
+            // srs-rust#1713: the string must also read as the datatype, the
+            // JSON Schema `date` / `date-time` formats the projection emits
+            // (RFC 3339 full-date / date-time).
+            if let Some(s) = value.as_str() {
+                let (ok, what) = if field_type.datatype == Datatype::Date {
+                    (is_rfc3339_date(s), "an ISO-8601 date (YYYY-MM-DD)")
+                } else {
+                    (
+                        is_rfc3339_date_time(s),
+                        "an ISO-8601 date-time (YYYY-MM-DDThh:mm:ss[.fff]Z or ±hh:mm)",
+                    )
+                };
+                if !ok {
+                    diagnostics.push(CoreError::InvalidFieldValue {
+                        key: key.to_string(),
+                        reason: format!("'{s}' is not {what}"),
+                    });
+                }
+            }
         }
         Datatype::Ref => match field_type.effective_mode() {
             RefMode::Reference => {
@@ -273,6 +292,92 @@ pub fn validate_field_values_map(
             continue; // unresolvable Field — reported by the caller
         };
         validate_value(&at(&field.name), field_type, value, resolver, diagnostics);
+    }
+}
+
+/// RFC 3339 `full-date`: `YYYY-MM-DD` with a real calendar day.
+fn is_rfc3339_date(s: &str) -> bool {
+    let b = s.as_bytes();
+    if b.len() != 10 || b[4] != b'-' || b[7] != b'-' {
+        return false;
+    }
+    let num = |r: std::ops::Range<usize>| -> Option<u32> {
+        let part = &s[r];
+        part.bytes()
+            .all(|c| c.is_ascii_digit())
+            .then(|| part.parse().ok())
+            .flatten()
+    };
+    let (Some(y), Some(m), Some(d)) = (num(0..4), num(5..7), num(8..10)) else {
+        return false;
+    };
+    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let days = match m {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            if leap {
+                29
+            } else {
+                28
+            }
+        }
+        _ => return false,
+    };
+    (1..=days).contains(&d)
+}
+
+/// RFC 3339 `date-time`: full-date, `T` (or `t` or a space), `hh:mm:ss`,
+/// optional fraction, then `Z` or a `±hh:mm` offset.
+fn is_rfc3339_date_time(s: &str) -> bool {
+    if !s.is_char_boundary(10) || s.len() < 11 {
+        return false;
+    }
+    let (date, rest) = s.split_at(10);
+    if !is_rfc3339_date(date) {
+        return false;
+    }
+    let Some(rest) = rest
+        .strip_prefix('T')
+        .or_else(|| rest.strip_prefix('t'))
+        .or_else(|| rest.strip_prefix(' '))
+    else {
+        return false;
+    };
+    let b = rest.as_bytes();
+    let two = |i: usize| -> Option<u32> {
+        let (a, c) = (*b.get(i)?, *b.get(i + 1)?);
+        (a.is_ascii_digit() && c.is_ascii_digit()).then(|| ((a - b'0') * 10 + (c - b'0')) as u32)
+    };
+    if b.len() < 9 || b.get(2) != Some(&b':') || b.get(5) != Some(&b':') {
+        return false;
+    }
+    let (Some(h), Some(mi), Some(sec)) = (two(0), two(3), two(6)) else {
+        return false;
+    };
+    if h > 23 || mi > 59 || sec > 60 {
+        return false;
+    }
+    let mut i = 8;
+    if b.get(i) == Some(&b'.') {
+        let start = i + 1;
+        i = start;
+        while b.get(i).is_some_and(|c| c.is_ascii_digit()) {
+            i += 1;
+        }
+        if i == start {
+            return false;
+        }
+    }
+    match b.get(i) {
+        Some(b'Z') | Some(b'z') => i + 1 == b.len(),
+        Some(b'+') | Some(b'-') => {
+            if b.len() != i + 6 || b[i + 3] != b':' {
+                return false;
+            }
+            matches!((two(i + 1), two(i + 4)), (Some(oh), Some(om)) if oh <= 23 && om <= 59)
+        }
+        _ => false,
     }
 }
 
@@ -468,6 +573,63 @@ mod tests {
         let mut d = Vec::new();
         validate_value("m", &map_list, &json!({"a": "x"}), &no_resolver(), &mut d);
         assert!(matches!(&d[0], CoreError::ValueShape { key, .. } if key == "m"));
+    }
+
+    #[test]
+    fn date_and_date_time_values_must_be_iso_8601() {
+        // srs-rust#1713: any string was accepted at a date / date-time field.
+        let date = FieldType::new(Datatype::Date);
+        let dt = FieldType::new(Datatype::DateTime);
+        let check = |ft: &FieldType, v: serde_json::Value| {
+            let mut d = Vec::new();
+            validate_value("k", ft, &v, &no_resolver(), &mut d);
+            d
+        };
+        for ok in ["2026-11-27", "2024-02-29"] {
+            assert!(check(&date, json!(ok)).is_empty(), "{ok}");
+        }
+        for bad in [
+            "NOT STATED",
+            "2026-13-01",
+            "2026-02-30",
+            "2025-02-29",
+            "2026-1-2",
+            "2026-11-27T10:00:00Z",
+            "",
+        ] {
+            let d = check(&date, json!(bad));
+            assert!(
+                matches!(d.as_slice(), [CoreError::InvalidFieldValue { key, .. }] if key == "k"),
+                "{bad}: {d:?}"
+            );
+        }
+        for ok in [
+            "2026-11-27T10:00:00Z",
+            "2026-11-27T10:00:00.123+01:00",
+            "2026-11-27t10:00:00z",
+            "2026-11-27 10:00:00Z",
+        ] {
+            assert!(check(&dt, json!(ok)).is_empty(), "{ok}");
+        }
+        for bad in [
+            "yesterday afternoon",
+            "2026-11-27",
+            "2026-11-27T10:00:00",
+            "2026-11-27T25:00:00Z",
+            "2026-11-27T10:60:00Z",
+            "2026-11-27T10:00:00+24:00",
+        ] {
+            let d = check(&dt, json!(bad));
+            assert!(
+                matches!(d.as_slice(), [CoreError::InvalidFieldValue { key, .. }] if key == "k"),
+                "{bad}: {d:?}"
+            );
+        }
+        // Wrong JSON type keeps its shape diagnostic.
+        assert!(matches!(
+            check(&date, json!(5)).as_slice(),
+            [CoreError::ValueShape { .. }]
+        ));
     }
 
     struct VocabResolver;
