@@ -5,7 +5,7 @@ use srs_repository::agent_index_service;
 use srs_repository::attachment_service::{
     self as attachment_service, AddAttachmentInput, GetAttachmentBytesInput,
     GetRecordAttachmentsInput, LinkAttachmentInput, ListAttachmentsFilter, RemoveAttachmentInput,
-    ResolveCompositionAttachmentsInput, UnlinkAttachmentInput,
+    ResolveCompositionAttachmentsInput, UnlinkAttachmentInput, UpdateAttachmentInput,
 };
 use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
 use srs_repository::blueprint_service;
@@ -2258,6 +2258,20 @@ impl SrsRepository {
             },
         )
         .map_err(|e| js_err(&e))?;
+        to_js(&result)
+    }
+
+    /// Rewrite a source document's sidecar `contentPath`, `title` or `contentType` in place.
+    ///
+    /// `input_json` is `{"documentId":"<uuid>","contentPath"?,"title"?,"contentType"?}`.
+    /// `documentId` and every other sidecar key stay unchanged; a `contentPath` that breaks
+    /// I-109 or I-110 is refused with code `invalid-input` and nothing is written. Returns
+    /// `{"documentId","sidecarPath","contentPath","updated","sidecarChecksum"}` as a JS value.
+    pub fn update_attachment(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: UpdateAttachmentInput = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
+        let result =
+            attachment_service::update_attachment(&self.store, input).map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 }

@@ -23,6 +23,7 @@ use srs_core::types::record::{FieldMeta, FieldValues};
 use srs_core::types::relation::Relation;
 use srs_repository::attachment_service::{
     self, AddAttachmentInput, LinkAttachmentInput, RemoveAttachmentInput, UnlinkAttachmentInput,
+    UpdateAttachmentInput,
 };
 use srs_repository::container_service::{self, ContainerCreateInput, ContainerPatch};
 use srs_repository::context_query_service::{
@@ -108,6 +109,7 @@ pub const TOOL_ATTACHMENT_ADD: &str = "attachment_add";
 pub const TOOL_ATTACHMENT_LINK: &str = "attachment_link";
 pub const TOOL_ATTACHMENT_UNLINK: &str = "attachment_unlink";
 pub const TOOL_ATTACHMENT_REMOVE: &str = "attachment_remove";
+pub const TOOL_ATTACHMENT_UPDATE: &str = "attachment_update";
 /// Agent-facing replies are size-capped: omitted `limit` on `neighbours`, and its ceiling.
 const NEIGHBOURS_DEFAULT_LIMIT: usize = 25;
 const NEIGHBOURS_MAX_LIMIT: usize = 100;
@@ -291,6 +293,10 @@ pub const DESC_ATTACHMENT_UNLINK: &str = "Remove the 'attaches' sourceRef betwee
 pub const DESC_ATTACHMENT_REMOVE: &str = "Delete a stored source document (content file and \
     sidecar). Refused with code cannot-delete-in-use while any record or note still references \
     it, unless `force` is true, which removes those references in the same call.";
+pub const DESC_ATTACHMENT_UPDATE: &str = "Rewrite a stored source document's sidecar keys \
+    (contentPath, title, contentType) in place, keeping its documentId and every other key. A \
+    contentPath must resolve under sourceDocumentsPath (I-109), stay in the sidecar's own \
+    directory (I-110) and name an existing file; otherwise the call is refused and writes nothing.";
 pub const DESC_NEIGHBOURS: &str = "Bounded read of one instance's relation neighbours (Record or \
 Note). Returns total (every matching edge, before paging) and a page of edges, each with direction \
 (out = the instance is the source, in = it is the target), relationId, relationType and the \
@@ -1691,6 +1697,11 @@ fn all_tools() -> Vec<Value> {
             DESC_ATTACHMENT_REMOVE,
             input_schema::<AttachmentRemoveToolInput>(),
         ),
+        tool(
+            TOOL_ATTACHMENT_UPDATE,
+            DESC_ATTACHMENT_UPDATE,
+            input_schema::<AttachmentUpdateToolInput>(),
+        ),
     ]
 }
 
@@ -1772,6 +1783,31 @@ impl From<AttachmentRemoveToolInput> for RemoveAttachmentInput {
         RemoveAttachmentInput {
             document_id: input.document_id,
             force: input.force,
+        }
+    }
+}
+
+/// Mirrors `attachment_service::UpdateAttachmentInput`.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AttachmentUpdateToolInput {
+    pub document_id: String,
+    /// New contentPath, relative to sourceDocumentsPath.
+    #[serde(default)]
+    pub content_path: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub content_type: Option<String>,
+}
+
+impl From<AttachmentUpdateToolInput> for UpdateAttachmentInput {
+    fn from(input: AttachmentUpdateToolInput) -> Self {
+        UpdateAttachmentInput {
+            document_id: input.document_id,
+            content_path: input.content_path,
+            title: input.title,
+            content_type: input.content_type,
         }
     }
 }
@@ -2000,6 +2036,13 @@ pub fn call_tool(
         TOOL_ATTACHMENT_REMOVE => {
             let input: AttachmentRemoveToolInput = parse_args(arguments)?;
             match attachment_service::remove_attachment(store, input.into()) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.report())),
+            }
+        }
+        TOOL_ATTACHMENT_UPDATE => {
+            let input: AttachmentUpdateToolInput = parse_args(arguments)?;
+            match attachment_service::update_attachment(store, input.into()) {
                 Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.report())),
             }
@@ -2745,6 +2788,7 @@ mod tests {
                 TOOL_ATTACHMENT_LINK,
                 TOOL_ATTACHMENT_UNLINK,
                 TOOL_ATTACHMENT_REMOVE,
+                TOOL_ATTACHMENT_UPDATE,
             ]
         );
         for tool in &tools {

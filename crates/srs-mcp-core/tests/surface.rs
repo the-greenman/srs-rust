@@ -63,11 +63,11 @@ fn application_reads_repository_id_from_manifest() {
 }
 
 #[test]
-fn tool_catalogue_has_all_forty_four_tools_and_core_owns_the_schemas() {
+fn tool_catalogue_has_all_forty_five_tools_and_core_owns_the_schemas() {
     let (_dir, mut d) = setup();
     let listed = rpc(&mut d, "tools/list", json!({}));
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 44);
+    assert_eq!(tools.len(), 45);
     assert!(tools
         .iter()
         .all(|t| t["description"].is_string() && t["inputSchema"]["type"] == "object"));
@@ -848,6 +848,24 @@ mod write_guard {
         assert!(docs.join("a.txt").exists());
         let again = tool(&mut d, "attachment_unlink", link.clone());
         assert_eq!(again["result"]["isError"], true, "{again}");
+        // Update: title changes, documentId stays; a path leaving the directory is refused.
+        let u = tool(
+            &mut d,
+            "attachment_update",
+            json!({ "documentId": doc, "title": "Renamed" }),
+        );
+        assert_eq!(u["result"]["isError"], false, "{u}");
+        assert_eq!(u["result"]["structuredContent"]["documentId"], doc, "{u}");
+        let bad = tool(
+            &mut d,
+            "attachment_update",
+            json!({ "documentId": doc, "contentPath": "../a.txt" }),
+        );
+        assert_eq!(bad["result"]["isError"], true, "{bad}");
+        assert_eq!(
+            bad["result"]["structuredContent"]["code"], "invalid-input",
+            "{bad}"
+        );
         // Unreferenced: removed, content and sidecar.
         assert_ok(&mut d, "attachment_remove", json!({ "documentId": doc }));
         assert!(!docs.join("a.txt").exists());
