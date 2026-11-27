@@ -18,6 +18,7 @@ use crate::package_service::{
 };
 use crate::protocol_service::find_protocol_by_target_type;
 use crate::store::RepositoryStore;
+use crate::vocabulary_service::get_vocabulary_by_id;
 use srs_core::types::blueprint::TypeRef;
 use srs_core::types::field::FieldType;
 use srs_core::types::protocol::{FieldRef, ProtocolStage};
@@ -38,6 +39,18 @@ pub struct BriefFieldResult {
     pub required: bool,
     pub field_type: FieldType,
     pub ai_guidance: Option<serde_json::Value>,
+    /// The allowed terms of the field's closed vocabulary (srs-rust#1714): the
+    /// active terms of its `vocabularyRef` Vocabulary. Empty when the field
+    /// has no vocabulary reference (inline `allowedValues` already travel in
+    /// `field_type`) or the reference does not resolve.
+    pub vocabulary_terms: Vec<BriefTermResult>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BriefTermResult {
+    pub key: String,
+    pub label: Option<String>,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -99,6 +112,9 @@ pub struct BlueprintBriefResult {
     pub diagnostics: Vec<String>,
     /// The same findings as structured entries (srs-rust#1491, ADR-057).
     pub diagnostics_structured: Vec<Diagnostic>,
+    /// `type id -> namespace/name` for every type the brief reaches, so the
+    /// rendered text can print names where it has ids (srs-rust#1714).
+    pub type_names: std::collections::BTreeMap<String, String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -127,9 +143,19 @@ pub fn blueprint_brief(
     let mut types: Vec<BriefTypeResult> = Vec::new();
 
     for type_ref in &blueprint.root_types {
-        if let Some(brief_type) = resolve_brief_type(store, type_ref, &mut diagnostics)? {
+        if let Some(brief_type) = resolve_brief_type(store, type_ref, &mut diagnostics, true)? {
             types.push(brief_type);
         }
+    }
+
+    // srs-rust#1714: every other type the Blueprint reaches (required types,
+    // structure endpoints, stage output types) gets its own description and
+    // field table after the roots, once each. A miss is not diagnostic-worthy
+    // here: structure entries may name types outside the package.
+    let mut extra_refs: Vec<TypeRef> = blueprint.required_types.clone();
+    for rs in &blueprint.structure {
+        extra_refs.push(rs.source_type.clone());
+        extra_refs.push(rs.target_type.clone());
     }
 
     let mut structure = Vec::with_capacity(blueprint.structure.len());
@@ -152,6 +178,25 @@ pub fn blueprint_brief(
         .collect();
 
     let protocol = find_protocol_for_roots(store, &blueprint.root_types, &mut diagnostics)?;
+    if let Some(p) = &protocol {
+        for stage in &p.stages {
+            if let Some(out) = &stage.output_type {
+                extra_refs.push(TypeRef {
+                    type_id: out.clone(),
+                    type_version: None,
+                });
+            }
+        }
+    }
+    for type_ref in &extra_refs {
+        if types.iter().any(|t| t.type_id == type_ref.type_id) {
+            continue;
+        }
+        if let Some(brief_type) = resolve_brief_type(store, type_ref, &mut diagnostics, false)? {
+            types.push(brief_type);
+        }
+    }
+    let type_names = type_name_index(&types, &structure);
 
     let (diagnostics, diagnostics_structured) = diagnostics.into_parts();
     Ok(BlueprintBriefResult {
@@ -166,6 +211,7 @@ pub fn blueprint_brief(
         protocol,
         diagnostics,
         diagnostics_structured,
+        type_names,
     })
 }
 
@@ -187,7 +233,7 @@ pub fn render_brief_markdown(result: &BlueprintBriefResult) -> String {
         out.push_str("**Required types:**\n");
         for rt in &result.required_types {
             if let Some(id) = rt.get("typeId").and_then(|v| v.as_str()) {
-                out.push_str(&format!("- `{id}`\n"));
+                out.push_str(&format!("- `{}`\n", display_type(result, id)));
             }
         }
         out.push('\n');
@@ -222,6 +268,22 @@ pub fn render_brief_markdown(result: &BlueprintBriefResult) -> String {
                 ));
             }
             out.push('\n');
+            for f in &t.fields {
+                if f.vocabulary_terms.is_empty() {
+                    continue;
+                }
+                out.push_str(&format!("**Allowed values for `{}`:**\n", f.name));
+                for term in &f.vocabulary_terms {
+                    let detail = term
+                        .description
+                        .as_deref()
+                        .or(term.label.as_deref())
+                        .map(|d| format!(": {d}"))
+                        .unwrap_or_default();
+                    out.push_str(&format!("- `{}`{}\n", term.key, detail));
+                }
+                out.push('\n');
+            }
         }
     }
 
@@ -235,7 +297,14 @@ pub fn render_brief_markdown(result: &BlueprintBriefResult) -> String {
                 .unwrap_or_default();
             out.push_str(&format!(
                 "- `{}` → `{}` via `{}`{}\n",
-                rs.source_type_id, rs.target_type_id, rs.relation_type, card
+                rs.source_type_name
+                    .clone()
+                    .unwrap_or_else(|| display_type(result, &rs.source_type_id)),
+                rs.target_type_name
+                    .clone()
+                    .unwrap_or_else(|| display_type(result, &rs.target_type_id)),
+                rs.relation_type,
+                card
             ));
         }
         out.push('\n');
@@ -257,7 +326,7 @@ pub fn render_brief_markdown(result: &BlueprintBriefResult) -> String {
                     let labels: Vec<String> = ct
                         .iter()
                         .map(|r| match &r.type_id {
-                            Some(tid) => format!("{}/{}", tid, r.field_id),
+                            Some(tid) => format!("{}/{}", display_type(result, tid), r.field_id),
                             None => r.field_id.clone(),
                         })
                         .collect();
@@ -298,29 +367,62 @@ fn resolve_type_ref_name(
     })
 }
 
+/// A type id as prose: `namespace/name` when the brief resolved it, else the id.
+fn display_type(result: &BlueprintBriefResult, id: &str) -> String {
+    result
+        .type_names
+        .get(id)
+        .cloned()
+        .unwrap_or_else(|| id.to_string())
+}
+
+fn type_name_index(
+    types: &[BriefTypeResult],
+    structure: &[BriefRelationSpecResult],
+) -> std::collections::BTreeMap<String, String> {
+    let mut names = std::collections::BTreeMap::new();
+    for t in types {
+        names.insert(t.type_id.clone(), format!("{}/{}", t.namespace, t.name));
+    }
+    for rs in structure {
+        if let Some(n) = &rs.source_type_name {
+            names.entry(rs.source_type_id.clone()).or_insert(n.clone());
+        }
+        if let Some(n) = &rs.target_type_name {
+            names.entry(rs.target_type_id.clone()).or_insert(n.clone());
+        }
+    }
+    names
+}
+
 fn resolve_brief_type(
     store: &dyn RepositoryStore,
     type_ref: &TypeRef,
     diagnostics: &mut Diagnostics,
+    warn_on_miss: bool,
 ) -> Result<Option<BriefTypeResult>, RepositoryError> {
     let record_type = match type_ref.type_version {
         Some(v) => match get_type_by_id(store, &type_ref.type_id, v)? {
             GetTypeResult::Found(rt) => rt,
             GetTypeResult::NotFound => {
-                diagnostics.warning(
-                    "root-type-version-not-found",
-                    format!("root type {} v{} not found in package", type_ref.type_id, v),
-                );
+                if warn_on_miss {
+                    diagnostics.warning(
+                        "root-type-version-not-found",
+                        format!("root type {} v{} not found in package", type_ref.type_id, v),
+                    );
+                }
                 return Ok(None);
             }
         },
         None => match get_type_by_id_latest(store, &type_ref.type_id)? {
             GetTypeResult::Found(rt) => rt,
             GetTypeResult::NotFound => {
-                diagnostics.warning(
-                    "root-type-not-found",
-                    format!("root type {} not found in package", type_ref.type_id),
-                );
+                if warn_on_miss {
+                    diagnostics.warning(
+                        "root-type-not-found",
+                        format!("root type {} not found in package", type_ref.type_id),
+                    );
+                }
                 return Ok(None);
             }
         },
@@ -341,6 +443,22 @@ fn resolve_brief_type(
                     .filter(|g| !g.purpose.is_empty())
                     .and_then(|g| serde_json::to_value(g).ok());
                 let field_type = field.field_type.clone();
+                let vocabulary_terms = match field.vocabulary_ref() {
+                    Some(vocab_id) => get_vocabulary_by_id(store, vocab_id)?
+                        .map(|v| {
+                            v.terms
+                                .iter()
+                                .filter(|t| t.accepts_new_writes())
+                                .map(|t| BriefTermResult {
+                                    key: t.key.clone(),
+                                    label: t.label.clone(),
+                                    description: t.description.clone(),
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                    None => Vec::new(),
+                };
                 fields.push(BriefFieldResult {
                     field_id: field.id.clone(),
                     name: field.name.clone(),
@@ -348,6 +466,7 @@ fn resolve_brief_type(
                     required: fa.required,
                     field_type,
                     ai_guidance: field_ai,
+                    vocabulary_terms,
                 });
             }
             GetFieldResult::NotFound => {
@@ -492,6 +611,14 @@ mod tests {
 
     /// Build a MemoryStore pre-populated with two fields and one type.
     fn make_package_store(fields: Vec<Field>, record_types: Vec<RecordType>) -> MemoryStore {
+        make_package_store_with_vocab(fields, record_types, vec![])
+    }
+
+    fn make_package_store_with_vocab(
+        fields: Vec<Field>,
+        record_types: Vec<RecordType>,
+        vocabularies: Vec<srs_core::types::vocabulary::Vocabulary>,
+    ) -> MemoryStore {
         let manifest = Manifest {
             root_container_id: None,
             upstream_package: None,
@@ -514,7 +641,7 @@ mod tests {
             protocols: vec![],
             root: PathBuf::from("/memory"),
             package_dependencies: vec![],
-            vocabularies: vec![],
+            vocabularies,
             lifecycles: vec![],
         };
         let store = MemoryStore::new(manifest, package);
@@ -783,6 +910,7 @@ mod tests {
             required_types: vec![],
             types: vec![],
             structure: vec![],
+            type_names: Default::default(),
             protocol: Some(BriefProtocolResult {
                 protocol_id: "proto-1".to_string(),
                 protocol_name: "Example Protocol".to_string(),
@@ -1343,5 +1471,111 @@ mod tests {
             "expected no diagnostics for valid typeId, got: {:?}",
             result.diagnostics
         );
+    }
+
+    /// srs-rust#1714: a multi-type Blueprint's brief describes every type it
+    /// reaches (required types, structure endpoints), lists a field's
+    /// vocabulary terms, and renders names where it had ids.
+    #[test]
+    fn test_brief_multi_type_names_and_vocabulary() {
+        use srs_core::types::term::Term;
+        use srs_core::types::vocabulary::{Vocabulary, VocabularyMode};
+
+        let term = |key: &str, desc: &str| Term {
+            id: format!("term-{key}"),
+            version: 1,
+            namespace: "test.ns".to_string(),
+            key: key.to_string(),
+            label: None,
+            description: Some(desc.to_string()),
+            aliases: None,
+            roles: None,
+            status: None,
+            meta: None,
+            created_at: None,
+            updated_at: None,
+        };
+        let vocab = Vocabulary {
+            schema: None,
+            id: "vocab-1".to_string(),
+            version: 1,
+            namespace: "test.ns".to_string(),
+            name: "mood".to_string(),
+            mode: VocabularyMode::Closed,
+            terms: vec![term("happy", "pleased"), term("sad", "unhappy")],
+            extends_vocabulary_id: None,
+            extends_vocabulary_version: None,
+            promotion_window: None,
+            description: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let mut mood_ft = FieldType::string();
+        mood_ft.vocabulary_ref = Some("vocab-1".to_string());
+        let mut note_type = make_article_type();
+        note_type.id = "type-222".to_string();
+        note_type.name = "note".to_string();
+        note_type.fields = vec![FieldAssignment {
+            field_id: "field-ccc".to_string(),
+            order: 1,
+            required: true,
+            display_label: None,
+            description: None,
+        }];
+        let store = make_package_store_with_vocab(
+            vec![
+                make_field("field-aaa", "title", FieldType::string()),
+                make_field("field-bbb", "summary", FieldType::text()),
+                make_field("field-ccc", "mood", mood_ft),
+            ],
+            vec![make_article_type(), note_type],
+            vec![vocab],
+        );
+        let tref = |id: &str| TypeRef {
+            type_id: id.to_string(),
+            type_version: None,
+        };
+        let blueprint = Blueprint {
+            schema: None,
+            id: String::new(),
+            namespace: "test.ns".to_string(),
+            name: "multi".to_string(),
+            version: 1,
+            description: "multi".to_string(),
+            root_types: vec![tref("type-111")],
+            structure: vec![RelationSpec {
+                relation_type: "contains".to_string(),
+                source_type: tref("type-111"),
+                target_type: tref("type-222"),
+                cardinality: None,
+                required: None,
+            }],
+            required_types: vec![tref("type-222")],
+            ai_guidance: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            lineage: None,
+            provenance: None,
+        };
+        let id = create_blueprint(&store, blueprint, None)
+            .unwrap()
+            .blueprint
+            .id;
+        let result = blueprint_brief(&store, BlueprintBriefInput { blueprint_id: id }).unwrap();
+
+        assert_eq!(result.types.len(), 2, "root and required type, once each");
+        let note = result.types.iter().find(|t| t.name == "note").unwrap();
+        let terms: Vec<&str> = note.fields[0]
+            .vocabulary_terms
+            .iter()
+            .map(|t| t.key.as_str())
+            .collect();
+        assert_eq!(terms, ["happy", "sad"]);
+
+        let md = render_brief_markdown(&result);
+        assert!(md.contains("## Type: test.ns/note"));
+        assert!(md.contains("- `happy`: pleased"));
+        assert!(!md.contains("`type-222`"), "names, not ids:\n{md}");
+        assert!(md.contains("`test.ns/article` → `test.ns/note`"));
     }
 }

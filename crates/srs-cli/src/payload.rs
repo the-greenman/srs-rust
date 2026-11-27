@@ -1680,6 +1680,19 @@ pub struct BriefField {
     #[schemars(with = "Option<serde_json::Value>")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_guidance: Option<serde_json::Value>,
+    /// Active terms of the field's `vocabularyRef` Vocabulary (srs-rust#1714).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub vocabulary_terms: Vec<BriefTerm>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BriefTerm {
+    pub key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -3842,6 +3855,7 @@ mod tests {
             required: true,
             field_type: srs_core::types::field::FieldType::text(),
             ai_guidance: None,
+            vocabulary_terms: vec![],
         };
         let json = serde_json::to_string(&field).unwrap();
         assert!(
