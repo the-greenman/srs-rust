@@ -20,6 +20,7 @@ pub fn dispatch(ctx: CliContext, cmd: RenderCommand) -> Result<String> {
             theme_variant,
             instance,
             exclude,
+            section,
             output,
         } => cmd_render_composition(
             ctx,
@@ -28,6 +29,7 @@ pub fn dispatch(ctx: CliContext, cmd: RenderCommand) -> Result<String> {
             theme_variant,
             instance,
             exclude,
+            section,
             output,
         ),
         RenderCommand::ExportBundle {
@@ -55,6 +57,7 @@ pub fn dispatch(ctx: CliContext, cmd: RenderCommand) -> Result<String> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn cmd_render_composition(
     ctx: CliContext,
     view_id: String,
@@ -62,6 +65,7 @@ fn cmd_render_composition(
     theme_variant: Option<String>,
     instance: Option<String>,
     exclude: Vec<String>,
+    section: Option<String>,
     output_path: Option<PathBuf>,
 ) -> Result<String> {
     match with_store(&ctx, |store| {
@@ -72,6 +76,7 @@ fn cmd_render_composition(
             theme_variant: theme_variant.as_deref(),
             container_id: ctx.container_id.as_deref(),
             exclude_instance_ids: &exclude,
+            section: section.as_deref(),
             instance_id_filter: instance.as_deref(),
         })?)
     }) {
