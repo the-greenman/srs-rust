@@ -3555,6 +3555,28 @@ impl From<srs_repository::attachment_service::RemoveAttachmentResult> for Attach
     }
 }
 
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentUpdatePayload {
+    pub document_id: String,
+    pub sidecar_path: String,
+    pub content_path: String,
+    pub updated: Vec<String>,
+    pub sidecar_checksum: String,
+}
+
+impl From<srs_repository::attachment_service::UpdateAttachmentResult> for AttachmentUpdatePayload {
+    fn from(r: srs_repository::attachment_service::UpdateAttachmentResult) -> Self {
+        Self {
+            document_id: r.document_id,
+            sidecar_path: r.sidecar_path,
+            content_path: r.content_path,
+            updated: r.updated,
+            sidecar_checksum: r.sidecar_checksum,
+        }
+    }
+}
+
 // ── Resolve view attachments payloads ─────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]
