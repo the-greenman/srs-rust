@@ -9062,7 +9062,10 @@ mod tests {
             );
             cc1.anchor_instance_id = Some(RFC042_R_ANCHOR.to_string());
             cc1.child_container_ids = Some(vec![RFC042_CC1A_CONTAINER_ID.to_string()]);
-            container_service::create_container(&store, cc1).unwrap();
+            // The anchor sits in the parent Part, not in this container: the fixture's
+            // point ("renders once, not once per candidate place"). The write path refuses
+            // that shape now (RFC-043 [R7] Rev 13), so it goes through the store seam.
+            store.save_container(&cc1).unwrap();
         }
         container_service::add_member(
             &store,
@@ -9444,7 +9447,6 @@ mod tests {
     /// (`nested_title_level`/`nested_record_level` = `2/3 + depthOffset + d`).
     #[test]
     fn rfc042_h6_overflow_clamps_and_diagnoses_but_still_renders() {
-        use crate::container_service;
         use crate::package::Package;
         use srs_core::types::container::Container;
         use srs_core::types::field::{AiGuidance, Field, FieldType};
@@ -9654,7 +9656,10 @@ mod tests {
                 meta: None,
                 extra: std::collections::BTreeMap::new(),
             };
-            container_service::create_container(&store, c).unwrap();
+            // The anchor deliberately names a record that sits in the parent, not in this
+            // container (a shape the write path now refuses, RFC-043 [R7] Rev 13), so the
+            // fixture goes through the store seam.
+            store.save_container(&c).unwrap();
         }
 
         let result = render_composition(RenderCompositionOptions {
