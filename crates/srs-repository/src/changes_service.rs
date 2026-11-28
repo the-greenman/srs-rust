@@ -346,6 +346,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
+            extra: Default::default(),
         };
         create_note(store, n).unwrap().note.instance_id
     }

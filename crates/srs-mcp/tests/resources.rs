@@ -465,6 +465,7 @@ async fn read_view_renders_markdown() {
         instance_id_filter: None,
         exclude_instance_ids: &[],
         section: None,
+        emit_ids: false,
     })
     .unwrap();
     assert_eq!(text, expected.rendered);
@@ -911,6 +912,7 @@ async fn read_composition_renders_for_container_and_exclude() {
             instance_id_filter: None,
             exclude_instance_ids: exclude,
             section: None,
+            emit_ids: false,
         })
         .unwrap()
         .rendered

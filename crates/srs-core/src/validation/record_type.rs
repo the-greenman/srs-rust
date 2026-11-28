@@ -158,13 +158,18 @@ pub fn validate_cross_field_rules_for_type(
 /// MUST be reported as a Type-level validation error. `conditional-required` and
 /// `field-ordering` must not supply `fieldIds`; `mutual-exclusion` must not supply
 /// `predicateFieldId`, `predicateValue`, `targetFieldId` or `effect`. `conditional-forbidden`
-/// (RFC-040 Change F) is not named by I-96, so its shape is left unchecked here.
+/// (RFC-040 Change F) shares `conditional-required`'s shape (RFC-019 Revision 6, decision
+/// e36be60a), so it must not supply `fieldIds` either.
 fn rule_kind_property_errors(rules: &[CrossFieldRule]) -> Vec<CoreError> {
     let mut errors = Vec::new();
     for (index, rule) in rules.iter().enumerate() {
         let (kind, foreign): (&str, Vec<&str>) = match rule.rule_type {
             CrossFieldRuleKind::ConditionalRequired => (
                 "conditional-required",
+                rule.field_ids.iter().map(|_| "fieldIds").collect(),
+            ),
+            CrossFieldRuleKind::ConditionalForbidden => (
+                "conditional-forbidden",
                 rule.field_ids.iter().map(|_| "fieldIds").collect(),
             ),
             CrossFieldRuleKind::FieldOrdering => (
@@ -183,7 +188,6 @@ fn rule_kind_property_errors(rules: &[CrossFieldRule]) -> Vec<CoreError> {
                 .filter_map(|(name, present)| present.then_some(name))
                 .collect(),
             ),
-            CrossFieldRuleKind::ConditionalForbidden => continue,
         };
         for property in foreign {
             errors.push(CoreError::CrossFieldRuleMisconfigured {
@@ -947,10 +951,29 @@ mod tests {
     }
 
     #[test]
-    fn i96_leaves_conditional_forbidden_shape_unchecked() {
+    fn i96_conditional_forbidden_flags_field_ids() {
         let rt = i96_type(serde_json::json!({
             "type": "conditional-forbidden", "predicateFieldId": "f-a",
             "predicateValue": "x", "targetFieldId": "f-b", "fieldIds": ["f-a", "f-b"],
+        }));
+        let errs = validate_cross_field_rules_for_type(&rt, &i96_fields());
+        assert!(
+            errs.iter().any(|e| matches!(
+                e,
+                CoreError::CrossFieldRuleMisconfigured { reason }
+                    if reason.contains("conditional-forbidden")
+                        && reason.contains("'fieldIds'")
+                        && reason.contains("I-96")
+            )),
+            "expected an I-96 fieldIds error, got: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn i96_conditional_forbidden_without_field_ids_passes() {
+        let rt = i96_type(serde_json::json!({
+            "type": "conditional-forbidden", "predicateFieldId": "f-a",
+            "predicateValue": "x", "targetFieldId": "f-b",
         }));
         assert!(validate_cross_field_rules_for_type(&rt, &i96_fields()).is_empty());
     }

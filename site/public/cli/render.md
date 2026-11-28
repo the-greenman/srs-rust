@@ -99,6 +99,9 @@ Options:
       --section <SECTION>
           Render only one section: a 0-based position or a section title (decision 83b841f1)
 
+      --emit-ids
+          Write `<!-- id:<instanceId> -->` after each record and note heading (`// id:` in adoc; none in text)
+
       --output <OUTPUT>
           Optional output file path for rendered content
 

@@ -1020,6 +1020,7 @@ fn memory_store_catalog_enumerates_saved_instances() {
         created_at: None,
         updated_at: None,
         meta: None,
+        extra: Default::default(),
     };
     store.save_note(&note).unwrap();
     let cat = store.catalog().unwrap();

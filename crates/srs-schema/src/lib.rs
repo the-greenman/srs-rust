@@ -152,6 +152,14 @@ pub fn schema_source(schema_id: &str) -> Option<&'static str> {
         .map(|(_, src)| *src)
 }
 
+/// Names declared under a bundled schema's top-level `properties`.
+fn declared_properties(schema_id: &str) -> Option<Vec<String>> {
+    let src = schema_source(schema_id)?;
+    let v: Value = serde_json::from_str(src).ok()?;
+    let props = v.get("properties")?.as_object()?;
+    Some(props.keys().cloned().collect())
+}
+
 #[derive(Debug, Error)]
 pub enum SchemaError {
     #[error("schema id not registered: {0}")]
@@ -232,6 +240,56 @@ impl SchemaRegistry {
         Ok(())
     }
 
+    /// The top-level keys of `value` that `schema_id` does not declare as
+    /// `properties`, sorted. Empty when the schema is unknown, declares no
+    /// `properties`, or `value` is not an object.
+    pub fn unknown_top_level_keys(&self, schema_id: &str, value: &Value) -> Vec<String> {
+        let Some(declared) = declared_properties(schema_id) else {
+            return Vec::new();
+        };
+        let Some(obj) = value.as_object() else {
+            return Vec::new();
+        };
+        let mut keys: Vec<String> = obj
+            .keys()
+            .filter(|k| !declared.iter().any(|d| d == *k))
+            .cloned()
+            .collect();
+        keys.sort();
+        keys
+    }
+
+    /// RFC-038 Revision 18 [R7] (srs-programme decision ba478783): validate an
+    /// instance-layer object, tolerating unrecognised top-level keys. Returns the
+    /// unrecognised keys (sorted) when they are the only violation. Any other
+    /// violation, including a nested unrecognised key or a wrong value of a known
+    /// key, stays the error of a strict validation. The schema itself stays
+    /// `additionalProperties: false`; the tolerance lives here, in the reader.
+    pub fn validate_tolerating_unknown_keys(
+        &self,
+        schema_id: &str,
+        value: &Value,
+    ) -> SchemaResult<Vec<String>> {
+        let strict = self.validate_by_id(schema_id, value);
+        let Err(strict_err) = strict else {
+            return Ok(Vec::new());
+        };
+        let unknown = self.unknown_top_level_keys(schema_id, value);
+        if unknown.is_empty() {
+            return Err(strict_err);
+        }
+        let mut stripped = value.clone();
+        if let Some(obj) = stripped.as_object_mut() {
+            for k in &unknown {
+                obj.remove(k);
+            }
+        }
+        match self.validate_by_id(schema_id, &stripped) {
+            Ok(()) => Ok(unknown),
+            Err(_) => Err(strict_err),
+        }
+    }
+
     pub fn validate_declared_schema(&self, value: &Value) -> SchemaResult<&'static str> {
         let declared = value
             .get("$schema")
@@ -283,6 +341,36 @@ mod tests {
         for id in ALL_SCHEMA_IDS {
             assert!(reg.schema_ids().contains(id), "missing: {id}");
         }
+    }
+
+    #[test]
+    fn unknown_top_level_key_is_tolerated_and_named() {
+        let reg = SchemaRegistry::global();
+        let note = json!({
+            "$schema": NOTE_SCHEMA_ID,
+            "instanceId": "00000000-0000-4000-8000-000000000001",
+            "sections": [{"name": "body", "content": "Hello"}],
+            "x-thirdParty": 1
+        });
+        assert!(reg.validate_by_id(NOTE_SCHEMA_ID, &note).is_err());
+        assert_eq!(
+            reg.validate_tolerating_unknown_keys(NOTE_SCHEMA_ID, &note)
+                .unwrap(),
+            vec!["x-thirdParty".to_string()]
+        );
+    }
+
+    #[test]
+    fn unknown_key_does_not_excuse_another_violation() {
+        let reg = SchemaRegistry::global();
+        let note = json!({
+            "$schema": NOTE_SCHEMA_ID,
+            "instanceId": "00000000-0000-4000-8000-000000000001",
+            "x-thirdParty": 1
+        });
+        assert!(reg
+            .validate_tolerating_unknown_keys(NOTE_SCHEMA_ID, &note)
+            .is_err());
     }
 
     #[test]

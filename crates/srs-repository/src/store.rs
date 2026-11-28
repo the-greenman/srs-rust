@@ -909,7 +909,8 @@ pub trait RepositoryStore {
         // refuse. Every record write shares this save path, so the assembled
         // record is checked against record.json once, before anything is written.
         srs_schema::SchemaRegistry::global()
-            .validate_by_id(RECORD_SCHEMA_ID, &val)
+            .validate_tolerating_unknown_keys(RECORD_SCHEMA_ID, &val)
+            .map(|_| ())
             .map_err(|e| RepositoryError::SchemaValidation {
                 path: PathBuf::from(format!("records/tier-2/{}", record.instance_id)),
                 message: e.to_string(),
@@ -5801,6 +5802,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
+            extra: Default::default(),
         }
     }
 
@@ -5875,6 +5877,7 @@ mod tests {
             notes: None,
             source_refs: None,
             meta: None,
+            extra: Default::default(),
         }
     }
 
@@ -7162,6 +7165,7 @@ mod tests {
                     notes: None,
                     source_refs: None,
                     meta: None,
+                    extra: Default::default(),
                 })
                 .unwrap();
         }
