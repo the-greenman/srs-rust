@@ -1762,6 +1762,7 @@ mod tests {
                 created_at: None,
                 updated_at: None,
                 meta: None,
+                extra: Default::default(),
             })
             .unwrap();
     }
@@ -2004,6 +2005,7 @@ mod tests {
                 notes: None,
                 source_refs: None,
                 meta: None,
+                extra: Default::default(),
             })
             .unwrap();
 
@@ -2182,6 +2184,7 @@ mod tests {
                     notes: None,
                     source_refs: None,
                     meta: None,
+                    extra: Default::default(),
                 })
                 .unwrap();
         }

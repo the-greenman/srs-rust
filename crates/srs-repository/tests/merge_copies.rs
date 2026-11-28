@@ -109,6 +109,7 @@ fn note(store: &dyn RepositoryStore, title: &str) -> Note {
             updated_at: None,
             created_by: None,
             meta: None,
+            extra: Default::default(),
         },
     )
     .unwrap()
@@ -128,6 +129,7 @@ fn relate(store: &dyn RepositoryStore, src: &str, dst: &str) -> Relation {
             notes: None,
             source_refs: None,
             meta: None,
+            extra: Default::default(),
         },
     )
     .unwrap()

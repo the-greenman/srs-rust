@@ -62,6 +62,7 @@ fn note(id: &str) -> Note {
         created_at: None,
         updated_at: None,
         meta: None,
+        extra: Default::default(),
     }
 }
 
@@ -96,6 +97,7 @@ fn relation(id: &str, source: &str, target: &str) -> Relation {
         notes: None,
         source_refs: None,
         meta: None,
+        extra: Default::default(),
     }
 }
 
