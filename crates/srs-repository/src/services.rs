@@ -548,6 +548,7 @@ pub fn graduate_note(
             notes: None,
             source_refs: None,
             meta: None,
+            extra: Default::default(),
         },
         &definitions,
     ) {
@@ -623,7 +624,8 @@ pub fn create_note(
         source: e,
     })?;
     SchemaRegistry::global()
-        .validate_by_id(NOTE_SCHEMA_ID, &raw)
+        .validate_tolerating_unknown_keys(NOTE_SCHEMA_ID, &raw)
+        .map(|_| ())
         .map_err(|e| RepositoryError::SchemaValidation {
             path: std::path::PathBuf::from("<stdin>"),
             message: e.to_string(),
@@ -722,7 +724,8 @@ pub fn update_note(
         source: e,
     })?;
     SchemaRegistry::global()
-        .validate_by_id(NOTE_SCHEMA_ID, &raw)
+        .validate_tolerating_unknown_keys(NOTE_SCHEMA_ID, &raw)
+        .map(|_| ())
         .map_err(|e| RepositoryError::SchemaValidation {
             path: std::path::PathBuf::from(store.record_tier_dir(RecordTier::Note)),
             message: e.to_string(),
@@ -875,6 +878,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
+            extra: Default::default(),
         }
     }
 
@@ -1236,6 +1240,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
+            extra: Default::default(),
         };
 
         let result = create_note(&store, note).unwrap();
@@ -1278,6 +1283,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
+            extra: Default::default(),
         };
 
         let result = create_note(&store, note).unwrap();
@@ -1404,6 +1410,7 @@ mod tests {
             meta: None,
             created_at: None,
             updated_at: Some("2026-01-02T00:00:00Z".to_string()),
+            extra: Default::default(),
         };
 
         let result = update_note(&store, updated).unwrap();
@@ -1505,6 +1512,7 @@ mod tests {
                 notes: None,
                 source_refs: None,
                 meta: None,
+                extra: Default::default(),
             })
             .unwrap();
 
@@ -2048,6 +2056,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
+            extra: Default::default(),
         };
 
         let result = create_note(&store, note).expect("create_note should succeed");
@@ -2091,6 +2100,7 @@ mod tests {
             created_at,
             updated_at: None,
             meta: None,
+            extra: Default::default(),
         };
         let stamped = create_note(&store, mk(None)).unwrap().note;
         assert!(stamped.created_at.is_some(), "createdAt must be stamped");
@@ -2151,6 +2161,7 @@ mod tests {
                 created_at: None,
                 updated_at: None,
                 meta: None,
+                extra: Default::default(),
             },
             container_id: Some(container_id.clone()),
         };
@@ -2174,7 +2185,7 @@ mod tests {
     }
 
     #[test]
-    fn graduate_note_legacy_graduated_at_field_fails_catalog_load_not_the_guard() {
+    fn graduate_note_legacy_graduated_at_field_reaches_the_guard() {
         // Legacy rev-3 data: a Note graduated before this fix carries only the
         // `graduated_at` field (no derived-from edge). This guard's `graduated_at`
         // branch exists to recognize that shape — but `note.json`'s schema (srs
@@ -2205,9 +2216,12 @@ mod tests {
             },
         )
         .unwrap_err();
+        // RFC-038 Revision 18 [R7]: `graduatedAt` is not in note.json, so it is an
+        // unrecognised top-level key: the note loads (with a warning) and the guard
+        // is reachable again.
         assert!(
-            matches!(err, RepositoryError::CatalogLoad { .. }),
-            "expected CatalogLoad (schema now rejects graduatedAt outright, srs-rust#896), got {:?}",
+            matches!(&err, RepositoryError::InvalidInput { message } if message.contains("already graduated")),
+            "expected the already-graduated guard, got {:?}",
             err
         );
     }
@@ -2242,6 +2256,7 @@ mod tests {
                 notes: None,
                 source_refs: None,
                 meta: None,
+                extra: Default::default(),
             },
             &[derived_from_def()],
         )

@@ -295,6 +295,7 @@ mod tests {
                 notes: None,
                 source_refs: None,
                 meta: None,
+                extra: Default::default(),
             },
         )
         .unwrap();

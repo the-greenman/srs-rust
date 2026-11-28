@@ -127,6 +127,9 @@ pub mod codes {
     pub const SCHEMA_INADMISSIBLE: &str = "schema-inadmissible";
     /// Object fails validation against its declared `$schema` ([R7]).
     pub const SCHEMA_VALIDATION: &str = "schema-validation";
+    /// An instance-layer file carries an unrecognised top-level key (warning; RFC-038
+    /// Revision 18 [R7], decision ba478783). RFC-038 spells it UNKNOWN-INSTANCE-KEY; this build spells every code kebab-case (srs-rust#1492).
+    pub const UNKNOWN_INSTANCE_KEY: &str = "unknown-instance-key";
     /// No `$schema`, and the object validates as none of the admissible entities ([R8]).
     pub const SHAPE_NO_MATCH: &str = "shape-no-match";
     /// No `$schema`, and the object validates as more than one admissible entity ([R8]).
@@ -387,6 +390,10 @@ enum Prepared {
     /// Read or parse failure; the message is the underlying error's display.
     Malformed(String),
     Classified(Result<(CatalogKind, u8, String), (&'static str, String)>),
+    /// Classified, but the object carries unrecognised top-level keys (RFC-038
+    /// Revision 18 [R7]): it loads, and one warning names the keys. Never cached,
+    /// so the warning is reproduced on every load.
+    ClassifiedWithUnknownKeys((CatalogKind, u8, String), Vec<String>),
 }
 
 /// Read raw candidates serially (the store is not `Sync`), then parse and
@@ -496,7 +503,13 @@ fn prepare_instance_candidates(
 
 fn classify_source(src: Result<CandidateSource, RepositoryError>) -> Prepared {
     match src.and_then(CandidateSource::into_value) {
-        Ok(value) => Prepared::Classified(classify_instance_value(&value)),
+        Ok(value) => match classify_instance_value(&value) {
+            Ok((c, unknown)) if !unknown.is_empty() => {
+                Prepared::ClassifiedWithUnknownKeys(c, unknown)
+            }
+            Ok((c, _)) => Prepared::Classified(Ok(c)),
+            Err(e) => Prepared::Classified(Err(e)),
+        },
         Err(e) if e.is_not_found() => Prepared::Absent,
         Err(e) => Prepared::Malformed(e.to_string()),
     }
@@ -505,24 +518,30 @@ fn classify_source(src: Result<CandidateSource, RepositoryError>) -> Prepared {
 /// [R6]/[R7]/[R8] classification of one parsed candidate.
 fn classify_instance_value(
     value: &Value,
-) -> Result<(CatalogKind, u8, String), (&'static str, String)> {
+) -> Result<((CatalogKind, u8, String), Vec<String>), (&'static str, String)> {
     let admissible = [
         (srs_schema::NOTE_SCHEMA_ID, CatalogKind::Note, 0u8),
         (srs_schema::RECORD_SCHEMA_ID, CatalogKind::Record, 2),
     ];
     let registry = SchemaRegistry::global();
+    let unknown: Vec<String>;
     let (kind, tier) = if let Some(declared) = value.get("$schema").and_then(|v| v.as_str()) {
         // [R7]: declared, then validated. Never reclassified by shape.
         match admissible.iter().find(|(id, _, _)| *id == declared) {
-            Some((schema_id, kind, tier)) => match registry.validate_by_id(schema_id, value) {
-                Ok(()) => (*kind, *tier),
-                Err(e) => {
-                    return Err((
-                        codes::SCHEMA_VALIDATION,
-                        format!("object fails its declared schema {declared}: {e}"),
-                    ))
+            Some((schema_id, kind, tier)) => {
+                match registry.validate_tolerating_unknown_keys(schema_id, value) {
+                    Ok(keys) => {
+                        unknown = keys;
+                        (*kind, *tier)
+                    }
+                    Err(e) => {
+                        return Err((
+                            codes::SCHEMA_VALIDATION,
+                            format!("object fails its declared schema {declared}: {e}"),
+                        ))
+                    }
                 }
-            },
+            }
             None => {
                 return Err(if registry.schema_ids().contains(&declared) {
                     (
@@ -551,12 +570,22 @@ fn classify_instance_value(
         // [R8]: shape classification over the closed candidate set. The
         // discriminators are content-shape-based (`sections` / `fields` /
         // `typeId`+`fieldValues`), enforced by the schemas themselves.
-        let matches: Vec<&(&str, CatalogKind, u8)> = admissible
+        // Revision 18 [R8]: unrecognised top-level keys are ignored when testing
+        // the shape; they are reported by [R7]'s warning.
+        let matches: Vec<(&(&str, CatalogKind, u8), Vec<String>)> = admissible
             .iter()
-            .filter(|(id, _, _)| registry.validate_by_id(id, value).is_ok())
+            .filter_map(|c| {
+                registry
+                    .validate_tolerating_unknown_keys(c.0, value)
+                    .ok()
+                    .map(|keys| (c, keys))
+            })
             .collect();
         match matches.as_slice() {
-            [(_, kind, tier)] => (*kind, *tier),
+            [((_, kind, tier), keys)] => {
+                unknown = keys.clone();
+                (*kind, *tier)
+            }
             [] => {
                 return Err((
                     codes::SHAPE_NO_MATCH,
@@ -567,7 +596,7 @@ fn classify_instance_value(
                 ))
             }
             _ => {
-                let names: Vec<&str> = matches.iter().map(|(id, _, _)| *id).collect();
+                let names: Vec<&str> = matches.iter().map(|(c, _)| c.0).collect();
                 return Err((
                     codes::SHAPE_AMBIGUOUS,
                     format!(
@@ -584,7 +613,7 @@ fn classify_instance_value(
         .and_then(|v| v.as_str())
         .unwrap_or_default()
         .to_string();
-    Ok((kind, tier, id))
+    Ok(((kind, tier, id), unknown))
 }
 
 struct Builder<'a> {
@@ -1118,6 +1147,18 @@ impl<'a> Builder<'a> {
         });
     }
 
+    /// RFC-038 Revision 18 [R7]: one warning per file, naming the file and every key.
+    fn warn_unknown_instance_keys(&mut self, path: &str, keys: &[String]) {
+        self.warn(
+            codes::UNKNOWN_INSTANCE_KEY,
+            vec![path.to_string()],
+            format!(
+                "{path} carries unrecognised top-level key(s) {}: loaded and carried through every write, never dropped",
+                keys.iter().map(|k| format!("'{k}'")).collect::<Vec<_>>().join(", ")
+            ),
+        );
+    }
+
     fn warn(&mut self, code: &'static str, locators: Vec<String>, message: String) {
         self.diagnostics.push(CatalogDiagnostic {
             code,
@@ -1169,6 +1210,16 @@ impl<'a> Builder<'a> {
                 false
             }
             Prepared::Classified(Ok((kind, tier, id))) => {
+                self.entries.instances.push(CatalogEntry {
+                    id,
+                    kind,
+                    tier: Some(tier),
+                    locator: Some(path.to_string()),
+                });
+                true
+            }
+            Prepared::ClassifiedWithUnknownKeys((kind, tier, id), keys) => {
+                self.warn_unknown_instance_keys(path, &keys);
                 self.entries.instances.push(CatalogEntry {
                     id,
                     kind,
@@ -1239,12 +1290,18 @@ impl<'a> Builder<'a> {
         // before deserializing, mirroring `store::relation_object_from_value`. Every
         // relation `save_relation` writes carries this property, so failing to strip
         // it here would make every production-written relation uncatalogable.
+        let unknown_keys =
+            SchemaRegistry::global().unknown_top_level_keys(srs_schema::RELATION_SCHEMA_ID, &value);
         let mut value = value;
         if let Some(obj) = value.as_object_mut() {
             obj.remove("$schema");
         }
         match serde_json::from_value::<Relation>(value) {
             Ok(relation) => {
+                if !unknown_keys.is_empty() {
+                    // RFC-038 Revision 18 [R7]: carried, with a named warning.
+                    self.warn_unknown_instance_keys(path, &unknown_keys);
+                }
                 let stem = rel.strip_suffix(".json").unwrap_or(rel);
                 if relation.relation_id != stem {
                     self.error(

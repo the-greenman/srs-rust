@@ -47,6 +47,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
+            extra: Default::default(),
         };
         let val = serde_json::to_value(&note).unwrap();
         let store = store.with_data("records/notes/test.json", val);
@@ -105,6 +106,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
+            extra: Default::default(),
         };
         let val = serde_json::to_value(&note).unwrap();
         // verify the JSON carries the typed value before storing

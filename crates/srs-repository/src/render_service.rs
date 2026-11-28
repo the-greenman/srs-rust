@@ -6118,6 +6118,7 @@ mod tests {
                 notes: None,
                 source_refs: None,
                 meta: None,
+                extra: Default::default(),
             },
         )
         .unwrap();
@@ -6407,6 +6408,7 @@ mod tests {
                 notes: None,
                 source_refs: None,
                 meta: None,
+                extra: Default::default(),
             },
         )
         .unwrap();
@@ -6422,6 +6424,7 @@ mod tests {
                 notes: None,
                 source_refs: None,
                 meta: None,
+                extra: Default::default(),
             },
         )
         .unwrap();
@@ -6643,6 +6646,7 @@ mod tests {
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
                 updated_at: None,
                 meta: None,
+                extra: Default::default(),
             },
         )
         .unwrap();
@@ -6663,6 +6667,7 @@ mod tests {
                 notes: None,
                 source_refs: None,
                 meta: None,
+                extra: Default::default(),
             },
         )
         .unwrap();
@@ -10528,6 +10533,7 @@ mod tests {
                 notes: None,
                 source_refs: None,
                 meta: None,
+                extra: Default::default(),
             },
         )
         .unwrap();
@@ -10655,6 +10661,7 @@ mod tests {
                     notes: None,
                     source_refs: None,
                     meta: None,
+                    extra: Default::default(),
                 },
             )
             .unwrap();
@@ -10705,6 +10712,7 @@ mod tests {
                 notes: None,
                 source_refs: None,
                 meta: None,
+                extra: Default::default(),
             },
         )
         .unwrap();
@@ -10993,6 +11001,7 @@ mod tests {
                 notes: None,
                 source_refs: None,
                 meta: None,
+                extra: Default::default(),
             },
         )
         .unwrap();
@@ -14127,6 +14136,7 @@ mod tests {
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
                 updated_at: None,
                 meta: None,
+                extra: Default::default(),
             },
         )
         .unwrap()
@@ -14261,6 +14271,7 @@ mod tests {
             notes: None,
             source_refs: None,
             meta: None,
+            extra: Default::default(),
         }
     }
 

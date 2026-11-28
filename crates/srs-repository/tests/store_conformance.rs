@@ -155,6 +155,7 @@ fn make_note(id: &str, title: &str, tags: Option<Vec<String>>) -> Note {
         created_at: None,
         updated_at: None,
         meta: None,
+        extra: Default::default(),
     }
 }
 

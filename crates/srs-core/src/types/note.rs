@@ -25,6 +25,10 @@ pub struct Note {
     pub created_by: Option<super::actor::Actor>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meta: Option<serde_json::Value>,
+    /// Unrecognised top-level keys, carried through every write (RFC-038
+    /// Revision 18 [R7], decision ba478783). `BTreeMap` for deterministic order.
+    #[serde(flatten)]
+    pub extra: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -71,6 +75,7 @@ mod tests {
             created_at: Some("2026-01-01T00:00:00Z".to_string()),
             updated_at: None,
             meta: None,
+            extra: Default::default(),
         };
 
         let json = serde_json::to_string(&note).unwrap();
@@ -169,6 +174,7 @@ mod tests {
             created_at: Some("2026-01-01T00:00:00Z".to_string()),
             updated_at: None,
             meta: None,
+            extra: Default::default(),
         };
         let mut value = serde_json::to_value(&note).unwrap();
         value["$schema"] = serde_json::json!("https://srs.semanticops.com/schema/2.0/note.json");
