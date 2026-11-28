@@ -858,6 +858,7 @@ impl From<RelationCreateToolInput> for Relation {
             notes: input.notes,
             source_refs: None,
             meta: input.meta,
+            extra: Default::default(),
         }
     }
 }
@@ -914,6 +915,7 @@ impl From<NoteCreateToolInput> for CreateNoteInput {
                 created_at: input.created_at,
                 updated_at: None,
                 meta: None,
+                extra: Default::default(),
             },
             container_id: input.container_id,
         }

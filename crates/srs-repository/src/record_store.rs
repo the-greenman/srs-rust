@@ -1791,6 +1791,7 @@ fn assert_fulfillment_relation(
             notes: None,
             source_refs: None,
             meta: None,
+            extra: Default::default(),
         },
     )?;
     Ok(result.relation)
@@ -1951,6 +1952,7 @@ pub fn create_record_successor(
             notes: None,
             source_refs: None,
             meta: None,
+            extra: Default::default(),
         },
         &definitions,
     ) {
@@ -3279,6 +3281,7 @@ pub(crate) mod tests {
                 notes: None,
                 source_refs: None,
                 meta: None,
+                extra: Default::default(),
             })
             .unwrap();
         store
@@ -3292,6 +3295,7 @@ pub(crate) mod tests {
                 notes: None,
                 source_refs: None,
                 meta: None,
+                extra: Default::default(),
             })
             .unwrap();
 

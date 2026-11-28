@@ -1093,6 +1093,7 @@ mod tests {
                 notes: None,
                 source_refs: None,
                 meta: None,
+                extra: Default::default(),
             },
             &defs,
         )
@@ -1110,6 +1111,7 @@ mod tests {
                 notes: None,
                 source_refs: None,
                 meta: None,
+                extra: Default::default(),
             },
             &defs,
         )
@@ -1210,6 +1212,7 @@ mod tests {
                     notes: None,
                     source_refs: None,
                     meta: None,
+                    extra: Default::default(),
                 },
                 &defs,
             )
@@ -1312,6 +1315,7 @@ mod tests {
                 notes: None,
                 source_refs: None,
                 meta: None,
+                extra: Default::default(),
             },
             &depends_on_defs(),
         )
@@ -1380,6 +1384,7 @@ mod tests {
                     notes: None,
                     source_refs: None,
                     meta: None,
+                    extra: Default::default(),
                 },
                 &defs,
             )
@@ -1478,6 +1483,7 @@ mod tests {
                     notes: None,
                     source_refs: None,
                     meta: None,
+                    extra: Default::default(),
                 },
                 &defs,
             )
@@ -1550,6 +1556,7 @@ mod tests {
             notes: None,
             source_refs: None,
             meta: None,
+            extra: Default::default(),
         };
         // Two inbound edges created second-then-first: the thread must come back by neighbour
         // createdAt (creation order), not by call order or relationId.
@@ -1767,6 +1774,7 @@ mod tests {
             notes: None,
             source_refs: None,
             meta: None,
+            extra: Default::default(),
         };
         let mut all = vec![rel("refines", &hub, &out_target)];
         for i in 0..n_in {
@@ -1928,6 +1936,7 @@ mod tests {
             notes: None,
             source_refs: None,
             meta: None,
+            extra: Default::default(),
         };
         for r in [
             rel("00000000-0000-4000-8000-000000000003", "depends-on", None),
@@ -1986,6 +1995,7 @@ mod tests {
                 notes: None,
                 source_refs: None,
                 meta: None,
+                extra: Default::default(),
             })
             .unwrap();
         let from_note = list_neighbours(&store, nq(&note), NeighboursPage::default()).unwrap();

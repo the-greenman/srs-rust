@@ -579,6 +579,7 @@ mod tests {
             notes: None,
             source_refs: None,
             meta: None,
+            extra: Default::default(),
         }
     }
 
@@ -755,9 +756,10 @@ mod tests {
 
         // No `contains` relation anywhere — membership is declared only via the
         // Container's `rootInstanceIds`/`memberInstanceIds`, per container.json.
-        crate::container_service::create_container(
-            &store,
-            srs_core::types::container::Container {
+        // The anchor names the section record, not a member of this container (a shape the
+        // write path refuses since RFC-043 [R7] Rev 13): the fixture uses the store seam.
+        store
+            .save_container(&srs_core::types::container::Container {
                 container_id: "00000000-0000-4000-8000-00000000c100".to_string(),
                 title: "The Case".to_string(),
                 namespace: None,
@@ -776,9 +778,8 @@ mod tests {
                 updated_at: None,
                 meta: None,
                 extra: std::collections::BTreeMap::new(),
-            },
-        )
-        .unwrap();
+            })
+            .unwrap();
 
         let result = build_tree(
             &store,
@@ -868,9 +869,10 @@ mod tests {
 
         // No `contains` relations at all — the cycle comes entirely from
         // container membership, per srs-rust#1097.
-        crate::container_service::create_container(
-            &store,
-            srs_core::types::container::Container {
+        // Pointer deliberately outside the membership (a shape the write path refuses since
+        // RFC-043 [R7] Rev 13): the fixture goes through the store seam.
+        store
+            .save_container(&srs_core::types::container::Container {
                 container_id: "00000000-0000-4000-8000-00000000ca00".to_string(),
                 title: "Container A".to_string(),
                 namespace: None,
@@ -886,12 +888,12 @@ mod tests {
                 updated_at: None,
                 meta: None,
                 extra: std::collections::BTreeMap::new(),
-            },
-        )
-        .unwrap();
-        crate::container_service::create_container(
-            &store,
-            srs_core::types::container::Container {
+            })
+            .unwrap();
+        // Pointer deliberately outside the membership (a shape the write path refuses since
+        // RFC-043 [R7] Rev 13): the fixture goes through the store seam.
+        store
+            .save_container(&srs_core::types::container::Container {
                 container_id: "00000000-0000-4000-8000-00000000cb00".to_string(),
                 title: "Container B".to_string(),
                 namespace: None,
@@ -907,9 +909,8 @@ mod tests {
                 updated_at: None,
                 meta: None,
                 extra: std::collections::BTreeMap::new(),
-            },
-        )
-        .unwrap();
+            })
+            .unwrap();
 
         let result = build_tree(
             &store,

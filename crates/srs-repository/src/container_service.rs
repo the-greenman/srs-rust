@@ -319,6 +319,7 @@ pub fn create_container(
     require_resolvable_instances(store, declared_membership(&container))?;
     require_valid_arrangement(store, &container)?;
     require_resolvable_identity(store, &container)?;
+    require_pointers_are_members(&container)?;
     require_valid_child_containers(
         store,
         &container.container_id,
@@ -489,6 +490,7 @@ pub fn update_container(
     require_resolvable_instances(store, declared_membership(&container))?;
     require_valid_arrangement(store, &container)?;
     require_resolvable_identity(store, &container)?;
+    require_pointers_are_members(&container)?;
     require_valid_child_containers(
         store,
         &container.container_id,
@@ -1092,6 +1094,33 @@ fn require_resolvable_identity(
 ) -> Result<(), RepositoryError> {
     if let Some(ref id) = container.identity_instance_id {
         require_resolvable_instances(store, [id.as_str()])?;
+    }
+    Ok(())
+}
+
+/// RFC-043 [R7] (Revision 13, decision 7753b32f): a create or update whose result leaves
+/// `anchorInstanceId` or `identityInstanceId` naming an instance that is not an entry of the
+/// container is rejected whole (`arrangement-pointer`), before anything is written. Repair
+/// ([R20]) is exempt: it uses the unchecked seam and never reaches this check.
+fn require_pointers_are_members(container: &Container) -> Result<(), RepositoryError> {
+    for (id, what) in [
+        (
+            container.identity_instance_id.as_deref(),
+            "identityInstanceId",
+        ),
+        (container.anchor_instance_id.as_deref(), "anchorInstanceId"),
+    ] {
+        let Some(id) = id else { continue };
+        if !declared_membership(container).any(|m| m == id) {
+            return Err(arrangement_error(arrangement::Violation {
+                code: arrangement::CODE_POINTER,
+                instance_id: id.to_string(),
+                message: format!(
+                    "{} of container {} names an instance that is not a member; add it as an entry first",
+                    what, container.container_id
+                ),
+            }));
+        }
     }
     Ok(())
 }
@@ -1733,6 +1762,7 @@ mod tests {
                 created_at: None,
                 updated_at: None,
                 meta: None,
+                extra: Default::default(),
             })
             .unwrap();
     }
@@ -1975,6 +2005,7 @@ mod tests {
                 notes: None,
                 source_refs: None,
                 meta: None,
+                extra: Default::default(),
             })
             .unwrap();
 
@@ -2153,6 +2184,7 @@ mod tests {
                     notes: None,
                     source_refs: None,
                     meta: None,
+                    extra: Default::default(),
                 })
                 .unwrap();
         }
@@ -2444,6 +2476,66 @@ mod tests {
         assert_eq!(ids(&r), vec![(A.into(), 0)]);
         assert_eq!(r.promoted, vec![A.to_string()]);
         assert_eq!(r.removed, vec![B.to_string()]);
+    }
+
+    #[test]
+    fn pointer_writes_naming_a_non_member_are_refused_whole() {
+        // RFC-043 [R7] Revision 13 (decision 7753b32f, srs-rust#1636).
+        const OUTSIDE: &str = "44444444-4444-4444-8444-444444444444";
+        let store = make_store();
+        seed_instance(&store, OUTSIDE);
+        let cid = "550e8400-e29b-41d4-a716-446655440001";
+
+        // create with a non-member anchor / identity: refused, nothing stored
+        for set in [
+            |c: &mut Container| c.anchor_instance_id = Some(OUTSIDE.to_string()),
+            |c: &mut Container| c.identity_instance_id = Some(OUTSIDE.to_string()),
+        ] {
+            let mut c = minimal_container(cid, "Ptr");
+            c.member_instance_ids = Some(srs_core::types::container::entries([A, B]));
+            set(&mut c);
+            let err = create_container(&store, c).unwrap_err();
+            assert!(err.to_string().contains("arrangement-pointer"), "{err}");
+            assert!(store.load_container(cid).is_err(), "nothing was written");
+        }
+
+        // create with the anchor among the members still succeeds
+        let mut c = minimal_container(cid, "Ptr");
+        c.member_instance_ids = Some(srs_core::types::container::entries([A, B]));
+        c.anchor_instance_id = Some(A.to_string());
+        create_container(&store, c).unwrap();
+        let before = store.load_container(cid).unwrap();
+
+        // update to a non-member anchor / identity: refused, container unchanged
+        for patch in [
+            ContainerPatch {
+                anchor_instance_id: Some(Some(OUTSIDE.to_string())),
+                ..Default::default()
+            },
+            ContainerPatch {
+                identity_instance_id: Some(Some(OUTSIDE.to_string())),
+                ..Default::default()
+            },
+        ] {
+            let err = update_container(&store, cid, patch).unwrap_err();
+            assert!(err.to_string().contains("arrangement-pointer"), "{err}");
+            assert_eq!(
+                serde_json::to_value(store.load_container(cid).unwrap()).unwrap(),
+                serde_json::to_value(&before).unwrap(),
+                "a refused update changes nothing"
+            );
+        }
+
+        // moving the pointer to another member is accepted
+        update_container(
+            &store,
+            cid,
+            ContainerPatch {
+                anchor_instance_id: Some(Some(B.to_string())),
+                ..Default::default()
+            },
+        )
+        .unwrap();
     }
 
     #[test]
@@ -3329,6 +3421,9 @@ mod tests {
 
         let patch = ContainerPatch {
             identity_instance_id: Some(Some("11111111-1111-4111-8111-111111111111".to_string())),
+            member_instance_ids: Some(srs_core::types::container::entries([
+                "11111111-1111-4111-8111-111111111111",
+            ])),
             ..ContainerPatch::default()
         };
         let updated = update_container(&store, container_id, patch)
@@ -3370,6 +3465,9 @@ mod tests {
         // Patch OTHER container's identity_instance_id — manifest should not change
         let patch = ContainerPatch {
             identity_instance_id: Some(Some("22222222-2222-4222-8222-222222222222".to_string())),
+            member_instance_ids: Some(srs_core::types::container::entries([
+                "22222222-2222-4222-8222-222222222222",
+            ])),
             ..ContainerPatch::default()
         };
         update_container(&store, other_id, patch).unwrap();
@@ -3460,6 +3558,9 @@ mod tests {
         let container_id = "550e8400-e29b-41d4-a716-446655440004";
         let mut container = minimal_container(container_id, "Root");
         container.identity_instance_id = Some("11111111-1111-4111-8111-111111111111".to_string());
+        container.member_instance_ids = Some(srs_core::types::container::entries([
+            "11111111-1111-4111-8111-111111111111",
+        ]));
         create_container(&store, container).unwrap();
 
         let patch: ContainerPatch =
@@ -3478,6 +3579,9 @@ mod tests {
         let id = "550e8400-e29b-41d4-a716-446655440006";
         let mut c = minimal_container(id, "Root");
         c.anchor_instance_id = Some("11111111-1111-4111-8111-111111111111".to_string());
+        c.member_instance_ids = Some(srs_core::types::container::entries([
+            "11111111-1111-4111-8111-111111111111",
+        ]));
         create_container(&store, c).unwrap();
         let keep: ContainerPatch = serde_json::from_str(r#"{"title":"T"}"#).unwrap();
         assert!(update_container(&store, id, keep)
@@ -3509,6 +3613,9 @@ mod tests {
         let container_id = "550e8400-e29b-41d4-a716-446655440005";
         let mut container = minimal_container(container_id, "Root");
         container.identity_instance_id = Some("11111111-1111-4111-8111-111111111111".to_string());
+        container.member_instance_ids = Some(srs_core::types::container::entries([
+            "11111111-1111-4111-8111-111111111111",
+        ]));
         create_container(&store, container).unwrap();
 
         let patch: ContainerPatch = serde_json::from_str(r#"{"title": "Renamed"}"#).unwrap();
@@ -3529,6 +3636,9 @@ mod tests {
         create_container(&store, minimal_container(id, "Root")).unwrap();
         let patch = ContainerPatch {
             anchor_instance_id: Some(Some("11111111-1111-4111-8111-111111111111".to_string())),
+            member_instance_ids: Some(srs_core::types::container::entries([
+                "11111111-1111-4111-8111-111111111111",
+            ])),
             ..ContainerPatch::default()
         };
         let updated = update_container(&store, id, patch).unwrap().container;
@@ -3717,6 +3827,7 @@ mod tests {
             identity_instance_id: Some(Some("11111111-1111-4111-8111-111111111111".to_string())),
             anchor_instance_id: Some(Some("11111111-1111-4111-8111-111111111111".to_string())),
             member_instance_ids: Some(srs_core::types::container::entries(vec![
+                "11111111-1111-4111-8111-111111111111".to_string(),
                 "22222222-2222-4222-8222-222222222222".to_string(),
             ])),
             ..ContainerPatch::default()
@@ -3735,6 +3846,7 @@ mod tests {
         assert_eq!(
             updated.member_instance_ids,
             Some(srs_core::types::container::entries([
+                "11111111-1111-4111-8111-111111111111",
                 "22222222-2222-4222-8222-222222222222"
             ]))
         );
@@ -3754,6 +3866,7 @@ mod tests {
         assert_eq!(
             reloaded.member_instance_ids,
             Some(srs_core::types::container::entries([
+                "11111111-1111-4111-8111-111111111111",
                 "22222222-2222-4222-8222-222222222222"
             ]))
         );

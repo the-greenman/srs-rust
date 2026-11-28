@@ -912,6 +912,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
+            extra: Default::default(),
         };
         let note_path = "records/notes/identity.json";
         write_note(&store, &note, note_path).unwrap();
@@ -1229,6 +1230,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
+            extra: Default::default(),
         };
         let legacy_path = "records/notes/legacy-unrelated.json";
         write_note(&store, &legacy_note, legacy_path).unwrap();
@@ -1316,6 +1318,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
+            extra: Default::default(),
         };
         // Write to a non-canonical path
         let old_path = "records/notes/old-name.json";

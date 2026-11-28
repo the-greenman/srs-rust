@@ -576,7 +576,9 @@ mod tests {
                 description: None,
                 container_type: Some("stale-hint-is-not-a-key".to_string()),
                 identity_instance_id: None,
-                member_instance_ids: None,
+                member_instance_ids: Some(srs_core::types::container::entries(vec![
+                    "00000000-0000-4000-8000-00000000a200".to_string(),
+                ])),
                 child_container_ids: None,
                 anchor_instance_id: Some("00000000-0000-4000-8000-00000000a200".to_string()),
                 tags: None,
@@ -598,7 +600,9 @@ mod tests {
                 description: None,
                 container_type: Some("another-stale-hint".to_string()),
                 identity_instance_id: None,
-                member_instance_ids: None,
+                member_instance_ids: Some(srs_core::types::container::entries(vec![
+                    "00000000-0000-4000-8000-00000000a300".to_string(),
+                ])),
                 child_container_ids: None,
                 anchor_instance_id: Some("00000000-0000-4000-8000-00000000a300".to_string()),
                 tags: None,
@@ -676,6 +680,7 @@ mod tests {
                 created_at: Some("2026-01-01T12:00:00Z".to_string()),
                 updated_at: None,
                 meta: None,
+                extra: Default::default(),
             })
             .unwrap();
         container_service::add_member(
@@ -1104,7 +1109,9 @@ mod tests {
                 container_type: None,
                 identity_instance_id: None,
                 anchor_instance_id: Some("00000000-0000-4000-8000-00000000a200".to_string()),
-                member_instance_ids: None,
+                member_instance_ids: Some(srs_core::types::container::entries(vec![
+                    "00000000-0000-4000-8000-00000000a200".to_string(),
+                ])),
                 child_container_ids: None,
                 tags: None,
                 created_at: None,
@@ -1343,6 +1350,15 @@ mod tests {
         // b000 roots a200, which is now a child-bearing section; scope a220 too.
         // c000 already exists from nav_store(), so this re-anchors it via update,
         // not create (srs-rust#1167).
+        // The anchor must be a member (RFC-043 [R7] Rev 13): add it first.
+        container_service::add_member(
+            &store,
+            "00000000-0000-4000-8000-00000000c000",
+            "00000000-0000-4000-8000-00000000a220",
+            None,
+            None,
+        )
+        .unwrap();
         container_service::update_container(
             &store,
             "00000000-0000-4000-8000-00000000c000",

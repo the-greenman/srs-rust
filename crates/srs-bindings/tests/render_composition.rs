@@ -32,6 +32,7 @@ fn render_composition_json_format_returns_projection() {
         instance_id_filter: None,
         exclude_instance_ids: &[],
         section: None,
+        emit_ids: false,
     })
     .expect("render must succeed");
 
@@ -63,6 +64,7 @@ fn render_composition_markdown_format_no_projection() {
         instance_id_filter: None,
         exclude_instance_ids: &[],
         section: None,
+        emit_ids: false,
     })
     .expect("render must succeed");
 
@@ -89,6 +91,7 @@ fn render_composition_unknown_view_errors() {
         instance_id_filter: None,
         exclude_instance_ids: &[],
         section: None,
+        emit_ids: false,
     });
     assert!(result.is_err(), "unknown view id must return Err");
 }

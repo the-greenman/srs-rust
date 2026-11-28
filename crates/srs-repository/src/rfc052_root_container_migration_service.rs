@@ -1084,8 +1084,10 @@ mod tests {
         // leaves the corpus failing the same way, as for an inline root.
         let tmp = tempfile::tempdir().unwrap();
         half_migrated(tmp.path());
+        // Revision 18: an unrecognised top-level key is no longer fatal, so the defect
+        // is a missing required property.
         let mut bad = note(SEC_A);
-        bad["bogusProperty"] = json!(1);
+        bad.as_object_mut().unwrap().remove("sections");
         w(
             tmp.path(),
             &format!("records/notes/note-{SEC_A}.json"),
