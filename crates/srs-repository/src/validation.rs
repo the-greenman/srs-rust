@@ -6220,6 +6220,7 @@ mod tests {
                 instance_id_filter: None,
                 exclude_instance_ids: &[],
                 section: None,
+                emit_ids: false,
             },
         )
         .expect("render should succeed");
@@ -6390,6 +6391,7 @@ mod tests {
                 instance_id_filter: None,
                 exclude_instance_ids: &[],
                 section: None,
+                emit_ids: false,
             },
         )
         .expect("render should succeed");

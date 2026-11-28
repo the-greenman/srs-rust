@@ -21,6 +21,7 @@ pub fn dispatch(ctx: CliContext, cmd: RenderCommand) -> Result<String> {
             instance,
             exclude,
             section,
+            emit_ids,
             output,
         } => cmd_render_composition(
             ctx,
@@ -30,6 +31,7 @@ pub fn dispatch(ctx: CliContext, cmd: RenderCommand) -> Result<String> {
             instance,
             exclude,
             section,
+            emit_ids,
             output,
         ),
         RenderCommand::ExportBundle {
@@ -66,6 +68,7 @@ fn cmd_render_composition(
     instance: Option<String>,
     exclude: Vec<String>,
     section: Option<String>,
+    emit_ids: bool,
     output_path: Option<PathBuf>,
 ) -> Result<String> {
     match with_store(&ctx, |store| {
@@ -77,6 +80,7 @@ fn cmd_render_composition(
             container_id: ctx.container_id.as_deref(),
             exclude_instance_ids: &exclude,
             section: section.as_deref(),
+            emit_ids,
             instance_id_filter: instance.as_deref(),
         })?)
     }) {
