@@ -414,6 +414,20 @@ pub fn export_container_slice(
         source_document_count += 1;
     }
 
+    // --- Protocol runs (srs-rust#1711): a run belongs to its container, so the
+    // slice carries the runs whose container is in the closure, and nothing
+    // else (a run of an excluded container would name nothing the slice has).
+    let runs_path = format!("{}/runs.json", crate::protocol_run_service::RUNS_DIR);
+    if tree.contains_key(&runs_path) {
+        let mut runs_doc = parse(&tree, &runs_path)?;
+        if let Some(runs) = runs_doc.get_mut("runs").and_then(Value::as_array_mut) {
+            runs.retain(|r| closure.contains(str_of(r, "containerId")));
+            if !runs.is_empty() {
+                out.insert(runs_path, pretty(&runs_doc));
+            }
+        }
+    }
+
     // --- Packages (D1 = P3): whole boundaries, closed at package granularity.
     let refs = match manifest.get("packageRefs").and_then(Value::as_array) {
         Some(a) => a.clone(),

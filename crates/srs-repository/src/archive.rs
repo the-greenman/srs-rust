@@ -187,6 +187,9 @@ pub(crate) fn tree_entries(
         })
         .chain(package_roots.iter().filter(|r| !r.is_empty()).cloned())
         .chain(["relations".to_string(), "containers".to_string()])
+        // Protocol runs (`runs/runs.json`, written by `protocol_run_service`)
+        // are repository state a receiver must be able to continue (srs-rust#1711).
+        .chain([crate::protocol_run_service::RUNS_DIR.to_string()])
         .chain([SRS_MARKER_DIR.to_string()])
         .chain(src_docs_dir.clone())
         .collect();
@@ -960,6 +963,31 @@ mod tests {
         let sections = inst_body["sections"].as_array().expect("sections array");
         assert_eq!(sections.len(), 1);
         assert_eq!(sections[0]["content"], "Hello");
+    }
+
+    /// srs-rust#1711: protocol runs (`runs/runs.json`) travel with the archive.
+    #[test]
+    fn test_archive_carries_protocol_runs() {
+        let source = init_memory_store();
+        let runs = serde_json::json!({"runs": [{"runId": "run-1", "containerId": "c-1"}]});
+        source.ensure_instance_dir("runs").expect("runs dir");
+        source
+            .save_instance_json("runs/runs.json", &runs)
+            .expect("save runs");
+
+        let zip_bytes = pack_to_bytes(&source);
+        // Read the archive as a tree (the layout-faithful reader the disk
+        // unpack writes from): the runs file must be there, byte for byte.
+        let tree = archive_to_tree(Cursor::new(&zip_bytes))
+            .expect("archive_to_tree")
+            .as_tree_snapshot()
+            .expect("tree snapshot");
+        let back: serde_json::Value = serde_json::from_slice(
+            tree.get("runs/runs.json")
+                .expect("runs/runs.json is in the archive"),
+        )
+        .expect("runs json");
+        assert_eq!(back, runs);
     }
 
     #[test]
