@@ -182,6 +182,7 @@ fn container_subset_renders_real_part_container_members_exactly_once() {
         instance_id_filter: None,
         exclude_instance_ids: &[],
         section: None,
+        emit_ids: false,
     })
     .expect("test composition must render");
 

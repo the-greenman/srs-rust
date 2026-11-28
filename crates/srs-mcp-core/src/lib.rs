@@ -389,6 +389,7 @@ pub mod srs_resources {
                     instance_id_filter: None,
                     exclude_instance_ids: &q.exclude_instance_ids,
                     section: None,
+                    emit_ids: false,
                 })
                 .map_err(service_err)?;
                 Ok(contents(raw_uri, MIME_MARKDOWN, result.rendered))
