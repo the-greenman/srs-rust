@@ -82,7 +82,8 @@
         "fieldType",
         "name",
         "order",
-        "required"
+        "required",
+        "vocabularyTerms"
       ],
       "properties": {
         "aiGuidance": true,
@@ -102,6 +103,13 @@
         },
         "required": {
           "type": "boolean"
+        },
+        "vocabularyTerms": {
+          "description": "Active terms of the field's `vocabularyRef` Vocabulary (srs-rust#1714).",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/BriefTerm"
+          }
         }
       }
     },
@@ -228,6 +236,29 @@
         },
         "stageId": {
           "type": "string"
+        }
+      }
+    },
+    "BriefTerm": {
+      "type": "object",
+      "required": [
+        "key"
+      ],
+      "properties": {
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "key": {
+          "type": "string"
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     },

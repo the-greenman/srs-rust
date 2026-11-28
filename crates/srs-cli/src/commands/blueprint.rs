@@ -3,8 +3,8 @@ use crate::output;
 use crate::payload::{
     self as payload, BlueprintBriefPayload, BlueprintDeletePayload, BlueprintListEntry,
     BlueprintListPayload, BlueprintPayload, BlueprintSchemaPayload, BlueprintStructurePayload,
-    BlueprintValidatePayload, BriefField, BriefProtocol, BriefRelationSpec, BriefStage, BriefType,
-    RelationSpecEntry,
+    BlueprintValidatePayload, BriefField, BriefProtocol, BriefRelationSpec, BriefStage, BriefTerm,
+    BriefType, RelationSpecEntry,
 };
 use anyhow::Result;
 use srs_core::types::blueprint::Blueprint;
@@ -203,6 +203,15 @@ fn map_brief_type(t: BriefTypeResult) -> BriefType {
                 required: f.required,
                 field_type: f.field_type,
                 ai_guidance: f.ai_guidance,
+                vocabulary_terms: f
+                    .vocabulary_terms
+                    .into_iter()
+                    .map(|t| BriefTerm {
+                        key: t.key,
+                        label: t.label,
+                        description: t.description,
+                    })
+                    .collect(),
             })
             .collect(),
     }
