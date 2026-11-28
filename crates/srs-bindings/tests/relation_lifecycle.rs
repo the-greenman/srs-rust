@@ -68,7 +68,7 @@ fn lifecycle_srsj() -> String {
             },
             "package/types/proposal.json": {
                 "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
-                "id": "type-proposal-001",
+                "id": "c1000001-0000-4000-a000-000000000001",
                 "namespace": "com.test.lc",
                 "name": "proposal",
                 "version": 1,
@@ -129,7 +129,7 @@ fn lifecycle_srsj() -> String {
             },
             "records/tier-2/rec-lc-001.json": {
                 "instanceId": "rec-lc-001",
-                "typeId": "type-proposal-001",
+                "typeId": "c1000001-0000-4000-a000-000000000001",
                 "typeName": "proposal",
                 "typeNamespace": "com.test.lc",
                 "typeVersion": 1,
@@ -140,7 +140,7 @@ fn lifecycle_srsj() -> String {
             },
             "records/tier-2/rec-lc-002.json": {
                 "instanceId": "rec-lc-002",
-                "typeId": "type-proposal-001",
+                "typeId": "c1000001-0000-4000-a000-000000000001",
                 "typeName": "proposal",
                 "typeNamespace": "com.test.lc",
                 "typeVersion": 1,

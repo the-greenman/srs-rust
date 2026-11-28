@@ -156,7 +156,11 @@ fn a_revision_9_corpus_naming_its_root_is_refused_then_restamped() {
     assert_eq!(err.code(), "container-migration-needed", "{err}");
     assert_eq!(
         err.report().details.unwrap()["pending"],
-        serde_json::json!(["rfc052-root-container", "rfc051-container-entries"])
+        serde_json::json!([
+            "rfc052-root-container",
+            "rfc051-container-entries",
+            "rfc006-lifecycle-state-identity"
+        ])
     );
 
     // (b) The registry entry only restamps it: the root file is byte-identical and the
@@ -169,10 +173,12 @@ fn a_revision_9_corpus_naming_its_root_is_refused_then_restamped() {
     assert_eq!(manifest_without_stamp(tmp.path()), manifest_before);
     // RFC-051's step brings it the rest of the way.
     apply_migration(&tooling, "rfc051-container-entries").unwrap();
+    // ...and RFC-006 Revision 9's step to the current revision.
+    apply_migration(&tooling, "rfc006-lifecycle-state-identity").unwrap();
     let store = FileStore::new(tmp.path());
     assert_eq!(
         store.load_manifest().unwrap().extra["dataModelRevision"],
-        serde_json::json!(11)
+        serde_json::json!(12)
     );
     assert_eq!(validate_repository(&store).unwrap().summary.errors, 0);
 }

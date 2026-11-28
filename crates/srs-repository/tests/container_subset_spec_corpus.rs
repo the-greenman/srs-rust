@@ -39,7 +39,7 @@ fn spec_is_current_revision(spec: PathBuf) -> Option<PathBuf> {
     // RFC-051: this build reads dataModelRevision 11; skip until the srs corpus-migration
     // PR (srs#949) lands it.
     (v.get("dataModelRevision").and_then(|r| r.as_u64())
-        >= Some(srs_repository::field_type_migration_service::RFC051_CONTAINER_ENTRIES_REVISION))
+        >= Some(srs_repository::field_type_migration_service::CURRENT_DATA_MODEL_REVISION))
     .then_some(spec)
 }
 

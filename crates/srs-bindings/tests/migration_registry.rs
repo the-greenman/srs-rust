@@ -60,11 +60,7 @@ fn available_migrations_lists_the_registered_migrations_with_status() {
     let migrations =
         migration_registry_service::list_migrations(&store).expect("list_migrations must succeed");
 
-    assert_eq!(
-        migrations.len(),
-        17,
-        "expected exactly seventeen migrations"
-    );
+    assert_eq!(migrations.len(), 18, "expected exactly eighteen migrations");
     assert_eq!(migrations[0].id, "graduated-at-cleanup");
     assert_eq!(migrations[1].id, "revisions-sidecar-cleanup");
     assert_eq!(migrations[2].id, "field-type");
@@ -78,10 +74,11 @@ fn available_migrations_lists_the_registered_migrations_with_status() {
     assert_eq!(migrations[10].id, "rfc046-actor-provenance");
     assert_eq!(migrations[11].id, "rfc052-root-container");
     assert_eq!(migrations[12].id, "rfc051-container-entries");
-    assert_eq!(migrations[13].id, "migrate-identity");
-    assert_eq!(migrations[14].id, "repo-upgrade");
-    assert_eq!(migrations[15].id, "core-relation-type-reference-cleanup");
-    assert_eq!(migrations[16].id, "rfc038-storage");
+    assert_eq!(migrations[13].id, "rfc006-lifecycle-state-identity");
+    assert_eq!(migrations[14].id, "migrate-identity");
+    assert_eq!(migrations[15].id, "repo-upgrade");
+    assert_eq!(migrations[16].id, "core-relation-type-reference-cleanup");
+    assert_eq!(migrations[17].id, "rfc038-storage");
 
     // No legacy graduatedAt Notes → graduated-at-cleanup AlreadyApplied; no
     // .revisions.json sidecars → revisions-sidecar-cleanup AlreadyApplied;
@@ -105,10 +102,11 @@ fn available_migrations_lists_the_registered_migrations_with_status() {
     assert_eq!(migrations[10].status, MigrationStatus::Needed);
     assert_eq!(migrations[11].status, MigrationStatus::Needed);
     assert_eq!(migrations[12].status, MigrationStatus::Needed);
-    assert_eq!(migrations[13].status, MigrationStatus::NotApplicable);
-    assert_eq!(migrations[14].status, MigrationStatus::AlreadyApplied);
+    assert_eq!(migrations[13].status, MigrationStatus::Needed);
+    assert_eq!(migrations[14].status, MigrationStatus::NotApplicable);
     assert_eq!(migrations[15].status, MigrationStatus::AlreadyApplied);
-    assert_eq!(migrations[16].status, MigrationStatus::Needed);
+    assert_eq!(migrations[16].status, MigrationStatus::AlreadyApplied);
+    assert_eq!(migrations[17].status, MigrationStatus::Needed);
 
     // Result serialises in camelCase for to_js.
     let json = serde_json::to_value(&migrations[0]).expect("must serialise");
@@ -293,8 +291,22 @@ fn needed_revision_steps(rows: &[Row]) -> Vec<&str> {
 #[test]
 fn available_migrations_flags_revision_steps_on_revision_9_and_10_trees() {
     for (revision, pending) in [
-        (9, vec!["rfc052-root-container", "rfc051-container-entries"]),
-        (10, vec!["rfc051-container-entries"]),
+        (
+            9,
+            vec![
+                "rfc052-root-container",
+                "rfc051-container-entries",
+                "rfc006-lifecycle-state-identity",
+            ],
+        ),
+        (
+            10,
+            vec![
+                "rfc051-container-entries",
+                "rfc006-lifecycle-state-identity",
+            ],
+        ),
+        (11, vec!["rfc006-lifecycle-state-identity"]),
     ] {
         // `available_migrations` lists from the migrator view of the `load_tree` handle.
         let wasm = srs_repository::open_tree(tree_at_revision(revision))
@@ -307,6 +319,7 @@ fn available_migrations_flags_revision_steps_on_revision_9_and_10_trees() {
         assert_eq!(step("field-type"), Some((0, 1)));
         assert_eq!(step("rfc052-root-container"), Some((9, 10)));
         assert_eq!(step("rfc051-container-entries"), Some((10, 11)));
+        assert_eq!(step("rfc006-lifecycle-state-identity"), Some((11, 12)));
         for structural in [
             "graduated-at-cleanup",
             "revisions-sidecar-cleanup",

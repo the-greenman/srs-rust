@@ -544,7 +544,8 @@ fn actor_session_in_a_pre_9_corpus_is_refused_until_migrated() {
                 vec![
                     "rfc046-actor-provenance",
                     "rfc052-root-container",
-                    "rfc051-container-entries"
+                    "rfc051-container-entries",
+                    "rfc006-lifecycle-state-identity"
                 ]
             );
         }
@@ -566,7 +567,7 @@ fn actor_session_in_a_pre_9_corpus_is_refused_until_migrated() {
     }
     assert_eq!(snapshot(&exempt(&d)).len(), n_before, "nothing written");
 
-    // Migration 8 -> 9 is a pure re-stamp preserving every instance; then 9 -> 10 -> 11.
+    // Migration 8 -> 9 is a pure re-stamp preserving every instance; then 9 -> 10 -> 11 -> 12.
     let tooling = exempt(&d);
     let before = snapshot(&tooling);
     let statuses = migration_registry_service::list_migrations(&tooling).unwrap();
@@ -590,6 +591,8 @@ fn actor_session_in_a_pre_9_corpus_is_refused_until_migrated() {
     );
     migration_registry_service::apply_migration(&tooling, "rfc052-root-container").unwrap();
     migration_registry_service::apply_migration(&tooling, "rfc051-container-entries").unwrap();
+    migration_registry_service::apply_migration(&tooling, "rfc006-lifecycle-state-identity")
+        .unwrap();
     let store = FileStore::new(d.path());
     store.set_session_actor(Some(agent()));
     assert_eq!(snapshot(&store), before);

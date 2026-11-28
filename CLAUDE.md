@@ -99,7 +99,7 @@ cargo test --test payload_contracts        # golden schema tests
 
 **Data-model generation:** the spec repo and every first-party corpus are on the current
 `dataModelRevision` (`CURRENT_DATA_MODEL_REVISION`, `crates/srs-repository/src/field_type_migration_service.rs`;
-RFC-051 made it 11). A binary refuses a corpus on another revision with an [R9] diagnostic naming
+RFC-006 Revision 9 made it 12). A binary refuses a corpus on another revision with an [R9] diagnostic naming
 `dataModelRevision`. Migrate a local older copy through the migration registry with
 `srs repo apply-migration --id <id>` (the registry lists the ids and runs them in order); the
 revision-bump choreography is in `srs/CLAUDE.md` "Gates and choreography".

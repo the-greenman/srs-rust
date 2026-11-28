@@ -129,9 +129,9 @@ fn make_lifecycle_fixture() -> LifecycleFixture {
             ],
             "lifecycle": {
                 "states": [
-                    {"key": "draft", "isInitial": true},
-                    {"key": "active"},
-                    {"key": "archived", "isFinal": true}
+                    {"id": "c0000001-0000-4000-8000-000000000001", "version": 1, "namespace": NS, "key": "draft", "isInitial": true},
+                    {"id": "c0000001-0000-4000-8000-000000000002", "version": 1, "namespace": NS, "key": "active"},
+                    {"id": "c0000001-0000-4000-8000-000000000003", "version": 1, "namespace": NS, "key": "archived", "isFinal": true}
                 ],
                 "transitions": [
                     {"name": "promote", "from": "draft", "to": "active"},
@@ -158,9 +158,9 @@ fn make_lifecycle_fixture() -> LifecycleFixture {
             ],
             "lifecycle": {
                 "states": [
-                    {"key": "draft", "isInitial": true},
-                    {"key": "closed", "isFinal": true},
-                    {"key": "superseded", "isFinal": true,
+                    {"id": "c0000001-0000-4000-8000-000000000004", "version": 1, "namespace": NS, "key": "draft", "isInitial": true},
+                    {"id": "c0000001-0000-4000-8000-000000000005", "version": 1, "namespace": NS, "key": "closed", "isFinal": true},
+                    {"id": "c0000001-0000-4000-8000-000000000006", "version": 1, "namespace": NS, "key": "superseded", "isFinal": true,
                      "requiresRelation": {"relationType": ["supersedes"]}}
                 ],
                 "transitions": [

@@ -249,7 +249,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("manifest.json"),
-            r#"{"repositoryId": "test", "dataModelRevision": 11}"#,
+            r#"{"repositoryId": "test", "dataModelRevision": 12}"#,
         )
         .unwrap();
         SrsMcpServer::with_boundary(Boundary::single(dir.path()).unwrap())

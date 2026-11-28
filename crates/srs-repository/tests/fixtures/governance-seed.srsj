@@ -3,7 +3,7 @@
   "manifest": {
     "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
     "createdAt": "2026-01-01T00:00:00Z",
-    "dataModelRevision": 11,
+    "dataModelRevision": 12,
     "description": "An empty governance document: the canonical MuDemocracy governance package installed with zero records, ready for a clerk to capture their first decision.",
     "meta": {
       "upstreamPackage": {
@@ -730,26 +730,34 @@
           "id": "f439ed11-6ad7-466a-9544-c6f68946e7d1",
           "isInitial": true,
           "key": "draft",
-          "label": "Draft"
+          "label": "Draft",
+          "namespace": "governance",
+          "version": 1
         },
         {
           "description": "Put to the group for agreement.",
           "id": "5c995a40-247d-4438-8799-768caefed24f",
           "key": "proposed",
-          "label": "Proposed"
+          "label": "Proposed",
+          "namespace": "governance",
+          "version": 1
         },
         {
           "description": "Agreed by the group and in force.",
           "id": "cbb5354a-e9ea-419a-9496-c741c80ebdcb",
           "key": "ratified",
-          "label": "Ratified"
+          "label": "Ratified",
+          "namespace": "governance",
+          "version": 1
         },
         {
           "description": "Obligation discharged or matter concluded; no successor.",
           "id": "30e0cae8-e363-4084-b244-d261e0fe4661",
           "isFinal": true,
           "key": "closed",
-          "label": "Closed"
+          "label": "Closed",
+          "namespace": "governance",
+          "version": 1
         },
         {
           "description": "Replaced by a successor record.",
@@ -757,18 +765,22 @@
           "isFinal": true,
           "key": "superseded",
           "label": "Superseded",
+          "namespace": "governance",
           "requiresRelation": {
             "relationType": [
               "supersedes"
             ]
-          }
+          },
+          "version": 1
         },
         {
           "description": "Proposed or ratified record withdrawn without a successor.",
           "id": "f21e3ef6-1ce2-4064-b4aa-e03840fe5fb8",
           "isFinal": true,
           "key": "abandoned",
-          "label": "Abandoned"
+          "label": "Abandoned",
+          "namespace": "governance",
+          "version": 1
         }
       ],
       "transitions": [
@@ -843,7 +855,7 @@
         "compositions/governance-document-732a982b.json"
       ],
       "createdAt": "2026-01-01T00:00:00Z",
-      "dataModelRevision": 11,
+      "dataModelRevision": 12,
       "description": "Canonical MuDemocracy governance package. At v1.1.0 it refines field aiGuidance to align with the published deliberating-decisions and decision-recording guides — notably correcting the rationale sentence-count guidance from 'one to three' to 'two to four' sentences, and sharpening alternatives-considered negativeGuidance to discourage 'none' responses more explicitly. At v1.2.0, the srs rev-6 composition-cutover (srs#523/#524, rfc-decision-92d2da05 + rfc-decision-c8704763): DocumentView renamed to Composition (document-views/ -> compositions/ dir, $schema repointed) and the type-query SectionSource's semanticObjectType key renamed to typeKey (KEYED namespace/name, unchanged values) -- a mechanical rename only, no view's shape (type-query vs container-subset) changed. srs#525 (SectionSource -> DiscoveryQuery collapse, rfc-decision-cce3c00e + rfc-decision-9ee14517): type-query sections migrated to discovery-query (typeKey -> query.typeNamespace/query.typeName, unchanged values; containerScope/excludeLifecycleStates preserved) -- again a mechanical shape migration only, applied uniformly across 1.0.0/1.1.0/1.2.0, no new package version cut. At v1.2.1 (srs#548): the loose package/ tree here is unchanged from 1.2.0 (already current: protocol unprefixed per srs#379/rfc-decision-a270e98a, exportConfig/discovery-query per srs#540/srs#525) -- republished solely because the seed/empty-governance-document.srsj shipped alongside 1.2.0 was never regenerated after those PRs and still embedded the pre-#379 prefixed Protocol shape plus the retired type-query/top-level-format Composition shape. No field/type/protocol/lifecycle/view semantic content changed here; package/ is byte-for-byte identical to 1.2.0/package except this description and the version bump below. At v1.2.2 (srs#947): the loose package/ tree here is unchanged from 1.2.1 -- republished solely because scripts/build-governance-seed.mjs generated the seed's manifest.repositoryId/manifest.container.containerId from the wrong constant, shipping e2e8489a-5ada-4309-9b26-90ccc263146d where RFC-025 [R1] requires 54432eb2-7961-4538-ac16-9e25dcfa2f42. The generator is fixed and this version's seed carries the ruled id; 1.0.0/1.1.0/1.2.0/1.2.1 stay published as-is (immutable history) and are exempt from the new check-governance-seed-root-container.mjs gate, which only guards the CURRENT version going forward. No field/type/protocol/lifecycle/view semantic content changed here; package/ is byte-for-byte identical to 1.2.1/package except this description and the version bump below. At v1.2.3 (srs#948, owner ruling 2026-10-23): the loose package/ tree here is unchanged from 1.2.2 -- republished solely because the seed is rebuilt at dataModelRevision 10 (RFC-052: the manifest names its root container by rootContainerId and the root is stored in containers/). 1.0.0/1.1.0/1.2.0/1.2.1/1.2.2 stay published as-is (immutable history below revision 10, opened through the loader's in-memory migration, RFC-052 Change C). No field/type/protocol/lifecycle/view semantic content changed here; package/ is byte-for-byte identical to 1.2.2/package except this description and the version bump below.",
       "fields": [
         "fields/alternativesconsidered-636ce948.json",

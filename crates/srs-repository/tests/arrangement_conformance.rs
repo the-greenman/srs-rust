@@ -774,7 +774,7 @@ fn rfc_043_arrangement_fixture_scenarios() {
         .get("dataModelRevision")
         .and_then(Value::as_u64)
         .unwrap_or(0);
-    let current = srs_repository::field_type_migration_service::RFC051_CONTAINER_ENTRIES_REVISION;
+    let current = srs_repository::field_type_migration_service::CURRENT_DATA_MODEL_REVISION;
     if revision < current {
         println!(
             "Skipping: arrangement fixture-repo is at dataModelRevision {revision} (< {current})"

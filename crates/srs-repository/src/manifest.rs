@@ -281,9 +281,9 @@ mod rfc038_tests {
     }
 
     #[test]
-    fn rfc052_r1_refuses_an_inline_or_missing_root_at_revision_11() {
+    fn rfc052_r1_refuses_an_inline_or_missing_root_at_revision_12() {
         let inline = serde_json::json!({
-            "dataModelRevision": 11,
+            "dataModelRevision": 12,
             "rootContainerId": "c",
             "container": {"containerId": "c", "title": "Root"},
         });
@@ -291,12 +291,12 @@ mod rfc038_tests {
             check_manifest(&inline).unwrap_err().code(),
             "manifest-root-container-inline"
         );
-        let missing = serde_json::json!({ "dataModelRevision": 11 });
+        let missing = serde_json::json!({ "dataModelRevision": 12 });
         assert_eq!(
             check_manifest(&missing).unwrap_err().code(),
             "manifest-root-container-missing"
         );
-        let ok = serde_json::json!({ "dataModelRevision": 11, "rootContainerId": "c" });
+        let ok = serde_json::json!({ "dataModelRevision": 12, "rootContainerId": "c" });
         assert!(check_manifest(&ok).is_ok());
     }
 
@@ -308,7 +308,13 @@ mod rfc038_tests {
         match check_manifest(&rev10).unwrap_err() {
             RepositoryError::ContainerMigrationNeeded { declared, pending } => {
                 assert_eq!(declared, 10);
-                assert_eq!(pending, vec!["rfc051-container-entries"]);
+                assert_eq!(
+                    pending,
+                    vec![
+                        "rfc051-container-entries",
+                        "rfc006-lifecycle-state-identity"
+                    ]
+                );
             }
             other => panic!("expected container-migration-needed, got {other:?}"),
         }
@@ -326,7 +332,11 @@ mod rfc038_tests {
                 assert_eq!(declared, 9);
                 assert_eq!(
                     pending,
-                    vec!["rfc052-root-container", "rfc051-container-entries"]
+                    vec![
+                        "rfc052-root-container",
+                        "rfc051-container-entries",
+                        "rfc006-lifecycle-state-identity"
+                    ]
                 );
             }
             other => panic!("expected container-migration-needed, got {other:?}"),
@@ -347,6 +357,7 @@ mod rfc038_tests {
                         "rfc046-actor-provenance",
                         "rfc052-root-container",
                         "rfc051-container-entries",
+                        "rfc006-lifecycle-state-identity",
                     ]
                 );
             }
