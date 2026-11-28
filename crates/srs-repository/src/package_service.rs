@@ -2538,6 +2538,32 @@ mod tests {
     }
 
     #[test]
+    fn type_create_refuses_conditional_forbidden_rule_with_field_ids() {
+        let store = MemoryStore::default();
+        let mut rt = make_type("00000000-0000-0000-0000-000000000025", "forbidden-rule");
+        rt.validation_rules = Some(
+            serde_json::from_value(serde_json::json!([{
+                "type": "conditional-forbidden",
+                "predicateFieldId": "a",
+                "predicateValue": "x",
+                "targetFieldId": "b",
+                "fieldIds": ["a", "b"],
+            }]))
+            .unwrap(),
+        );
+
+        let result = create_type(&store, rt);
+        assert!(
+            matches!(
+                result,
+                Err(RepositoryError::InvalidInput { ref message })
+                    if message.contains("I-96") && message.contains("'fieldIds'")
+            ),
+            "expected InvalidInput naming I-96 and fieldIds, got {result:?}"
+        );
+    }
+
+    #[test]
     fn type_update_refuses_cross_field_rule_with_another_kinds_property() {
         let rt = make_type("00000000-0000-0000-0000-000000000024", "mixed-update");
         let store = MemoryStore::with_type(rt.clone());
