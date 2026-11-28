@@ -189,6 +189,31 @@ pub fn advance_stage(
         });
     }
 
+    // The target must be a stage the run's protocol declares (srs-rust#1712). A run whose
+    // protocol is not loadable in this repository is not checked: there is no stage list to
+    // check against, and refusing would strand runs of imported or removed protocols.
+    let package = store.load_package()?;
+    if let Some(lp) = package
+        .protocols
+        .iter()
+        .find(|lp| lp.protocol.id == run.protocol_id)
+    {
+        if !lp
+            .protocol
+            .stages
+            .iter()
+            .any(|s| s.stage_id == input.stage_id)
+        {
+            return Err(RepositoryError::RunInvalidState {
+                run_id: input.run_id.clone(),
+                message: format!(
+                    "stage '{}' is not a stage of protocol '{}'",
+                    input.stage_id, run.protocol_id
+                ),
+            });
+        }
+    }
+
     let now = now_iso8601();
 
     if input.complete_current {
@@ -457,6 +482,83 @@ mod tests {
             .unwrap();
         assert_eq!(prev.status, StageStatus::Completed);
         assert!(prev.completed_at.is_some());
+    }
+
+    fn protocol_with_stages(id: &str, stage_ids: &[&str]) -> crate::package::LoadedProtocol {
+        let stages: Vec<srs_core::types::protocol::ProtocolStage> = stage_ids
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                serde_json::from_value(
+                    serde_json::json!({"stageId": s, "name": s, "order": i as i32 + 1}),
+                )
+                .unwrap()
+            })
+            .collect();
+        let protocol = srs_core::types::protocol::Protocol {
+            schema: None,
+            id: id.to_string(),
+            namespace: "com.test".to_string(),
+            name: "P".to_string(),
+            version: 1,
+            description: None,
+            target_type: String::new(),
+            stages,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let raw = serde_json::to_value(&protocol).unwrap();
+        crate::package::LoadedProtocol {
+            protocol,
+            raw,
+            source_package: None,
+        }
+    }
+
+    // srs-rust#1712: a stage the protocol does not declare is refused, and the run is untouched.
+    #[test]
+    fn advance_stage_refuses_undeclared_stage() {
+        let store =
+            MemoryStore::empty().with_protocol(protocol_with_stages("p-1", &["topics", "publish"]));
+        let created = create_run(&store, make_create_input("p-1", "c-1", Some("topics"))).unwrap();
+        let err = advance_stage(
+            &store,
+            AdvanceStageInput {
+                run_id: created.run.run_id.clone(),
+                stage_id: "nonsense".to_string(),
+                complete_current: false,
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(err, RepositoryError::RunInvalidState { .. }));
+        assert!(err.to_string().contains("nonsense"));
+        match get_run(&store, &created.run.run_id).unwrap() {
+            GetRunResult::Found(r) => {
+                assert_eq!(r.attention_state.stage_id.as_deref(), Some("topics"));
+                assert_eq!(r.stage_states.len(), 1);
+            }
+            GetRunResult::NotFound => panic!("run vanished"),
+        }
+    }
+
+    #[test]
+    fn advance_stage_accepts_declared_stage() {
+        let store =
+            MemoryStore::empty().with_protocol(protocol_with_stages("p-1", &["topics", "publish"]));
+        let created = create_run(&store, make_create_input("p-1", "c-1", Some("topics"))).unwrap();
+        let advanced = advance_stage(
+            &store,
+            AdvanceStageInput {
+                run_id: created.run.run_id.clone(),
+                stage_id: "publish".to_string(),
+                complete_current: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            advanced.run.attention_state.stage_id.as_deref(),
+            Some("publish")
+        );
     }
 
     #[test]
