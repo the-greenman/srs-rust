@@ -14327,6 +14327,8 @@ mod tests {
         let note_heading = on.find("Guides").unwrap();
         assert!(on.find(&format!("<!-- id:{note_id} -->")).unwrap() > note_heading);
 
+        let text = render_ids(&store, "dv-notes", "text", true);
+        assert!(!text.contains("id:"), "text has no comment syntax:\n{text}");
         let html = render_ids(&store, "dv-notes", "html", true);
         assert_eq!(
             html.matches(&format!("<!-- id:{note_id} -->")).count(),

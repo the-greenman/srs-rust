@@ -1790,7 +1790,7 @@ pub enum RenderCommand {
         /// Render only one section: a 0-based position or a section title (decision 83b841f1)
         #[arg(long)]
         section: Option<String>,
-        /// Write `<!-- id:<instanceId> -->` after each record and note heading (`// id:` in adoc)
+        /// Write `<!-- id:<instanceId> -->` after each record and note heading (`// id:` in adoc; none in text)
         #[arg(long = "emit-ids")]
         emit_ids: bool,
         /// Optional output file path for rendered content
