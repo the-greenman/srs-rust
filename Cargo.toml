@@ -30,7 +30,7 @@ serde = { version = "1", features = ["derive"] }
 # carrier's fieldValues/fieldMeta key order is data ([R18]); determinism for everything
 # else comes from canonical types + the .srsj canonicalize-on-write step, not from the
 # old BTreeMap-backed Value re-sort.
-serde_json = { version = "1", features = ["preserve_order"] }
+serde_json = { version = "1", features = ["preserve_order", "arbitrary_precision"] }
 indexmap = { version = "2", features = ["serde"] }
 serde_path_to_error = "0.1"
 uuid = { version = "1", features = ["v4"] }

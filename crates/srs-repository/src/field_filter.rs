@@ -69,41 +69,89 @@ enum Test {
     Missing(bool),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 enum Bound {
     Num(Num),
     /// A date bound as its first and last day ([R4]: a coarse bound covers its period).
     Date(NaiveDate, NaiveDate),
 }
 
-/// A JSON number: exact for integers, `f64` otherwise.
-// ponytail: decimals compare as f64 (the workspace serde_json has no `arbitrary_precision`),
-// so two decimals differing beyond ~15 significant digits compare equal; integers that fit
-// i128 compare exactly. Full exactness per RFC-056 [R4] needs `arbitrary_precision` (srs-rust#1692).
-#[derive(Debug, Clone, Copy)]
+/// A JSON number held as the decimal it was written as ([R4]: no rounding).
+///
+/// The workspace `serde_json` keeps a number's written digits (`arbitrary_precision`), so
+/// the value is `0.<digits> x 10^point` with no leading or trailing zero in `digits`
+/// (empty means zero). Two numbers compare by sign, then point, then digits.
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Num {
-    int: Option<i128>,
-    float: f64,
+    negative: bool,
+    digits: String,
+    point: i128,
 }
 
 impl Num {
     fn of(v: &Value) -> Option<Num> {
         let n = v.as_number()?;
-        let int = n
-            .as_i64()
-            .map(i128::from)
-            .or_else(|| n.as_u64().map(i128::from))
-            .or_else(|| integral_i64(v).map(i128::from));
+        // An integral float such as `12.0` is the integer 12 (see `integral_i64`).
+        Num::parse(&n.to_string())
+    }
+
+    fn parse(text: &str) -> Option<Num> {
+        let (negative, rest) = match text.strip_prefix('-') {
+            Some(r) => (true, r),
+            None => (false, text.strip_prefix('+').unwrap_or(text)),
+        };
+        let (mantissa, exp) = match rest.split_once(['e', 'E']) {
+            Some((m, e)) => (m, e.parse::<i128>().ok()?),
+            None => (rest, 0),
+        };
+        let (int, frac) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+        if int.is_empty() && frac.is_empty()
+            || !int.bytes().chain(frac.bytes()).all(|b| b.is_ascii_digit())
+        {
+            return None;
+        }
+        let all = format!("{int}{frac}");
+        let lead = all.len() - all.trim_start_matches('0').len();
+        let digits = all.trim_matches('0').to_string();
+        if digits.is_empty() {
+            return Some(Num {
+                negative: false,
+                digits,
+                point: 0,
+            });
+        }
         Some(Num {
-            int,
-            float: n.as_f64()?,
+            negative,
+            digits,
+            point: int.len() as i128 - lead as i128 + exp,
         })
     }
 
-    fn cmp(self, other: Num) -> std::cmp::Ordering {
-        match (self.int, other.int) {
-            (Some(a), Some(b)) => a.cmp(&b),
-            _ => self.float.total_cmp(&other.float),
+    /// Whether the value has no fractional part (`12.0` is integral, like `integral_i64`).
+    fn is_integral(&self) -> bool {
+        self.digits.is_empty() || self.digits.len() as i128 <= self.point
+    }
+
+    fn cmp(&self, other: &Num) -> std::cmp::Ordering {
+        use std::cmp::Ordering::*;
+        let zero = |n: &Num| n.digits.is_empty();
+        match (zero(self), zero(other)) {
+            (true, true) => return Equal,
+            (true, false) => return if other.negative { Greater } else { Less },
+            (false, true) => return if self.negative { Less } else { Greater },
+            _ => {}
+        }
+        if self.negative != other.negative {
+            return if self.negative { Less } else { Greater };
+        }
+        let magnitude = self
+            .point
+            .cmp(&other.point)
+            .then_with(|| self.digits.cmp(&other.digits));
+        if self.negative {
+            magnitude.reverse()
+        } else {
+            magnitude
         }
     }
 }
@@ -314,7 +362,7 @@ pub fn compile(
             for v in list {
                 let fits = match dt {
                     Datatype::String => v.is_string(),
-                    Datatype::Integer => integral_i64(v).is_some() || v.as_u64().is_some(),
+                    Datatype::Integer => Num::of(v).is_some_and(|n| n.is_integral()),
                     _ => v.is_boolean(),
                 };
                 if !fits {
@@ -389,7 +437,7 @@ impl Compiled {
     fn conforms(&self, v: &Value) -> bool {
         let shape = match self.datatype {
             Datatype::String => v.is_string(),
-            Datatype::Integer => integral_i64(v).is_some() || v.as_u64().is_some(),
+            Datatype::Integer => Num::of(v).is_some_and(|n| n.is_integral()),
             Datatype::Number => v.is_number(),
             Datatype::Boolean => v.is_boolean(),
             Datatype::Date => parse_date(v).is_some(),
@@ -405,19 +453,19 @@ impl Compiled {
                 _ => false,
             },
             Datatype::Integer => match (Num::of(stored), Num::of(listed)) {
-                (Some(a), Some(b)) => a.cmp(b).is_eq(),
+                (Some(a), Some(b)) => a.cmp(&b).is_eq(),
                 _ => false,
             },
             _ => stored == listed,
         }
     }
 
-    fn in_range(&self, v: &Value, from: Option<Bound>, to: Option<Bound>) -> bool {
+    fn in_range(&self, v: &Value, from: Option<&Bound>, to: Option<&Bound>) -> bool {
         match self.datatype {
             Datatype::Date => {
                 let Some(d) = parse_date(v) else { return false };
-                from.is_none_or(|b| matches!(b, Bound::Date(start, _) if d >= start))
-                    && to.is_none_or(|b| matches!(b, Bound::Date(_, end) if d <= end))
+                from.is_none_or(|b| matches!(b, Bound::Date(start, _) if d >= *start))
+                    && to.is_none_or(|b| matches!(b, Bound::Date(_, end) if d <= *end))
             }
             _ => {
                 let Some(n) = Num::of(v) else { return false };
@@ -467,7 +515,9 @@ impl Compiled {
                         .iter()
                         .any(|e| list.iter().any(|l| self.equals(e, l)))
             }
-            Test::Range(from, to) => elements.iter().any(|e| self.in_range(e, *from, *to)),
+            Test::Range(from, to) => elements
+                .iter()
+                .any(|e| self.in_range(e, from.as_ref(), to.as_ref())),
             Test::Missing(_) => unreachable!(),
         }
     }
@@ -607,6 +657,52 @@ mod tests {
         compile(&package(), &filters(json!([f])))
             .unwrap()
             .matches(&record(values))
+    }
+
+    #[test]
+    fn r4_decimals_compare_exactly_beyond_f64() {
+        let range = |from: &str, to: &str, w: &str| {
+            let f: FieldFilter = serde_json::from_str(&format!(
+                r#"{{"fieldId":"{WORDS}","range":{{"from":{from},"to":{to}}}}}"#
+            ))
+            .unwrap();
+            let r: Record = serde_json::from_value(json!({
+                "instanceId": "aa000000-0000-4000-a000-00000000aaaa", "typeId": T, "typeVersion": 1,
+                "typeNamespace": "t", "typeName": "doc", "createdAt": "2026-01-01T00:00:00Z",
+                "fieldValues": {"words": serde_json::from_str::<serde_json::Value>(w).unwrap()}
+            }))
+            .unwrap();
+            compile(&package(), &[f]).unwrap().matches(&r)
+        };
+        let long = "0.1000000000000000055511151231257827";
+        // Equal to 0.1 as f64, but not as written: 0.1 is below the long decimal.
+        assert!(!range(long, long, "0.1"));
+        assert!(range(long, long, long));
+        assert!(range("0.1", "0.1", "1e-1"));
+        assert!(range("-0.5", "0.0", "-0.25"));
+        assert!(range("-0.5", "-0.25", "-0.2500000000000000000001"));
+        assert!(!range("-0.5", "-0.25", "-0.2499999999999999999999"));
+        assert!(range("0", "0", "-0.0"));
+    }
+
+    #[test]
+    fn r4_integers_beyond_u64_compare_exactly() {
+        let big = "18446744073709551617"; // 2^64 + 1
+        let next = "18446744073709551618";
+        let f = |min: &str| {
+            let f: FieldFilter =
+                serde_json::from_str(&format!(r#"{{"fieldId":"{MINUTES}","in":[{min}]}}"#))
+                    .unwrap();
+            compile(&package(), &[f]).unwrap()
+        };
+        let r: Record = serde_json::from_value(json!({
+            "instanceId": "aa000000-0000-4000-a000-00000000aaaa", "typeId": T, "typeVersion": 1,
+            "typeNamespace": "t", "typeName": "doc", "createdAt": "2026-01-01T00:00:00Z",
+            "fieldValues": {"minutes": serde_json::from_str::<serde_json::Value>(big).unwrap()}
+        }))
+        .unwrap();
+        assert!(f(big).matches(&r));
+        assert!(!f(next).matches(&r));
     }
 
     #[test]
