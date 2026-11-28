@@ -7,6 +7,8 @@ use srs_core::types::protocol::{
 };
 use std::path::PathBuf;
 
+/// The directory holding protocol run state; archive pack carries it.
+pub(crate) const RUNS_DIR: &str = "runs";
 const RUNS_PATH: &str = "runs/runs.json";
 
 // --- Input / result types ---
