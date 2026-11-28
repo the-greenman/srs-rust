@@ -72,6 +72,7 @@ pub mod repository_portability;
 pub mod resolver;
 pub mod resource_uri;
 pub mod revisions_sidecar_cleanup_service;
+pub mod rfc006_lifecycle_state_identity_migration_service;
 pub mod rfc038_storage_migration_service;
 pub mod rfc039_carrier_migration_service;
 pub mod rfc043_container_entries_migration_service;

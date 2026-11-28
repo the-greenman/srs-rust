@@ -186,7 +186,7 @@ fn ext_discovery_fixture_scenarios() {
     // RFC-051: this build reads dataModelRevision 11 (per-entry container storage). The `srs`
     // corpus is migrated, and its fixture updated, by the phase-2 corpus-migration PR
     // (srs#949).
-    let current = srs_repository::field_type_migration_service::RFC051_CONTAINER_ENTRIES_REVISION;
+    let current = srs_repository::field_type_migration_service::CURRENT_DATA_MODEL_REVISION;
     if fixture_revision < current {
         println!(
             "Skipping: srs/conformance/discovery fixture-repo is at dataModelRevision \

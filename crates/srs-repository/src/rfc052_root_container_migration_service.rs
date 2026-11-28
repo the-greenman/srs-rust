@@ -848,6 +848,8 @@ mod tests {
         // the moved root.
         crate::rfc051_container_entries_migration_service::migrate_rfc051_container_entries(&store)
             .unwrap();
+        crate::rfc006_lifecycle_state_identity_migration_service::migrate_rfc006_lifecycle_state_identity(&store)
+            .unwrap();
         let strict = FileStore::new(tmp.path());
         let nav = crate::repository_navigation_service::repository_navigation(&strict).unwrap();
         assert_eq!(nav.root_container_id, ROOT);
@@ -1030,7 +1032,7 @@ mod tests {
             assert!(applied.contains(&MIGRATION_ID), "rev {rev}: {applied:?}");
             assert_eq!(
                 applied.last(),
-                Some(&crate::rfc051_container_entries_migration_service::MIGRATION_ID),
+                Some(&crate::rfc006_lifecycle_state_identity_migration_service::MIGRATION_ID),
                 "rev {rev}: {applied:?}"
             );
             let store = FileStore::new(tmp.path());
@@ -1275,12 +1277,15 @@ mod tests {
             notice.migrations,
             [
                 MIGRATION_ID,
-                crate::rfc051_container_entries_migration_service::MIGRATION_ID
+                crate::rfc051_container_entries_migration_service::MIGRATION_ID,
+                crate::rfc006_lifecycle_state_identity_migration_service::MIGRATION_ID
             ]
         );
         assert!(transform_tree(&mut tree).unwrap().is_none(), "idempotent");
         migrate_rfc052_root_container(&store).unwrap();
         crate::rfc051_container_entries_migration_service::migrate_rfc051_container_entries(&store)
+            .unwrap();
+        crate::rfc006_lifecycle_state_identity_migration_service::migrate_rfc006_lifecycle_state_identity(&store)
             .unwrap();
         let migrated = crate::archive::tree_entries(&FileStore::new(tmp.path())).unwrap();
         let head = crate::container_store::head_path(ROOT);

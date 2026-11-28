@@ -290,7 +290,10 @@ fn plan(
         converted.push(id);
     }
     let mut manifest = manifest_raw.clone();
-    manifest[DATA_MODEL_REVISION_KEY] = json!(RFC051_CONTAINER_ENTRIES_REVISION);
+    // A stamp is raised to 11, never lowered: a flat file found in a corpus at a later
+    // revision is converted and the stamp stays as it is.
+    manifest[DATA_MODEL_REVISION_KEY] =
+        json!(revision(manifest_raw).max(RFC051_CONTAINER_ENTRIES_REVISION));
     let mut stamps = Vec::new();
     for root in package_roots(&manifest) {
         let path = format!("{root}/package.json");
@@ -302,14 +305,15 @@ fn plan(
         };
         if idx
             .get(DATA_MODEL_REVISION_KEY)
-            .is_some_and(|r| r != &json!(RFC051_CONTAINER_ENTRIES_REVISION))
+            .and_then(Value::as_u64)
+            .is_some_and(|r| r < RFC051_CONTAINER_ENTRIES_REVISION)
         {
             idx[DATA_MODEL_REVISION_KEY] = json!(RFC051_CONTAINER_ENTRIES_REVISION);
             stamps.push((path.clone(), Some(framed(files.get(&path), &idx)?)));
             result.packages_stamped += 1;
         }
     }
-    if revision(manifest_raw) != RFC051_CONTAINER_ENTRIES_REVISION {
+    if revision(manifest_raw) < RFC051_CONTAINER_ENTRIES_REVISION {
         stamps.push((
             "manifest.json".to_string(),
             Some(framed(files.get("manifest.json"), &manifest)?),
@@ -447,7 +451,9 @@ fn gate(
 
 /// The corpus as a file tree: the faithful archive enumeration, or, for a corpus with no
 /// package file (which the archive refuses), every file the catalog walks.
-fn corpus_files(store: &dyn RepositoryStore) -> Result<BTreeMap<String, Vec<u8>>, RepositoryError> {
+pub(crate) fn corpus_files(
+    store: &dyn RepositoryStore,
+) -> Result<BTreeMap<String, Vec<u8>>, RepositoryError> {
     match crate::archive::tree_entries(store) {
         Err(e) if e.is_not_found() => {}
         other => return other,
@@ -705,6 +711,10 @@ mod tests {
         }
         let m: Value = serde_json::from_str(&text(d, "manifest.json")).unwrap();
         assert_eq!(m[DATA_MODEL_REVISION_KEY], 11);
+        crate::rfc006_lifecycle_state_identity_migration_service::migrate_rfc006_lifecycle_state_identity(
+            &FileStore::new(d).with_rfc038_exemption(),
+        )
+        .unwrap();
         let strict = FileStore::new(d);
         let part = strict.load_container(PART).unwrap();
         assert_eq!(
@@ -763,6 +773,10 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         rev10_repo(tmp.path());
         migrated(tmp.path());
+        crate::rfc006_lifecycle_state_identity_migration_service::migrate_rfc006_lifecycle_state_identity(
+            &FileStore::new(tmp.path()).with_rfc038_exemption(),
+        )
+        .unwrap();
         w(
             tmp.path(),
             "containers/late.json",
@@ -779,6 +793,11 @@ mod tests {
         let r = migrated(tmp.path());
         assert!(!r.already_applied);
         assert_eq!((r.containers_converted, r.packages_stamped), (1, 0));
+        let m: Value = serde_json::from_str(&text(tmp.path(), "manifest.json")).unwrap();
+        assert_eq!(
+            m[DATA_MODEL_REVISION_KEY], 12,
+            "a later stamp is never lowered"
+        );
         assert!(FileStore::new(tmp.path()).catalog().is_ok());
     }
 
@@ -923,8 +942,15 @@ mod tests {
         let opened = crate::srsj::open_srsj(&doc).unwrap();
         let notice = opened.migration_notice().expect("migrated in memory");
         assert_eq!(notice.source_revision, 10);
-        assert_eq!(notice.migrations, [MIGRATION_ID]);
+        assert_eq!(
+            notice.migrations,
+            [MIGRATION_ID, "rfc006-lifecycle-state-identity"]
+        );
         migrated(tmp.path());
+        crate::rfc006_lifecycle_state_identity_migration_service::migrate_rfc006_lifecycle_state_identity(
+            &FileStore::new(tmp.path()).with_rfc038_exemption(),
+        )
+        .unwrap();
         let on_disk = FileStore::new(tmp.path());
         for id in [ROOT, PART] {
             assert_eq!(

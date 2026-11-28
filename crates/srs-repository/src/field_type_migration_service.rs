@@ -19,7 +19,9 @@ use crate::store::RepositoryStore;
 use serde::Serialize;
 
 /// The data-model generation this build writes.
-/// The revision this build reads and writes — RFC-051: each container is stored as a
+/// The revision this build reads and writes — RFC-006 Revision 9: every lifecycle state carries
+/// `id`, `version` and `namespace` (migration #12, `rfc006-lifecycle-state-identity`). Revision 11
+/// is RFC-051: each container is stored as a
 /// directory of a one-line head and one one-line entry file per member (migration #11,
 /// `rfc051-container-entries`). Revision 10 is RFC-052: the root container is
 /// stored in the container set and the manifest names it by `rootContainerId`
@@ -33,7 +35,7 @@ use serde::Serialize;
 /// is revision 5; Tier 1 (TypedRecord) retirement is revision 4; RFC-040's
 /// metamodel v1.1.0 engine sync is revision 3; RFC-039's carrier model is
 /// revision 2; RFC-032's fieldType model is revision 1.
-pub const CURRENT_DATA_MODEL_REVISION: u64 = 11;
+pub const CURRENT_DATA_MODEL_REVISION: u64 = 12;
 /// The revision the RFC-032 `field-type` migration produces.
 pub const FIELD_TYPE_REVISION: u64 = 1;
 /// The revision RFC-040's metamodel v1.1.0 engine sync produces. This is
@@ -127,6 +129,10 @@ pub const RFC052_ROOT_CONTAINER_REVISION: u64 = 10;
 /// each Container is stored as a directory of a one-line head and one one-line entry file per
 /// member, `containers/<containerId>/{container.json,entries/<instanceId>.json}`).
 pub const RFC051_CONTAINER_ENTRIES_REVISION: u64 = 11;
+
+/// The revision the RFC-006 Revision 9 `rfc006-lifecycle-state-identity` migration produces
+/// (migration #12: every lifecycle state carries `id`, `version` and `namespace`, [S1]/[S2]).
+pub const RFC006_LIFECYCLE_STATE_IDENTITY_REVISION: u64 = 12;
 
 /// The manifest property carrying the generation stamp (RFC-033 [R6] / #265).
 pub const DATA_MODEL_REVISION_KEY: &str = "dataModelRevision";

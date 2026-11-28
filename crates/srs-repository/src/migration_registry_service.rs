@@ -93,6 +93,12 @@ fn rfc043_bundle_form(v: &mut serde_json::Value) -> Result<Vec<String>, Reposito
         .map(|r| r.diagnostics)
 }
 
+/// RFC-006 Revision 9's bundle-form transformer (11 -> 12), as a [`BundleForm::Transform`].
+fn rfc006_bundle_form(v: &mut serde_json::Value) -> Result<Vec<String>, RepositoryError> {
+    crate::rfc006_lifecycle_state_identity_migration_service::migrate_package_bundle_value(v)
+        .map(|_| Vec::new())
+}
+
 /// The registry entry whose revision step starts at `from` (its id + step).
 pub(crate) fn revision_step_from(from: u64) -> Option<(&'static str, &'static RevisionStep)> {
     MIGRATIONS.iter().find_map(|m| {
@@ -623,6 +629,48 @@ static MIGRATIONS: &[MigrationDefinition] = &[
             })
         },
     },
+    // Ordered after `rfc051-container-entries` (it requires revision 11) and raw-tree: a
+    // revision-12 build refuses a revision-11 corpus on load (RFC-006 Revision 9 [S3]).
+    MigrationDefinition {
+        id: "rfc006-lifecycle-state-identity",
+        title: "Adopt RFC-006 Revision 9: lifecycle states carry full substrate identity",
+        description: "Fills the absent identity fields of every lifecycle state, in a \
+                       standalone Lifecycle and in an inline Type.lifecycle alike, leaving a \
+                       present field as written: version = 1, namespace = the owning \
+                       Lifecycle's or Type's namespace, id = the UUIDv5 whose namespace UUID \
+                       is the owner's id and whose name is the state's key (RFC 4122 section \
+                       4.3). Deterministic: it takes no value from an agent, a prompt or the \
+                       clock, so two checkouts migrated apart converge. Stamps \
+                       dataModelRevision: 12 on the manifest and every stamped package \
+                       manifest. This is data-model migration #12 (revision 11 -> 12), per \
+                       srs-rust#1638 (srs-programme decision 7324ac6f, srs#1025). Reads and \
+                       writes the raw file tree. All-or-nothing: it refuses before any write \
+                       when an owner carries no UUID id or no namespace \
+                       (`migration-lifecycle-owner-incomplete`). Requires revision 11 \
+                       (rfc051-container-entries) first.",
+        revision_step: Some(RevisionStep {
+            from: crate::field_type_migration_service::RFC006_LIFECYCLE_STATE_IDENTITY_REVISION - 1,
+            to: crate::field_type_migration_service::RFC006_LIFECYCLE_STATE_IDENTITY_REVISION,
+            // A bundle carries Lifecycles and Types: the same fill, over the bundled
+            // definitions (RFC-003 [C6]).
+            bundle: BundleForm::Transform(rfc006_bundle_form),
+        }),
+        status_fn: |store| {
+            if crate::rfc006_lifecycle_state_identity_migration_service::migration_needed(store) {
+                Ok(MigrationStatus::Needed)
+            } else {
+                Ok(MigrationStatus::AlreadyApplied)
+            }
+        },
+        apply_fn: |store| {
+            let result = crate::rfc006_lifecycle_state_identity_migration_service::migrate_rfc006_lifecycle_state_identity(store)?;
+            serde_json::to_value(&result).map_err(|e| RepositoryError::InvalidSnapshotData {
+                message: format!(
+                    "failed to serialize rfc006-lifecycle-state-identity migration result: {e}"
+                ),
+            })
+        },
+    },
     MigrationDefinition {
         id: "migrate-identity",
         title: "Graduate identity to purpose record",
@@ -961,7 +1009,7 @@ mod tests {
     fn list_migrations_returns_every_entry_for_store_with_no_identity_note() {
         let store = make_store_with_container_no_identity();
         let migrations = list_migrations(&store).unwrap();
-        assert_eq!(migrations.len(), 17);
+        assert_eq!(migrations.len(), 18);
         assert_eq!(migrations[0].id, "graduated-at-cleanup");
         assert_eq!(migrations[1].id, "revisions-sidecar-cleanup");
         assert_eq!(migrations[2].id, "field-type");
@@ -975,10 +1023,11 @@ mod tests {
         assert_eq!(migrations[10].id, "rfc046-actor-provenance");
         assert_eq!(migrations[11].id, "rfc052-root-container");
         assert_eq!(migrations[12].id, "rfc051-container-entries");
-        assert_eq!(migrations[13].id, "migrate-identity");
-        assert_eq!(migrations[14].id, "repo-upgrade");
-        assert_eq!(migrations[15].id, "core-relation-type-reference-cleanup");
-        assert_eq!(migrations[16].id, "rfc038-storage");
+        assert_eq!(migrations[13].id, "rfc006-lifecycle-state-identity");
+        assert_eq!(migrations[14].id, "migrate-identity");
+        assert_eq!(migrations[15].id, "repo-upgrade");
+        assert_eq!(migrations[16].id, "core-relation-type-reference-cleanup");
+        assert_eq!(migrations[17].id, "rfc038-storage");
         // No legacy graduatedAt Notes → AlreadyApplied
         assert_eq!(migrations[0].status, MigrationStatus::AlreadyApplied);
         // No .revisions.json sidecars → AlreadyApplied
@@ -1005,14 +1054,16 @@ mod tests {
         assert_eq!(migrations[11].status, MigrationStatus::Needed);
         // Revision < 11 → rfc051-container-entries Needed
         assert_eq!(migrations[12].status, MigrationStatus::Needed);
-        // Container exists but identity_instance_id is None → migrate-identity Needed
+        // Revision < 12 → rfc006-lifecycle-state-identity Needed
         assert_eq!(migrations[13].status, MigrationStatus::Needed);
+        // Container exists but identity_instance_id is None → migrate-identity Needed
+        assert_eq!(migrations[14].status, MigrationStatus::Needed);
         // Zero instances → all paths canonical → AlreadyApplied
-        assert_eq!(migrations[14].status, MigrationStatus::AlreadyApplied);
-        // No local relation-type definitions at all → nothing to clean up.
         assert_eq!(migrations[15].status, MigrationStatus::AlreadyApplied);
+        // No local relation-type definitions at all → nothing to clean up.
+        assert_eq!(migrations[16].status, MigrationStatus::AlreadyApplied);
         // MemoryStore is not a file tree — there is no storage layout to place.
-        assert_eq!(migrations[16].status, MigrationStatus::NotApplicable);
+        assert_eq!(migrations[17].status, MigrationStatus::NotApplicable);
     }
 
     fn indexed_srsj_store() -> crate::store::FileStore {

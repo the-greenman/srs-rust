@@ -7,12 +7,16 @@
   "states": [
     {
       "id": "9a1b0c51-0005-4aaa-8bbb-000000005001",
+      "version": 1,
+      "namespace": "com.example.install",
       "key": "draft",
       "label": "Draft",
       "isInitial": true
     },
     {
       "id": "9a1b0c52-0005-4aaa-8bbb-000000005002",
+      "version": 1,
+      "namespace": "com.example.install",
       "key": "final",
       "label": "Final",
       "isFinal": true

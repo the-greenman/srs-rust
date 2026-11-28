@@ -110,11 +110,11 @@ fn spec_repo_is_migrated(spec: &Path) -> bool {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
         return false;
     };
-    // RFC-051: this build reads dataModelRevision 11 (per-entry container storage); skip
-    // until the srs corpus-migration PR (srs#949) lands it.
+    // RFC-006 Rev 9: this build reads dataModelRevision 12 (per-entry container storage); skip
+    // until the srs corpus-migration PR (srs#1027) lands it.
     value.get("instanceIndex").is_none()
         && value.get("dataModelRevision").and_then(|v| v.as_u64())
-            >= Some(srs_repository::field_type_migration_service::RFC051_CONTAINER_ENTRIES_REVISION)
+            >= Some(srs_repository::field_type_migration_service::CURRENT_DATA_MODEL_REVISION)
 }
 
 fn type_id_of(store: &FileStore, namespace: &str, name: &str) -> String {

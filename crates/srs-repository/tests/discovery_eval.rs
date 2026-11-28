@@ -264,6 +264,13 @@ fn discovery_eval_table() {
     let tmp = tempfile::tempdir().unwrap();
     let store = FileStore::new(tmp.path());
     archive_unpack(Cursor::new(archive_bytes), &store).expect("unpack pinned muSrs archive");
+    // The pinned archive is stored at revision 11 (its bytes are the pin); bring the unpacked
+    // copy to the current revision through the registry, as a reader of the archive would.
+    srs_repository::migration_registry_service::apply_migration(
+        &FileStore::new(tmp.path()).with_rfc038_exemption(),
+        "rfc006-lifecycle-state-identity",
+    )
+    .expect("the pinned archive migrates to the current revision");
 
     // Not vacuous: the pinned corpus is whole and every expected id exists in it.
     let all: HashSet<String> = find(&store, DiscoveryQuery::default(), FindPage::default())

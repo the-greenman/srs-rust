@@ -8704,11 +8704,7 @@ fn repo_migrations_lists_the_registered_migrations() {
     let migrations = result["payload"]["migrations"]
         .as_array()
         .expect("migrations must be an array");
-    assert_eq!(
-        migrations.len(),
-        17,
-        "expected exactly seventeen migrations"
-    );
+    assert_eq!(migrations.len(), 18, "expected exactly eighteen migrations");
 
     let ids: Vec<&str> = migrations
         .iter()
@@ -8730,6 +8726,7 @@ fn repo_migrations_lists_the_registered_migrations() {
             "rfc046-actor-provenance",
             "rfc052-root-container",
             "rfc051-container-entries",
+            "rfc006-lifecycle-state-identity",
             "migrate-identity",
             "repo-upgrade",
             "core-relation-type-reference-cleanup",
@@ -8789,8 +8786,22 @@ fn repo_migrations_lists_the_registered_migrations() {
 #[test]
 fn repo_migrations_flags_revision_steps_on_revision_9_and_10_repos() {
     for (revision, pending) in [
-        (9, vec!["rfc052-root-container", "rfc051-container-entries"]),
-        (10, vec!["rfc051-container-entries"]),
+        (
+            9,
+            vec![
+                "rfc052-root-container",
+                "rfc051-container-entries",
+                "rfc006-lifecycle-state-identity",
+            ],
+        ),
+        (
+            10,
+            vec![
+                "rfc051-container-entries",
+                "rfc006-lifecycle-state-identity",
+            ],
+        ),
+        (11, vec!["rfc006-lifecycle-state-identity"]),
     ] {
         let temp = create_temp_repo();
         write_json(
@@ -8848,6 +8859,10 @@ fn repo_migrations_flags_revision_steps_on_revision_9_and_10_repos() {
         assert_eq!(
             step("rfc051-container-entries"),
             serde_json::json!({"from": 10, "to": 11})
+        );
+        assert_eq!(
+            step("rfc006-lifecycle-state-identity"),
+            serde_json::json!({"from": 11, "to": 12})
         );
         for structural in ["migrate-identity", "repo-upgrade", "rfc038-storage"] {
             assert!(step(structural).is_null(), "{structural} is structural");
@@ -9152,6 +9167,16 @@ fn repo_apply_migration_field_type_rewrites_a_legacy_field_end_to_end() {
         ],
     );
     assert_eq!(rfc051["ok"], true, "expected ok: {rfc051:?}");
+    let rfc006 = run_srs_in_dir(
+        repo,
+        &[
+            "repo",
+            "apply-migration",
+            "--id",
+            "rfc006-lifecycle-state-identity",
+        ],
+    );
+    assert_eq!(rfc006["ok"], true, "expected ok: {rfc006:?}");
     let storage = run_srs_in_dir(repo, &["repo", "apply-migration", "--id", "rfc038-storage"]);
     assert_eq!(storage["ok"], true, "expected ok: {storage:?}");
     let after = run_srs_in_dir(repo, &["repo", "validate"]);

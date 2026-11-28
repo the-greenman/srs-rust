@@ -2602,6 +2602,38 @@ pub(crate) fn type_lifecycle_ref_messages(
     }
 }
 
+/// RFC-006 Revision 9 [S1]: at dataModelRevision 12 every lifecycle state carries `id`, `version`
+/// (an integer >= 1) and `namespace`, in a standalone Lifecycle and an inline `Type.lifecycle`
+/// alike. The same three conditions `lifecycle create`/`update` refuse (srs-rust#1638).
+pub(crate) fn lifecycle_state_identity_messages(
+    states: &[srs_core::types::lifecycle::LifecycleState],
+    owner: &str,
+) -> Vec<String> {
+    let mut messages = Vec::new();
+    for state in states {
+        let mut missing = Vec::new();
+        if state.id.as_deref().unwrap_or("").trim().is_empty() {
+            missing.push("id");
+        }
+        if !matches!(state.version, Some(v) if v >= 1) {
+            missing.push("version");
+        }
+        if state.namespace.as_deref().unwrap_or("").trim().is_empty() {
+            missing.push("namespace");
+        }
+        if !missing.is_empty() {
+            messages.push(format!(
+                "lifecycle-state-identity-missing: state '{}' of {owner} is missing required \
+                 substrate field(s) {} (RFC-006 Revision 9 [S1]; run `srs repo apply-migration \
+                 --id rfc006-lifecycle-state-identity`)",
+                state.key,
+                missing.join(", ")
+            ));
+        }
+    }
+    messages
+}
+
 /// V9 / I-4 / I-5 for one Type's inline lifecycle: structural integrity, and
 /// `initialState` agreeing with the `isInitial` state. Shared by `repo validate` and the
 /// `type create` / `type update` pre-write refusal (srs-rust#1543).
@@ -2765,6 +2797,22 @@ fn validate_vocabulary_invariants(
             });
         }
 
+        // RFC-006 Revision 9 [S1]: inline states carry the full substrate identity
+        if let Some(inline_lc) = &rt.lifecycle {
+            for message in lifecycle_state_identity_messages(
+                &inline_lc.states,
+                &format!("the inline lifecycle of type '{}'", rt.name),
+            ) {
+                diagnostics.push(ValidationDiagnostic {
+                    code: Some("lifecycle-state-identity-missing".to_string()),
+                    severity: DiagnosticSeverity::Error,
+                    relative_path: "package/package.json".to_string(),
+                    schema_id: None,
+                    message,
+                });
+            }
+        }
+
         // V9: structural checks on inline TypeLifecycle
         for message in type_inline_lifecycle_messages(rt) {
             diagnostics.push(ValidationDiagnostic {
@@ -2779,6 +2827,17 @@ fn validate_vocabulary_invariants(
 
     // V5/V9: full lifecycle invariant validation for every standalone Lifecycle
     for lc in &pkg.lifecycles {
+        for message in
+            lifecycle_state_identity_messages(&lc.states, &format!("lifecycle '{}'", lc.name))
+        {
+            diagnostics.push(ValidationDiagnostic {
+                code: Some("lifecycle-state-identity-missing".to_string()),
+                severity: DiagnosticSeverity::Error,
+                relative_path: "package/package.json".to_string(),
+                schema_id: None,
+                message,
+            });
+        }
         for diag in validate_lifecycle(lc) {
             let severity = match diag.severity {
                 LifecycleDiagnosticSeverity::Error => DiagnosticSeverity::Error,
@@ -5612,8 +5671,10 @@ mod tests {
     fn rfc022_lifecycle_json() -> Value {
         json!({
             "states": [
-                {"key": "draft", "isInitial": true},
-                {"key": "superseded", "isFinal": true,
+                {"id": "c0000022-0000-4000-8000-000000000001", "version": 1,
+                 "namespace": "com.test", "key": "draft", "isInitial": true},
+                {"id": "c0000022-0000-4000-8000-000000000002", "version": 1,
+                 "namespace": "com.test", "key": "superseded", "isFinal": true,
                  // List-only (RFC-032 Change F / srs#535, srs-rust#918): the
                  // bare-string form is removed, zero-compat.
                  "requiresRelation": {"relationType": ["supersedes"]}}
