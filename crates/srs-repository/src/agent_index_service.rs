@@ -520,6 +520,7 @@ mod tests {
             source_refs: None,
             meta: None,
             created_by: None,
+            extra: Default::default(),
         }
     }
 
@@ -840,6 +841,7 @@ mod tests {
                 created_at: None,
                 updated_at: None,
                 meta: None,
+                extra: Default::default(),
             },
         )
         .unwrap();

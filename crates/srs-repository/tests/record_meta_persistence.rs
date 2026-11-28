@@ -279,10 +279,11 @@ fn create_record_refuses_out_of_enum_field_meta_source() {
     );
 }
 
-/// srs-rust#1528: an unknown top-level key (carried in `Record.extra`) is refused
-/// by the shared save path, and nothing is written.
+/// RFC-038 Revision 18 [R7] (decision ba478783, srs-rust#1635): an unknown top-level key
+/// carried in `Record.extra` is carried through the shared save path, never refused or
+/// dropped. An out-of-contract value of a known key stays refused (the #1528 class).
 #[test]
-fn unknown_top_level_key_refused_and_nothing_written() {
+fn unknown_top_level_key_is_carried_through_save() {
     use srs_repository::store::RepositoryStore;
     let tmp = TempDir::new().unwrap();
     let file = FileStore::new(tmp.path());
@@ -294,12 +295,15 @@ fn unknown_top_level_key_refused_and_nothing_written() {
     let created =
         record_store::create_record(&file, "1041type-test-0001", 1, fv, None, None).unwrap();
     let mut rec = file.load_record_by_id(&created.instance_id).unwrap();
-    rec.extra.insert("bogus".into(), serde_json::json!(1));
-    let err = file.save_record(&rec).unwrap_err();
-    assert_eq!(err.code(), "schema-validation");
+    rec.extra
+        .insert("x-thirdParty".into(), serde_json::json!(1));
+    file.save_record(&rec).unwrap();
     drop(file);
     let reopened = FileStore::new(tmp.path());
     assert!(record_store::list_all_records(&reopened).is_ok());
     let on_disk = reopened.load_record_by_id(&created.instance_id).unwrap();
-    assert!(!on_disk.extra.contains_key("bogus"));
+    assert_eq!(
+        on_disk.extra.get("x-thirdParty"),
+        Some(&serde_json::json!(1))
+    );
 }

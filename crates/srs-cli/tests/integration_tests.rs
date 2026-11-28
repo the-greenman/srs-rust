@@ -4888,7 +4888,8 @@ fn container_update_null_identity_instance_id_clears_field() {
     let payload = serde_json::json!({
         "containerId":"00000000-0000-4000-8000-000000000001",
         "title":"Root",
-        "identityInstanceId": "11111111-1111-4111-8111-111111111111"
+        "identityInstanceId": "11111111-1111-4111-8111-111111111111",
+        "memberInstanceIds": [{"instanceId": "11111111-1111-4111-8111-111111111111"}]
     })
     .to_string();
     run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);

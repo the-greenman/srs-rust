@@ -282,6 +282,40 @@ fn container_slice_carries_the_closure_and_validates() {
     assert_eq!(errors(&e), Vec::<String>::new());
 }
 
+/// srs-rust#1711: a slice carries the protocol runs of the containers it
+/// carries, and no others.
+#[test]
+fn slice_carries_only_runs_of_its_closure() {
+    let mut t = rich();
+    put(
+        &mut t,
+        "runs/runs.json",
+        json!({"runs": [
+            {"runId": "run-in", "containerId": DECISIONS},
+            {"runId": "run-out", "containerId": EMPTY}
+        ]}),
+    );
+    let e = export(t, DECISIONS).unwrap();
+    let runs = get(&files(&e), "runs/runs.json");
+    let ids: Vec<&str> = runs["runs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["runId"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, ["run-in"]);
+
+    // No run in the closure: no runs file at all.
+    let mut t = rich();
+    put(
+        &mut t,
+        "runs/runs.json",
+        json!({"runs": [{"runId": "run-out", "containerId": EMPTY}]}),
+    );
+    let e = export(t, DECISIONS).unwrap();
+    assert!(!files(&e).contains_key("runs/runs.json"));
+}
+
 #[test]
 fn manifest_is_rewritten_per_rfc026() {
     let e = export(rich(), DECISIONS).unwrap();

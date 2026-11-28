@@ -1812,7 +1812,9 @@ mod tests {
             container_type: None,
             identity_instance_id: None,
             anchor_instance_id: Some(instance_id.to_string()),
-            member_instance_ids: None,
+            member_instance_ids: Some(srs_core::types::container::entries(vec![
+                instance_id.to_string()
+            ])),
             child_container_ids: None,
             tags: None,
             created_at: None,
@@ -1857,7 +1859,9 @@ mod tests {
             container_type: None,
             identity_instance_id: None,
             anchor_instance_id: Some(instance_id.to_string()),
-            member_instance_ids: None,
+            member_instance_ids: Some(srs_core::types::container::entries(vec![
+                instance_id.to_string()
+            ])),
             child_container_ids: None,
             tags: None,
             created_at: None,
@@ -2086,7 +2090,9 @@ mod tests {
             container_type: None,
             identity_instance_id: None,
             anchor_instance_id: Some(instance_id.to_string()),
-            member_instance_ids: None,
+            member_instance_ids: Some(srs_core::types::container::entries(vec![
+                instance_id.to_string()
+            ])),
             child_container_ids: None,
             tags: None,
             created_at: None,
@@ -2153,7 +2159,9 @@ mod tests {
             container_type: None,
             identity_instance_id: None,
             anchor_instance_id: Some(instance_id.to_string()),
-            member_instance_ids: None,
+            member_instance_ids: Some(srs_core::types::container::entries(vec![
+                instance_id.to_string()
+            ])),
             child_container_ids: None,
             tags: None,
             created_at: None,

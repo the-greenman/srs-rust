@@ -5,9 +5,11 @@ pub use super::source_reference::{SourceReference, SourceType};
 /// A flat relation record as stored in `relations-collection.json`.
 ///
 /// Shape matches the `relations-collection.json` schema exactly.
-/// `additionalProperties: false` is enforced by `deny_unknown_fields`.
+/// The schema stays `additionalProperties: false`; an unrecognised top-level key is
+/// carried in `extra` and reported as a warning by the reader (RFC-038 Revision 18
+/// [R7], decision ba478783).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Relation {
     #[serde(default)]
     pub relation_id: String,
@@ -27,6 +29,9 @@ pub struct Relation {
     pub source_refs: Option<Vec<SourceReference>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meta: Option<serde_json::Value>,
+    /// Unrecognised top-level keys, carried through every write.
+    #[serde(flatten)]
+    pub extra: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 /// The top-level relations collection file.
@@ -54,6 +59,7 @@ mod tests {
             notes: None,
             source_refs: None,
             meta: None,
+            extra: Default::default(),
         };
         let json = serde_json::to_string(&r).unwrap();
         let parsed: Relation = serde_json::from_str(&json).unwrap();
@@ -61,7 +67,7 @@ mod tests {
     }
 
     #[test]
-    fn relation_unknown_field_fails_deserialization() {
+    fn relation_unknown_field_is_carried() {
         let json = r#"{
             "relationId": "d0000001-0000-4000-a000-000000000001",
             "relationType": "precedes",
@@ -70,8 +76,14 @@ mod tests {
             "createdAt": "2026-05-29T00:00:00Z",
             "unknownField": "bad"
         }"#;
-        let result: Result<Relation, _> = serde_json::from_str(json);
-        assert!(result.is_err(), "unknown field should fail");
+        // RFC-038 Revision 18 [R7] (decision ba478783): carried, never fatal.
+        let rel: Relation = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            rel.extra.get("unknownField"),
+            Some(&serde_json::json!("bad"))
+        );
+        let back = serde_json::to_value(&rel).unwrap();
+        assert_eq!(back["unknownField"], "bad");
     }
 
     #[test]
@@ -118,7 +130,7 @@ mod tests {
     /// Now the authoring surface itself rejects them, matching what it can
     /// actually persist.
     #[test]
-    fn relation_rejects_fields_removed_by_srs_441() {
+    fn relation_carries_fields_removed_by_srs_441() {
         for field in [
             r#""assertedBy": "human""#,
             r#""confidence": 0.8"#,
@@ -137,10 +149,13 @@ mod tests {
                     {field}
                 }}"#
             );
-            let result: Result<Relation, _> = serde_json::from_str(&json);
-            assert!(
-                result.is_err(),
-                "Relation must reject {field} — it was removed from the canonical schema by srs#441"
+            // Removed from the schema by srs#441, so no longer a known key: it is an
+            // unrecognised top-level key, carried with a warning by the reader (Rev 18).
+            let rel: Relation = serde_json::from_str(&json).unwrap();
+            assert_eq!(
+                rel.extra.len(),
+                1,
+                "{field} must be carried as an unrecognised key"
             );
         }
     }
@@ -168,6 +183,7 @@ mod tests {
             notes: None,
             source_refs: None,
             meta: None,
+            extra: Default::default(),
         };
         let Relation {
             created_by: _,
@@ -179,6 +195,7 @@ mod tests {
             notes: _,
             source_refs: _,
             meta: _,
+            extra: _,
         } = sample;
 
         srs_schema::conformance::assert_property_parity(

@@ -597,7 +597,8 @@ fn schema_validate_relation(relation: &Relation) -> Result<(), RepositoryError> 
         );
     }
     SchemaRegistry::global()
-        .validate_by_id(RELATION_SCHEMA_ID, &value)
+        .validate_tolerating_unknown_keys(RELATION_SCHEMA_ID, &value)
+        .map(|_| ())
         .map_err(|e| RepositoryError::SchemaValidation {
             path: std::path::PathBuf::from(&path),
             message: e.to_string(),
@@ -878,6 +879,7 @@ pub fn rebuild_precedes_chain(
                 notes: None,
                 source_refs: None,
                 meta: None,
+                extra: Default::default(),
             };
             validate_relation(&relation, &ctx, true).map_err(|errors| {
                 RepositoryError::RelationValidation {
@@ -1142,6 +1144,7 @@ fn apply_precedes_splice(
                 notes: None,
                 source_refs: None,
                 meta: None,
+                extra: Default::default(),
             };
             validate_relation(&relation, &ctx, true).map_err(|errors| {
                 RepositoryError::RelationValidation {
@@ -1351,6 +1354,7 @@ mod tests {
             notes: None,
             source_refs: None,
             meta: None,
+            extra: Default::default(),
         }
     }
 

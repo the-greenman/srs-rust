@@ -1180,6 +1180,7 @@ impl SrsRepository {
             instance_id_filter: instance_id_filter.as_deref(),
             exclude_instance_ids: &exclude,
             section: section.as_deref(),
+            emit_ids: false,
         })
         .map_err(|e| js_err(&e))?;
         to_js(&result)
@@ -4036,6 +4037,7 @@ mod tests {
                     created_at: None,
                     updated_at: None,
                     meta: None,
+                    extra: Default::default(),
                 },
             )
             .unwrap()

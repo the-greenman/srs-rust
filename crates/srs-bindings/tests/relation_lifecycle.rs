@@ -192,6 +192,7 @@ fn create_relation_appears_in_list_by_source() {
         notes: None,
         source_refs: None,
         meta: None,
+        extra: Default::default(),
     };
 
     let result = relation_service::create_relation_auto(&store, relation)
@@ -238,6 +239,7 @@ fn delete_relation_removes_it() {
         notes: None,
         source_refs: None,
         meta: None,
+        extra: Default::default(),
     };
     relation_service::create_relation_auto(&store, relation)
         .expect("create_relation should succeed before delete");
@@ -513,6 +515,7 @@ fn create_relation_depends_on() {
         notes: None,
         source_refs: None,
         meta: None,
+        extra: Default::default(),
     };
 
     let created = relation_service::create_relation_auto(&store, relation)
