@@ -516,9 +516,10 @@ fn classify_source(src: Result<CandidateSource, RepositoryError>) -> Prepared {
 }
 
 /// [R6]/[R7]/[R8] classification of one parsed candidate.
-fn classify_instance_value(
-    value: &Value,
-) -> Result<((CatalogKind, u8, String), Vec<String>), (&'static str, String)> {
+/// A classified instance and its unrecognised top-level keys.
+type ClassifiedInstance = ((CatalogKind, u8, String), Vec<String>);
+
+fn classify_instance_value(value: &Value) -> Result<ClassifiedInstance, (&'static str, String)> {
     let admissible = [
         (srs_schema::NOTE_SCHEMA_ID, CatalogKind::Note, 0u8),
         (srs_schema::RECORD_SCHEMA_ID, CatalogKind::Record, 2),
@@ -572,6 +573,7 @@ fn classify_instance_value(
         // `typeId`+`fieldValues`), enforced by the schemas themselves.
         // Revision 18 [R8]: unrecognised top-level keys are ignored when testing
         // the shape; they are reported by [R7]'s warning.
+        #[allow(clippy::type_complexity)]
         let matches: Vec<(&(&str, CatalogKind, u8), Vec<String>)> = admissible
             .iter()
             .filter_map(|c| {
